@@ -1,4 +1,9 @@
 # edax-reversi-AVX
+
+**Edax 4.5.5 corrected build:** [English release README](README-NIKQUE.en.md) · [日本語の修正版README](README-NIKQUE.ja.md) · [Windows executable and release downloads](https://github.com/Nikque/edax-reversi-AVX/releases)
+
+This fork's default branch contains the corrected 4.5.5 source and build. The historical upstream README follows below.
+
 Automatically exported from code.google.com/p/okuharaandroid-edax-reversi
 
 Edax is a strong othello program. Its main features are:
