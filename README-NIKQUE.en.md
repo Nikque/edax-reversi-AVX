@@ -2,7 +2,7 @@
 
 [日本語](README-NIKQUE.ja.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [Full audit fix list](RELEASE-NOTES.md)
 
-This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, a Windows x86-64-v4 executable, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
+This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS x64, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
 ## Book learning and maintenance
 
@@ -23,7 +23,9 @@ The 17-item audit also covers these fixes; [RELEASE-NOTES.md](RELEASE-NOTES.md) 
 
 ## Build and use
 
-The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5) (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`). It also includes the upstream initial `bin/data/book.dat` and problem files. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose the executable for your operating system and CPU; `wEdax-x86-64-v4.exe` requires an x86-64-v4 capable CPU (AVX-512). `config.ini` is a starting configuration; set paths and the save interval for your environment. To rebuild the Windows v4 executable, run `build-win-v4.cmd` from a Visual Studio 2022 x64 Developer Command Prompt. The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants.
+The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5) (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`). It also includes the upstream initial `bin/data/book.dat` and problem files. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose the executable for your operating system and CPU; `wEdax-x86-64-v4.exe` requires an x86-64-v4 capable CPU (AVX-512). `config.ini` is a starting configuration; set paths and the save interval for your environment. To rebuild the Windows v4 executable, run `build-win-v4.cmd` from a Visual Studio 2022 x64 Developer Command Prompt. The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP.
+
+The upstream 32-bit macOS `mEdax-x86` is deliberately omitted. Current Xcode SDKs lack the i386 libraries needed to link a corrected binary; including the upstream executable would leave this fork's fixes absent from that file.
 
 The 24 regression cases passed on the normal Windows build. Additional checks covered 300 legal games, 549,161 flip comparisons, 96 independent exact endgame positions with one and four search threads, Cassio calls, and event queue handling. The 28 GB user book was not modified or re-counted. AddressSanitizer could not run successfully in the final environment, so the normal-build tests and code review are the basis for the reported results. Details and remaining limits are in the [validation report](https://github.com/Nikque/edax-reversi-AVX/releases).
 

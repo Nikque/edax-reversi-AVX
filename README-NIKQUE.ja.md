@@ -2,7 +2,7 @@
 
 [English](README-NIKQUE.en.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [17項目の修正一覧](RELEASE-NOTES.md)
 
-この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、Windows用x86-64-v4実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
+この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS x64・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
 
 ## bookの学習と保守
 
@@ -23,7 +23,9 @@ bookの自動保存間隔は `config.ini` の `book-save-interval` から分単�
 
 ## ビルドと利用
 
-Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5)からそのまま取り出した評価データ `bin/data/eval.dat`（SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`）、初期book `bin/data/book.dat`、問題集を同梱します。既定の `data/eval.dat` を参照できるよう、実行ファイルは `bin/` から起動するか、`-eval-file` でファイルを指定してください。OSとCPUに合う実行ファイルを選んでください。`wEdax-x86-64-v4.exe` はx86-64-v4（AVX-512）対応CPUを必要とします。`config.ini` は環境に合わせてパスと保存間隔を設定してください。Windows v4版を再ビルドする場合はVisual Studio 2022のx64 Developer Command Promptで `build-win-v4.cmd` を実行します。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意しています。
+Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5)からそのまま取り出した評価データ `bin/data/eval.dat`（SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`）、初期book `bin/data/book.dat`、問題集を同梱します。既定の `data/eval.dat` を参照できるよう、実行ファイルは `bin/` から起動するか、`-eval-file` でファイルを指定してください。OSとCPUに合う実行ファイルを選んでください。`wEdax-x86-64-v4.exe` はx86-64-v4（AVX-512）対応CPUを必要とします。`config.ini` は環境に合わせてパスと保存間隔を設定してください。Windows v4版を再ビルドする場合はVisual Studio 2022のx64 Developer Command Promptで `build-win-v4.cmd` を実行します。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。
+
+元配布物の旧32ビットmacOS用 `mEdax-x86` は除外しました。現在のXcode SDKにはi386用のリンクライブラリがなく修正版をビルドできません。元の実行ファイルをそのまま同梱しても、今回の修正は反映されません。
 
 通常のWindowsビルドで回帰試験24ケースを通過しました。合法棋譜300局、石の反転549,161件、独立した完全読み96局面（1・4スレッド）、Cassio API、イベントキューも照合しました。ユーザーの28GBのbookは変更・再集計していません。最終環境ではAddressSanitizer版を正常実行できなかったため、報告した結果は通常ビルドの試験とコード確認に基づきます。詳細と残る検証上の制約は[検証報告](https://github.com/Nikque/edax-reversi-AVX/releases)に記載します。
 
