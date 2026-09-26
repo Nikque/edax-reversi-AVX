@@ -1,22 +1,34 @@
 # Edax 4.5.5 corrected build
 
-[日本語](README-NIKQUE.ja.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [Full audit fix list](RELEASE-NOTES.md)
+[日本語](README-NIKQUE.ja.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [18 bug fixes](RELEASE-NOTES.md)
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS x64, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
 ## Book learning and maintenance
 
-`book deviate2 <move-loss> <total-loss>` follows existing book links while limiting the evaluation loss of any single move and the cumulative loss across both players. For example, `book deviate2 5 5` permits a line with losses of 2 and 3, or one loss of 5; it excludes a loss of 6 or cumulative losses above 5. It selects eligible unexpanded leaves but skips leaves already solved to the book's exact-search level. `book deviate3` applies the same loss limits and includes those solved leaves, matching the earlier `deviate2` behavior. The original `book deviate` retains its original scoring rules.
+Use these commands at the Edax prompt with the book loaded. They start from the current board, follow existing book Links, and expand eligible Leaves. A Leaf is a candidate move without a linked child position; the commands do not enumerate arbitrary unregistered moves. They stop at the configured book depth and repeat expansion until no more eligible positions or links are added.
 
-### Original `book deviate` bug fix
+| Command | Selection rule | Use when |
+|---|---|---|
+| `book deviate 2 4` | Original relative and root-score error limits; retains the original selection rule. | Continuing an existing `book deviate` workflow. |
+| `book deviate2 5 5` | At most 5 points of loss on any move and 5 points in total across both players; skips Leaves at a fully solved book level. | Avoiding work on already solved Leaves. |
+| `book deviate3 5 5` | Same per-move and cumulative limits, including fully solved Leaves. | Reproducing the earlier `deviate2` selection behavior. |
 
-Before the 17-item audit, we fixed a pointer lifetime bug in the original `book deviate` command. Its first `book_expand` may call `book_add`, which can move a hash bucket's `Position` array with `realloc`. The second `position_deviate` pass previously reused the old `root` pointer and could read freed memory. It now re-probes the root from the starting board after expansion. The original command's scoring rules are unchanged.
+For `deviate2` and `deviate3`, a line with black losing 2 points and white losing 3 is eligible, as is one move losing 5; a move losing 6 or losses totaling 6 are excluded. The `todo` count is the number of eligible Leaf positions found during that pass, not a count of distinct game records. The commands write progress books with `.dev`, `.dev2`, or `.dev3` appended to the configured book filename. Set `book-save-interval` in `bin/config.ini` to a number of minutes for timed saves; `0` disables timed saves while saves after productive expansion rounds remain enabled.
 
-Book autosave reads `book-save-interval` from `config.ini` in minutes; `0` disables timed saves. Book merge/fix handles inconsistent `nomove` data without the previously observed crash. Book loading rejects malformed records, and saving writes to a checked temporary file before replacing the destination. An interrupted or failed save therefore leaves the previous book intact, but needs enough free space for roughly another copy of the book.
+### `book deviate` fix
+
+The original `book deviate` had a pointer lifetime bug. Its first `book_expand` may call `book_add`, which can move a hash bucket's `Position` array with `realloc`. The second `position_deviate` pass previously reused the old `root` pointer and could read freed memory, potentially interrupting expansion or leaving positions missing. It now re-probes the root from the starting board after expansion. Its selection rules are unchanged; this fix does not retroactively fill gaps in an existing book.
+
+### `book merge` and `book fix`
+
+To combine books, load the destination book and run `book merge source.dat`, followed by `book save merged.dat` to persist the result. Merge adds positions that exist only in the source; it does not overwrite positions already in the destination. It then rebuilds Links, repairs inconsistent positions (including stale `nomove` Leaves), recomputes scores and sorts moves. The Link rebuild now precedes validation, so a newly added child does not cause a false `nomove is wrong` failure. A separate `book fix` remains available to repair the current book; it is not a prerequisite for this merge path. If the source file is missing or structurally malformed, merge is rejected and the current book is retained.
+
+Book saving writes to a checked temporary file before replacing the destination. An interrupted or failed save leaves the previous book intact, but needs enough free space for roughly another copy of the book.
 
 ## Other corrected behavior
 
-The 17-item audit also covers these fixes; [RELEASE-NOTES.md](RELEASE-NOTES.md) maps each one to A01–A17.
+This release corrects 18 bugs, including the original `book deviate` pointer bug; [RELEASE-NOTES.md](RELEASE-NOTES.md) lists all 18.
 
 | Area | Changes |
 |---|---|
@@ -27,7 +39,19 @@ The 17-item audit also covers these fixes; [RELEASE-NOTES.md](RELEASE-NOTES.md) 
 
 ## Build and use
 
-The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5) (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`). It also includes the upstream initial `bin/data/book.dat` and problem files. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose the executable for your operating system and CPU; `wEdax-x86-64-v4.exe` requires an x86-64-v4 capable CPU (AVX-512). `config.ini` is a starting configuration; set paths and the save interval for your environment. To rebuild the Windows v4 executable, run `build-win-v4.cmd` from a Visual Studio 2022 x64 Developer Command Prompt. The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP.
+The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5) (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`). It also includes the upstream initial `bin/data/book.dat` and problem files. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
+
+| Environment | File in `bin/` |
+|---|---|
+| Windows x86-64, baseline / AVX2 / AVX-512 | `wEdax-x86-64.exe` / `wEdax-x86-64-v3.exe` / `wEdax-x86-64-v4.exe` |
+| Windows 32-bit x86, baseline / SSE2 | `wEdax-x86.exe` / `wEdax-x86-sse.exe` |
+| Windows ARM64 | `wEdax-arm64.exe` |
+| Linux x86-64, baseline / AVX2 / AVX-512 | `lEdax-x86-64` / `lEdax-x86-64-v3` / `lEdax-x86-64-v4` |
+| Linux 32-bit x86 | `lEdax-x86` |
+| macOS Intel x86-64 | `mEdax-x64-modern` |
+| Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
+
+The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration; set paths and the save interval for your environment. To rebuild the Windows v4 executable, run `build-win-v4.cmd` from a Visual Studio 2022 x64 Developer Command Prompt. The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP.
 
 The upstream 32-bit macOS `mEdax-x86` is deliberately omitted. Current Xcode SDKs lack the i386 libraries needed to link a corrected binary; including the upstream executable would leave this fork's fixes absent from that file.
 
