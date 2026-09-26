@@ -429,7 +429,7 @@ typedef union {
 #endif
 
 // X64 compatibility sims for X86
-#if !defined(HAS_CPU_64) && (defined(hasSSE2) || defined(USE_MSVC_X86)) // & !defined(__clang__)
+#if !defined(HAS_CPU_64) && (defined(hasSSE2) || defined(USE_MSVC_X86)) && !defined(__clang__)
 	static inline __m128i _mm_cvtsi64_si128(const unsigned long long x) {
 		return _mm_unpacklo_epi32(_mm_cvtsi32_si128(x), _mm_cvtsi32_si128(x >> 32));
 	}
