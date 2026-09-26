@@ -1,0 +1,97 @@
+name: release binaries
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            targets: vc-x64 vc-x64-v3 vc-x64-v4
+          - arch: x64_x86
+            targets: vc-x86 vc-x86-sse
+          - arch: x64_arm64
+            targets: vc-a64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Windows ${{ matrix.arch }}
+        shell: cmd
+        run: |
+          if not exist bin mkdir bin
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.arch }}
+          cd src
+          for %%t in (${{ matrix.targets }}) do (nmake -f nmakefile %%t || exit /b 1)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: bin/*.exe
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install 32-bit compiler libraries
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib
+      - name: Build Linux x86 variants
+        run: |
+          mkdir -p bin
+          for arch in x86 x86-64 x86-64-v3 x86-64-v4; do
+            make -C src build ARCH="$arch" COMP=gcc OS=linux
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: bin/lEdax-*
+          if-no-files-found: error
+
+  macos-x64:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build macOS x64
+        run: |
+          mkdir -p bin
+          make -C src build ARCH=x64-modern COMP=clang OS=osx CC='clang -arch x86_64'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-x64
+          path: bin/mEdax-x64-modern
+          if-no-files-found: error
+
+  macos-x86:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build macOS x86
+        run: |
+          mkdir -p bin
+          make -C src build ARCH=x86 COMP=clang OS=osx CC='clang -arch i386'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-x86
+          path: bin/mEdax-x86
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Android ARM variants
+        run: |
+          "$ANDROID_NDK_HOME/ndk-build" -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application.mk APP_ABI='armeabi-v7a arm64-v8a' APP_PLATFORM=android-21 -j2
+          mkdir -p bin
+          cp src/libs/armeabi-v7a/aEdax bin/aEdax-armeabi-v7a
+          cp src/libs/arm64-v8a/aEdax bin/aEdax-arm64-v8a
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: bin/aEdax-*
+          if-no-files-found: error
