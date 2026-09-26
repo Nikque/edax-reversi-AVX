@@ -27,6 +27,25 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
  else if(!strcmp(t,"ggf")){Game g;FILE *f=tmpfile();fputs("(;GM[Othello]PB[",f);for(int i=0;i<1000;++i)fputc('a',f);fputs("];)",f);rewind(f);game_import_ggf(&g,f);fclose(f);}
  else if(!strcmp(t,"edx")){Game g;Base b,c;remove("audit-roundtrip.edx");game_init(&g);g.move[0]=26;g.date.month=10;base_init(&b);base_init(&c);base_append(&b,&g);base_save(&b,"audit-roundtrip.edx");base_load(&c,"audit-roundtrip.edx");printf("EDX roundtrip expected_games=1 actual=%d expected_firstmove=26 actual=%d\n",c.n_games,c.n_games?c.game[0].move[0]:-1);if(c.n_games!=1||c.game[0].move[0]!=26)return 2;base_free(&b);base_free(&c);}
  else if(!strcmp(t,"savefail")){Book b={0};book_init(&b);int ok=book_save(&b,"audit-directory-does-not-exist/book.dat");book_free(&b);printf("BOOK save to missing directory accepted=%d\n",ok);if(ok)return 2;}
+ else if(!strcmp(t,"deviatesave")){
+  const char *path="audit-deviate-save.dat";Book b={0};book_init(&b);int rounds=0;FILE *f;
+  remove(path);options_read("book-deviate-save-rounds","0");
+  book_deviate_save_progress(&b,path,1,&rounds);book_deviate_save_progress(&b,path,1,&rounds);
+  if((f=fopen(path,"rb"))!=NULL){fclose(f);return 2;}
+  book_deviate_save_progress(&b,path,0,&rounds);
+  if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
+  options_read("book-deviate-save-rounds","10");rounds=0;
+  for(int i=0;i<9;++i)book_deviate_save_progress(&b,path,1,&rounds);
+  if((f=fopen(path,"rb"))!=NULL){fclose(f);return 2;}
+  book_deviate_save_progress(&b,path,1,&rounds);
+  if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
+  book_deviate_save_progress(&b,path,1,&rounds);book_deviate_save_progress(&b,path,0,&rounds);
+  if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
+  options_read("book-deviate-save-rounds","1");rounds=0;
+  book_deviate_save_progress(&b,path,1,&rounds);
+  if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
+  book_free(&b);puts("PASS deviate save cadence: final-only, every 10 rounds, final remainder, and every round");
+ }
  else if(!strcmp(t,"analyze")){Search s;init_search(&s,1);Game g;game_init(&g);g.initial_board=late_board(4);printf("ANALYZE custom initial empty=%d moves=0\n",board_count_empties(&g.initial_board));fflush(stdout);game_analyze(&g,&s,4,false);search_free(&s);}
  else if(!strcmp(t,"enhance")){Search s;init_search(&s,1);Book b={0};b.search=&s;book_init(&b);b.options.level=0;b.options.n_empties=58;options.book_file="audit-enhance.dat";Board start;board_init(&start);book_add_board(&b,&start);book_enhance(&b,&start,64,64);printf("ENHANCE nodes_after=%d\n",b.n_nodes);book_clean(&b);position_negamax(book_probe(&b,&start),&b);book_clean(&b);position_enhance(book_probe(&b,&start),&b);int pending=0;Position *p;PositionArray *a;Book *bp=&b;foreach_position(p,a,bp)pending+=p->todo;printf("ENHANCE pending_after_finished=%d\n",pending);book_free(&b);search_free(&s);}
  else if(!strcmp(t,"core")){core(argc>2?atoi(argv[2]):1);}

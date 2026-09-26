@@ -86,6 +86,7 @@ typedef struct {
 	bool auto_quit;                       /**< quit when game is over */
 	int repeat;                           /**< repeat 'n' games (before quitting)*/
 	int book_save_interval;               /**< minutes between timed book saves; 0 disables them */
+	int book_deviate_save_rounds;          /**< productive deviate rounds between saves; 0 means completion only */
 
 	// TODO: add more options?
 } Options;

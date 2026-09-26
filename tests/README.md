@@ -9,6 +9,7 @@ set EDAX_EVAL_FILE=C:\path\to\eval.dat
 tests\regression.exe edx
 tests\regression.exe truncated
 tests\regression.exe enhance
+tests\regression.exe deviatesave
 tests\regression.exe formats
 tests\regression.exe gtp
 tests\regression.exe core 1

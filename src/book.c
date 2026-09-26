@@ -1825,6 +1825,20 @@ static bool book_save_interval_elapsed(const long long start)
 		&& real_clock() - start >= (long long)options.book_save_interval * 60000LL;
 }
 
+/** Save completed deviate rounds at the configured cadence and at convergence.
+ * Timed saves inside book_expand are independent: they can capture a partial
+ * round, so they do not reset this completed-round counter.
+ */
+static void book_deviate_save_progress(Book *book, const char *file, const int n_diffs, int *rounds_since_save)
+{
+	if (n_diffs > 0 && *rounds_since_save < INT_MAX) ++*rounds_since_save;
+	if (*rounds_since_save > 0
+	 && (n_diffs == 0 || (options.book_deviate_save_rounds > 0
+	     && *rounds_since_save >= options.book_deviate_save_rounds))) {
+		if (book_save(book, file)) *rounds_since_save = 0;
+	}
+}
+
 /**
  * @brief Deepen a book.
  *
@@ -2052,6 +2066,7 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 	if (root) {
 		int score;
 		int n_diffs;
+		int rounds_since_save = 0;
 		char file[FILENAME_MAX + 1];
 
 		file_add_ext(options.book_file, ".dev", file);
@@ -2082,7 +2097,7 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 			root = book_probe(book, board);
 			book_clean(book);
 			position_negamax(root, book);
-			if (n_diffs) book_save(book, file);
+			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
 		} while (n_diffs);
 		bprint("Book deviate %d %d...finished\n", relative_error, absolute_error);
 	}
@@ -2101,6 +2116,7 @@ void book_deviate2(Book *book, Board *board, const int move_loss, const int tota
 	Position *root = book_probe(book, board);
 	if (root) {
 		int n_diffs;
+		int rounds_since_save = 0;
 		char file[FILENAME_MAX + 1];
 
 		file_add_ext(options.book_file, ".dev2", file);
@@ -2119,7 +2135,7 @@ void book_deviate2(Book *book, Board *board, const int move_loss, const int tota
 			root = book_probe(book, board);
 			book_clean(book);
 			position_negamax(root, book);
-			if (n_diffs) book_save(book, file);
+			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
 		} while (n_diffs);
 		bprint("Book deviate2 %d %d...finished\n", move_loss, total_loss);
 	}
@@ -2130,6 +2146,7 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 	Position *root = book_probe(book, board);
 	if (root) {
 		int n_diffs;
+		int rounds_since_save = 0;
 		char file[FILENAME_MAX + 1];
 
 		file_add_ext(options.book_file, ".dev3", file);
@@ -2148,7 +2165,7 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 			root = book_probe(book, board);
 			book_clean(book);
 			position_negamax(root, book);
-			if (n_diffs) book_save(book, file);
+			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
 		} while (n_diffs);
 		bprint("Book deviate3 %d %d...finished\n", move_loss, total_loss);
 	}

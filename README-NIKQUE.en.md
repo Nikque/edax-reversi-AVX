@@ -14,7 +14,9 @@ Use these commands at the Edax prompt with the book loaded. They start from the 
 | `book deviate2 5 5` | At most 5 points of loss on any move and 5 points in total across both players; skips Leaves at a fully solved book level. | Avoiding work on already solved Leaves. |
 | `book deviate3 5 5` | Same per-move and cumulative limits, including fully solved Leaves. | Reproducing the earlier `deviate2` selection behavior. |
 
-For `deviate2` and `deviate3`, a line with black losing 2 points and white losing 3 is eligible, as is one move losing 5; a move losing 6 or losses totaling 6 are excluded. The `todo` count is the number of eligible Leaf positions found during that pass, not a count of distinct game records. The commands write progress books with `.dev`, `.dev2`, or `.dev3` appended to the configured book filename. Set `book-save-interval` in `bin/config.ini` to a number of minutes for timed saves; `0` disables timed saves while saves after productive expansion rounds remain enabled.
+For `deviate2` and `deviate3`, a line with black losing 2 points and white losing 3 is eligible, as is one move losing 5; a move losing 6 or losses totaling 6 are excluded. The `todo` count is the number of eligible Leaf positions found during that pass, not a count of distinct game records. The commands write progress books with `.dev`, `.dev2`, or `.dev3` appended to the configured book filename.
+
+`bin/config.ini` controls two independent save triggers for all three deviate commands. `book-save-interval` is the timed-save interval in minutes (`0` disables timed saves during expansion). `book-deviate-save-rounds` counts productive completed rounds: `1` keeps the original save-after-every-round behavior, `10` saves after every 10 rounds and at completion, and `0` saves only at completion apart from any timed saves. One round of original `book deviate` includes both of its expansion passes; one round of `deviate2` or `deviate3` is one expansion pass. A failed or interrupted run can lose work since the last save, especially with `0` and timed saves disabled. The default is `1` for compatibility.
 
 ### `book deviate` fix
 
@@ -51,10 +53,10 @@ The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied 
 | macOS Intel x86-64 | `mEdax-x64-modern` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 
-The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration; set paths and the save interval for your environment. To rebuild the Windows v4 executable, run `build-win-v4.cmd` from a Visual Studio 2022 x64 Developer Command Prompt. The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP.
+The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration; set paths, `book-save-interval`, and `book-deviate-save-rounds` for your environment. To rebuild the Windows v4 executable, run `build-win-v4.cmd` from a Visual Studio 2022 x64 Developer Command Prompt. The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP.
 
 The upstream 32-bit macOS `mEdax-x86` is deliberately omitted. Current Xcode SDKs lack the i386 libraries needed to link a corrected binary; including the upstream executable would leave this fork's fixes absent from that file.
 
-The 24 regression cases passed on the normal Windows build. Additional checks covered 300 legal games, 549,161 flip comparisons, 96 independent exact endgame positions with one and four search threads, Cassio calls, and event queue handling. Build and package checks are described in the [validation report](https://github.com/Nikque/edax-reversi-AVX/releases/tag/v4.5.5-nikque.2).
+The original 24 regression cases passed on the normal Windows build; the new save-cadence regression also passed. Additional checks covered 300 legal games, 549,161 flip comparisons, 96 independent exact endgame positions with one and four search threads, Cassio calls, and event queue handling. Build and package checks are described in the [validation report](https://github.com/Nikque/edax-reversi-AVX/releases/tag/v4.5.5-nikque.2).
 
 Work on this fork used **ChatGPT-6 Astra** and **ChatGPT-6 Sol**. Edax and its original authors retain their respective attribution. This fork is distributed under the original GPL-3.0 license; keep the source and license available when redistributing the executable.

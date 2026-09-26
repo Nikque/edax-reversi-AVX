@@ -14,7 +14,9 @@ bookを読み込んだEdaxのコマンド入力画面で、次のコマンドを
 | `book deviate2 5 5` | 一手の評価損失は最大5、黒白合計も最大5。bookの学習レベルで完全読み済みのLeafを除外。 | 完全読み済みLeafの再学習を避ける場合。 |
 | `book deviate3 5 5` | 一手・累積の制限はdeviate2と同じで、完全読み済みLeafも含む。 | 以前のdeviate2と同じ対象を選ぶ場合。 |
 
-`deviate2` と `deviate3` では、黒2石・白3石の損失や一手で5石の損失は範囲内、一手で6石または合計6石の損失は範囲外です。表示される `todo` はその回に選ばれたLeaf局面の件数であり、異なる棋譜の本数ではありません。進捗bookには、設定されたbookファイル名に応じて `.dev`、`.dev2`、`.dev3` が付きます。`bin/config.ini` の `book-save-interval` は定期保存の間隔（分）で、`0` は定期保存を無効にします。展開で増分があった回の保存は引き続き行います。
+`deviate2` と `deviate3` では、黒2石・白3石の損失や一手で5石の損失は範囲内、一手で6石または合計6石の損失は範囲外です。表示される `todo` はその回に選ばれたLeaf局面の件数であり、異なる棋譜の本数ではありません。進捗bookには、設定されたbookファイル名に応じて `.dev`、`.dev2`、`.dev3` が付きます。
+
+`bin/config.ini` には、3種類のdeviateコマンドに適用する独立した保存条件が2つあります。`book-save-interval` は展開中の時間間隔による保存（分）で、`0` はこれを無効にします。`book-deviate-save-rounds` は増分があった完了済みの周回数で、`1` は従来どおり毎周、`10` は10周ごとと学習完了時、`0` は時間間隔による保存を除き学習完了時だけ保存します。従来の `book deviate` は黒白両方の展開で1周、`deviate2/3` は1回の展開で1周です。失敗や中断時には最後の保存以降の学習内容が失われる可能性があり、特に `0` と時間保存の無効化を組み合わせた場合は注意が必要です。互換性のため初期値は `1` です。
 
 ### 従来の `book deviate` の修正
 
@@ -51,10 +53,10 @@ Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuha
 | macOS Intel x86-64 | `mEdax-x64-modern` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 
-`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパスと保存間隔を設定してください。Windows v4版を再ビルドする場合はVisual Studio 2022のx64 Developer Command Promptで `build-win-v4.cmd` を実行します。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。
+`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds` を設定してください。Windows v4版を再ビルドする場合はVisual Studio 2022のx64 Developer Command Promptで `build-win-v4.cmd` を実行します。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。
 
 元配布物の旧32ビットmacOS用 `mEdax-x86` は除外しました。現在のXcode SDKにはi386用のリンクライブラリがなく修正版をビルドできません。元の実行ファイルをそのまま同梱しても、今回の修正は反映されません。
 
-通常のWindowsビルドで回帰試験24ケースを通過しました。合法棋譜300局、石の反転549,161件、独立した完全読み96局面（1・4スレッド）、Cassio API、イベントキューも照合しました。ビルドと配布ZIPの確認結果は[検証報告](https://github.com/Nikque/edax-reversi-AVX/releases/tag/v4.5.5-nikque.2)に記載します。
+通常のWindowsビルドで従来の回帰試験24ケースと、新しい保存間隔の試験を通過しました。合法棋譜300局、石の反転549,161件、独立した完全読み96局面（1・4スレッド）、Cassio API、イベントキューも照合しました。ビルドと配布ZIPの確認結果は[検証報告](https://github.com/Nikque/edax-reversi-AVX/releases/tag/v4.5.5-nikque.2)に記載します。
 
 このforkの作業には **ChatGPT-6 Astra** と **ChatGPT-6 Sol** を使用しました。Edaxと原著作者の表記を維持し、元のGPL-3.0ライセンスに基づいて配布します。実行ファイルを再配布する場合も、対応するソースとライセンスを入手可能にしてください。
