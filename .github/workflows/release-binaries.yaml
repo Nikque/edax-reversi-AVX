@@ -66,20 +66,6 @@ jobs:
           path: bin/mEdax-x64-modern
           if-no-files-found: error
 
-  macos-x86:
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build macOS x86
-        run: |
-          mkdir -p bin
-          make -C src build ARCH=x86 COMP=clang OS=osx CC='clang -arch i386'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-macos-x86
-          path: bin/mEdax-x86
-          if-no-files-found: error
-
   android:
     runs-on: ubuntu-24.04
     steps:
