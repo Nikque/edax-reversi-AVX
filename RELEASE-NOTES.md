@@ -2,6 +2,8 @@
 
 This fork starts from upstream tag `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It includes the `book deviate2` command, configurable book autosave interval, `book deviate3`, and the book root-pointer and merge corrections. This release also fixes the 17 issues identified in the 2026-09-27 audit.
 
+Before that audit, the original `book deviate` was fixed to re-probe its root after the first `book_expand`. `book_add` can move a hash bucket's `Position` array with `realloc`, so passing the old root pointer to the second `position_deviate` could access freed memory. Its original scoring rules remain unchanged.
+
 | ID | Corrected behavior |
 |---|---|
 | A01 | Read and write binary `.edx` files in binary mode on Windows. |
@@ -26,4 +28,4 @@ The release bundle includes rebuilt Windows, Linux, macOS x64, and Android binar
 
 `book-save-interval` in `config.ini` is in minutes. A book save needs enough free space for a second copy of the book while the temporary file is written. A failed write leaves the previous destination book in place. A malformed input book is rejected; the existing active book is retained for explicit `book load` and `book merge` commands.
 
-Validation included the audit's regression cases for all 17 issues, 300 random legal games and 549,161 flip comparisons, eight symmetries per position, 96 independent exact endgame positions at empties 1–12 with one and four search threads, Cassio endgame API checks, and event-queue checks. The 28 GB user book was not modified or re-counted.
+Validation included the audit's regression cases for all 17 issues, 300 random legal games and 549,161 flip comparisons, eight symmetries per position, 96 independent exact endgame positions at empties 1–12 with one and four search threads, Cassio endgame API checks, and event-queue checks.
