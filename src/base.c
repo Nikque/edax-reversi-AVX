@@ -745,7 +745,9 @@ bool base_load(Base *base, const char *file)
 	int l;
 	WthorHeader header;
 
-	l = strlen(file); strcpy(ext, file + l - 4); string_to_lowercase(ext);
+	l = strlen(file);
+	if (l < 4) { warn("Unknown game format extension: %s\n", file); return false; }
+	strcpy(ext, file + l - 4); string_to_lowercase(ext);
 	if (strcmp(ext, ".txt") == 0) load = game_import_text;
 	else if (strcmp(ext, ".ggf") == 0) load = game_import_ggf;
 	else if (strcmp(ext, ".sgf") == 0) load = game_import_sgf;
@@ -757,7 +759,7 @@ bool base_load(Base *base, const char *file)
 		return false;
 	}
 
-	if (load == game_import_wthor) f = fopen(file, "rb");
+	if (load == game_import_wthor || load == game_read) f = fopen(file, "rb");
 	else f = fopen(file, "r");
 	if (f == NULL) {
 		warn("Cannot open file %s\n", file);
@@ -793,7 +795,9 @@ void base_save(const Base *base, const char *file)
 	WthorBase wbase;
 	Base old;
 
-	l = strlen(file); strcpy(ext, file + l - 4); string_to_lowercase(ext);
+	l = strlen(file);
+	if (l < 4) { warn("Unknown game format extension: %s\n", file); return; }
+	strcpy(ext, file + l - 4); string_to_lowercase(ext);
 	if (strcmp(ext, ".txt") == 0) save = game_export_text;
 	else if (strcmp(ext, ".ggf") == 0) save = game_export_ggf;
 	else if (strcmp(ext, ".sgf") == 0) save = game_export_sgf;
@@ -816,9 +820,10 @@ void base_save(const Base *base, const char *file)
 		base_append(&old, base->game + i);
 	}
 
-	f = fopen(file, "w");
+	f = fopen(file, save == game_write ? "wb" : "w");
 	if (f == NULL) {
 		warn("Cannot open file %s\n", file);
+		base_free(&old);
 		return;
 	}
 	for (i = 0; i < old.n_games && !ferror(f); ++i) {
@@ -826,6 +831,7 @@ void base_save(const Base *base, const char *file)
 	}
 
 	fclose(f);
+	base_free(&old);
 
 }
 
@@ -999,4 +1005,3 @@ void base_compare(const char *file_1, const char *file_2)
 	printf("%s : %lld positions - %lld original positions\n", file_2, n_2, n_2_only);
 	printf("%lld common positions\n", n_2-n_2_only);
 }
-

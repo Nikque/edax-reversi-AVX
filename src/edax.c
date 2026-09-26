@@ -64,6 +64,7 @@
  *   -fix                 fix the opening book: add missing links and negamax the\n  whole book tree.
  *   -store               add the last played game to the opening book.
  *   -deviate <n1> <n2>   add positions by deviating with a relative error <n1> and\n  an absolute error <n2>.
+ *   -deviate2 <n1> <n2>  add positions with a per-move loss limit <n1> and\n  a cumulative loss limit for both players <n2>.
  *   -enhance <n1> <n2>   add positions by improving score accuracy with a midgame\n  error <n1> and an endcut error <n2>.
  *   -fill [n]            add positions between existing positions.
  *   -prune               remove unreachable positions.
@@ -141,7 +142,10 @@ void ui_init_edax(UI *ui)
 	book_verbose = true;
 	play_init(play, &ui->book);
 	ui->book.search = &play->search;
-	book_load(&ui->book, options.book_file);
+	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
+		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
+		ui->book.need_saving = false; // keep the damaged input file untouched
+	}
 	play->search.id = 1;
 	search_set_observer(&play->search, edax_observer);
 	ui->mode = options.mode;
@@ -237,6 +241,8 @@ void help_book(void)
 		"  fix                 fix the opening book: add missing links and negamax the\n  whole book tree.\n"
 		"  store               add the last played game to the opening book.\n"
 		"  deviate <n1> <n2>   add positions by deviating with a relative error <n1> and\n  an absolute error <n2>.\n"
+		"  deviate2 <n1> <n2>  add positions with a per-move loss limit <n1> and\n  a cumulative loss limit for both players <n2>; skip solved leaves.\n"
+		"  deviate3 <n1> <n2>  same loss limits as deviate2, including solved leaves.\n"
 		"  enhance <n1> <n2>   add positions by improving score accuracy with a midgame\n  error <n1> and an endcut error <n2>.\n"
 		"  fill [n]            add positions between existing positions.\n"
 		"  prune               remove unreachable positions.\n"
@@ -658,9 +664,16 @@ void ui_loop_edax(UI *ui)
 
 				// load an opening book (binary format) from the disc
 				} else if (strcmp(book_cmd, "load") == 0 || strcmp(book_cmd, "open") == 0) {
-					book_free(book) ;
+					Book next;
 					parse_word(book_param, book_file, FILENAME_MAX);
-					book_load(book, book_file);
+					next.search = book->search;
+					if (book_load(&next, book_file)) {
+						book_free(book);
+						*book = next;
+					} else {
+						book_free(&next);
+						warn("Book %s was not loaded; current book retained\n", book_file);
+					}
 
 				// save an opening book (binary format) to the disc
 				} else if (strcmp(book_cmd, "save") == 0) {
@@ -687,10 +700,14 @@ void ui_loop_edax(UI *ui)
 					Book src;
 					parse_word(book_param, book_file, FILENAME_MAX);
 					src.search = &play->search;
-					book_load(&src, book_file);
-					book_merge(book, &src);
+					if (book_load(&src, book_file)) {
+						book_merge(book, &src);
+						book_link(book); // rebuild links before validating imported positions
+						book_fix(book);
+						book_negamax(book);
+						book_sort(book);
+					} else warn("Book %s was not merged\n", book_file);
 					book_free(&src);
-					warn("Book needs to be fixed before usage\n");
 
 				// fix an opening book
 				} else if (strcmp(book_cmd, "fix") == 0) {
@@ -789,6 +806,17 @@ void ui_loop_edax(UI *ui)
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, -129, 129, "relative error");
 					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 65, "absolute error");
 					book_deviate(book, &play->board, val_1, val_2);
+
+				// add positions while limiting per-move and cumulative errors
+				} else if (strcmp(book_cmd, "deviate2") == 0) {
+					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
+					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+					book_deviate2(book, &play->board, val_1, val_2);
+
+				} else if (strcmp(book_cmd, "deviate3") == 0) {
+					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
+					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+					book_deviate3(book, &play->board, val_1, val_2);
 
 				// add position using the "enhance algorithm"
 				} else if (strcmp(book_cmd, "enhance") == 0) {

@@ -27,6 +27,9 @@
 #include <time.h>
 #include <stdarg.h>
 #include <limits.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #define BOOK_DEBUG 0
 static const int BOOK_INFO_RESOLUTION = 100000;
@@ -121,6 +124,7 @@ typedef struct Position {
 	unsigned char level;       /**< search level */
 	unsigned char done;        /**< done/undone flag */
 	unsigned char todo;        /**< todo flag */
+	int deviate2_loss;         /**< minimum accumulated move loss from the deviate2 root */
 } Position;
 
 static Position* book_probe(const Book*, const Board*);
@@ -342,12 +346,12 @@ static bool position_read(Position *position, FILE *f)
 		position->link = (Link*) malloc(sizeof (Link) * position->n_link);
 		if (position->link == NULL) error("cannot allocate opening book position's moves\n");
 		for (i = 0; i < position->n_link; ++i) {
-			if (!link_read(position->link + i, f)) return false;
+			if (!link_read(position->link + i, f)) { free(position->link); return false; }
 		}
 	} else {
 		position->link = NULL;
 	}
-	if (!link_read(&position->leaf, f)) return false;
+	if (!link_read(&position->leaf, f)) { free(position->link); return false; }
 
 	return true;
 }
@@ -975,6 +979,68 @@ static void position_deviate(Position *position, Book *book, const int player_de
 }
 
 /**
+ * @brief Deviate a position with a cumulative move-loss limit.
+ *
+ * Each move loss is the difference between the best score at the position
+ * and the score of the selected move. The path is followed only while every
+ * move loss is within move_loss and their sum is within total_loss.
+ *
+ * @param position Position to expand.
+ * @param book Opening book.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ * @param loss Accumulated loss from the root to this position.
+ */
+static void position_deviate_total(Position *position, Book *book, const int move_loss, const int total_loss, const int loss, const bool skip_solved)
+{
+	Link *l;
+	Board target;
+	Position *child;
+	int move_error;
+
+	if (loss > total_loss || board_count_empties(&position->board) < book->options.n_empties || board_is_game_over(&position->board)) return;
+
+	// A transposed position can be reached by different lines. Revisit it only
+	// when this path has a smaller accumulated loss, which leaves more budget
+	// available to every continuation from the same board.
+	if (position->done && loss >= position->deviate2_loss) return;
+	position->done = true;
+	position->deviate2_loss = loss;
+
+	foreach_link(l, position) {
+		move_error = position->score.value - l->score;
+		if (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss) {
+			board_next(&position->board, l->move, &target);
+			child = book_probe(book, &target);
+			position_deviate_total(child, book, move_loss, total_loss, loss + move_error, skip_solved);
+		}
+	}
+
+	// A solved leaf already has an exact score. Keep following existing links,
+	// since descendants may have been searched at a lower level.
+	const int n_empties = board_count_empties(&position->board);
+	if (skip_solved && LEVEL[position->level][n_empties].depth == n_empties
+		&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) return;
+
+	move_error = position->score.value - position->leaf.score;
+	if (position->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss && !position->todo) {
+		position->todo = true;
+		book->stats.n_todo++;
+		if (book->stats.n_todo % 10 == 0) bprint("Book deviate%d %d todo\r", skip_solved ? 2 : 3, book->stats.n_todo);
+	}
+}
+
+static void position_deviate2(Position *position, Book *book, const int move_loss, const int total_loss, const int loss)
+{
+	position_deviate_total(position, book, move_loss, total_loss, loss, true);
+}
+
+static void position_deviate3(Position *position, Book *book, const int move_loss, const int total_loss, const int loss)
+{
+	position_deviate_total(position, book, move_loss, total_loss, loss, false);
+}
+
+/**
  * @brief Enhance a position.
  *
  * This is the other important part of the opening book code, where it finds the best moves to add to the book by
@@ -1438,69 +1504,83 @@ void book_new(Book *book, int level, int n_empties)
  * @param book Opening book.
  * @param file File name.
  */
-void book_load(Book *book, const char *file)
+bool book_load(Book *book, const char *file)
 {
 	FILE *f = fopen(file, "rb");
 	if (f) {
+		Book loaded = {0};
 		Position p;
 		unsigned int header_edax, header_book;
 		unsigned char header_version, header_release;
-		int i;
+		int i, expected;
 		int r;
+		loaded.search = book->search;
 
 		info("Loading book from %s...", file);
 		r = fread(&header_edax, sizeof (unsigned int), 1, f);
 		r += fread(&header_book, sizeof (unsigned int), 1, f);
 		if (r != 2 || header_edax != EDAX || header_book != BOOK) {
 			error("%s is not an edax opening book", file);
-			book_new(book, options.level, 61 - get_book_depth(options.level));
-			return;
+			goto book_load_failed;
 		}
 
 		r = fread(&header_version, 1, 1, f);
 		r += fread(&header_release, 1, 1, f);
 		if (r != 2 || header_version != VERSION) {
 			error("%s is not a compatible version", file);
-			book_new(book, options.level, 61 - get_book_depth(options.level));
-			return;
+			goto book_load_failed;
 		}
 
-		r = fread(&book->date, sizeof book->date, 1, f);
-		r += fread(&book->options, sizeof book->options, 1, f);
-		r += fread(&book->n_nodes, sizeof book->n_nodes, 1, f);
+		r = fread(&loaded.date, sizeof loaded.date, 1, f);
+		r += fread(&loaded.options, sizeof loaded.options, 1, f);
+		r += fread(&expected, sizeof expected, 1, f);
 		if (r != 3) {
 			error("Cannot read book settings from %s", file);
-			book_new(book, options.level, 61 - get_book_depth(options.level));
-			return;
+			goto book_load_failed;
 		}
+		if (expected < 0) { error("Invalid position count in %s", file); goto book_load_failed; }
 
-		book->n = 65536;
-		while ((book->n << 4) < book->n_nodes) book->n <<= 1;
+		loaded.n = 65536;
+		while (loaded.n < (1 << 26) && (long long)loaded.n * 16 < expected) loaded.n <<= 1;
 
-		book->array = (PositionArray*) malloc(book->n * sizeof (PositionArray));
-		if (book->array == NULL) {
+		loaded.array = (PositionArray*) malloc(loaded.n * sizeof (PositionArray));
+		if (loaded.array == NULL) {
 			error("cannot allocate space to store the positions");
-			book_new(book, options.level, 61 - get_book_depth(options.level));
-			return;
+			goto book_load_failed;
 		}
-		for (i = 0; i < book->n; ++i) position_array_init(book->array + i);
+		for (i = 0; i < loaded.n; ++i) position_array_init(loaded.array + i);
 
-		book->n_nodes = 0;
-		while (position_read(&p, f)) {
-			book_add(book, &p);
-		}
-
-		if (!feof(f)) {
-			error("error while reading %s", file);
+		for (i = 0; i < expected; ++i) {
+			if (!position_read(&p, f)) {
+				error("Truncated opening book %s at position %d/%d", file, i, expected);
+				goto book_load_failed;
+			}
+			book_add(&loaded, &p);
 		}
 
-		random_seed(&book->random, real_clock());
-		book->need_saving = false;
+		if (ferror(f) || fgetc(f) != EOF || loaded.n_nodes != expected) {
+			error("Invalid opening book size or position count in %s", file);
+			goto book_load_failed;
+		}
+
+		random_seed(&loaded.random, real_clock());
+		loaded.need_saving = false;
 
 		info("done\n");
 		fclose(f);
+		*book = loaded;
+		return true;
+
+book_load_failed:
+		fclose(f);
+		if (loaded.array) book_free(&loaded);
+		book->array = NULL;
+		book->n = book->n_nodes = 0;
+		book->need_saving = false; // never overwrite a damaged source automatically
+		return false;
 	} else {
 		book_new(book, options.level, 60 - get_book_depth(options.level));
+		return false;
 	}
 }
 
@@ -1589,15 +1669,25 @@ book_export_end:
  * @param book Opening book.
  * @param file File name.
  */
-void book_save(Book *book, const char *file)
+bool book_save(Book *book, const char *file)
 {
 	unsigned int header_edax = EDAX, header_book = BOOK;
 	unsigned char header_version = VERSION, header_release = RELEASE;
-	FILE *f = fopen(file, "wb");
+	char *tmp_file;
+	FILE *f;
 	int r;
 	PositionArray *a;
 	Position *p;
 
+	tmp_file = (char*) malloc(strlen(file) + 32);
+	if (tmp_file == NULL) { error("Cannot allocate save path for %s", file); return false; }
+#ifdef _WIN32
+	sprintf(tmp_file, "%s.tmp.%lu", file, (unsigned long) GetCurrentProcessId());
+#else
+	sprintf(tmp_file, "%s.tmp.%lu", file, (unsigned long) getpid());
+#endif
+	f = fopen(tmp_file, "wb");
+	if (f == NULL) { error("Cannot open temporary book %s", tmp_file); free(tmp_file); return false; }
 	info("Saving book to %s...", file);
 	book_set_date(book);
 
@@ -1612,15 +1702,32 @@ void book_save(Book *book, const char *file)
 	if (r == 7) {
 		foreach_position(p, a, book) {
 			if (!position_write(p, f)) {
-				error("\nCannot save book to %s", file);
-				goto book_write_end;
+				r = 0;
+				break;
 			}
 		}
 	}
+	if (fclose(f) != 0) r = 0;
+	if (r != 7) {
+		error("\nCannot write complete book to %s; existing book was not replaced", file);
+		remove(tmp_file);
+		free(tmp_file);
+		return false;
+	}
+#ifdef _WIN32
+	if (!MoveFileExA(tmp_file, file, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+#else
+	if (rename(tmp_file, file) != 0) {
+#endif
+		error("\nCannot save book to %s; existing book was not replaced", file);
+		remove(tmp_file);
+		free(tmp_file);
+		return false;
+	}
+	free(tmp_file);
+	book->need_saving = false;
 	info("done\n");
-
-book_write_end:
-	fclose(f);
+	return true;
 }
 
 /**
@@ -1707,6 +1814,18 @@ void book_fix(Book *book)
 }
 
 /**
+ * @brief Check whether the configured interval for a timed book save elapsed.
+ *
+ * @param start Time of the last timed save in milliseconds.
+ * @return true when a timed save is due.
+ */
+static bool book_save_interval_elapsed(const long long start)
+{
+	return options.book_save_interval > 0
+		&& real_clock() - start >= (long long)options.book_save_interval * 60000LL;
+}
+
+/**
  * @brief Deepen a book.
  *
  * Research all non link best move.
@@ -1733,8 +1852,8 @@ void book_deepen(Book *book)
 			if (++i % 10 == 0) {
 				bprint("Deepening book...%d\r", i); 
 			}
-			if (real_clock() - t > HOUR) {
-				book_save(book, file); // save every hour
+			if (book_save_interval_elapsed((long long)t)) {
+				book_save(book, file); // timed progress save
 				t = real_clock();
 			}
 		}
@@ -1779,8 +1898,8 @@ void book_correct_solved(Book *book)
 			if (++i % 10 == 0 || p->leaf.score != old_leaf.score) {
 				bprint("Correcting solved positions...%d (%d error found)\r", i, n_error); 
 			}
-			if (real_clock() - t > HOUR) {
-				book_save(book, file); // save every hour
+			if (book_save_interval_elapsed((long long)t)) {
+				book_save(book, file); // timed progress save
 				t = real_clock();
 			}
 		}
@@ -1814,8 +1933,8 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 			bprint("%s...%d/%d done: %d positions, %d links\r", action, ++i, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
 			if (book->search->options.verbosity >= 2) putchar('\n'); else putchar('\r');
 			
-			if (real_clock() - t > HOUR) {
-				book_save(book, tmp_file); // save every hour
+			if (book_save_interval_elapsed((long long)t)) {
+				book_save(book, tmp_file); // timed progress save
 				t = real_clock();
 			}
 		}
@@ -1950,6 +2069,8 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 			book_expand(book, "Book deviate", file);
 			n_diffs = book->stats.n_nodes + book->stats.n_links;
 
+			// Adding positions may relocate the array containing root.
+			root = book_probe(book, board);
 			bprint("Book deviate %d %d:\n", relative_error, absolute_error);
 			book_clean(book);
 			position_deviate(root, book, 0, relative_error, score - absolute_error, score + absolute_error);
@@ -1964,6 +2085,72 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 			if (n_diffs) book_save(book, file);
 		} while (n_diffs);
 		bprint("Book deviate %d %d...finished\n", relative_error, absolute_error);
+	}
+}
+
+/**
+ * @brief Deviate a book while limiting cumulative move losses.
+ *
+ * @param book opening book.
+ * @param board Position to start from.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ */
+void book_deviate2(Book *book, Board *board, const int move_loss, const int total_loss)
+{
+	Position *root = book_probe(book, board);
+	if (root) {
+		int n_diffs;
+		char file[FILENAME_MAX + 1];
+
+		file_add_ext(options.book_file, ".dev2", file);
+		book_clean(book);
+		position_negamax(root, book);
+
+		do {
+			bprint("Book deviate2 %d %d:\n", move_loss, total_loss);
+			book_clean(book);
+			position_deviate2(root, book, move_loss, total_loss, 0);
+			bprint("Book deviate2 %d todo\n", book->stats.n_todo);
+
+			book_expand(book, "Book deviate2", file);
+			n_diffs = book->stats.n_nodes + book->stats.n_links;
+
+			root = book_probe(book, board);
+			book_clean(book);
+			position_negamax(root, book);
+			if (n_diffs) book_save(book, file);
+		} while (n_diffs);
+		bprint("Book deviate2 %d %d...finished\n", move_loss, total_loss);
+	}
+}
+
+void book_deviate3(Book *book, Board *board, const int move_loss, const int total_loss)
+{
+	Position *root = book_probe(book, board);
+	if (root) {
+		int n_diffs;
+		char file[FILENAME_MAX + 1];
+
+		file_add_ext(options.book_file, ".dev3", file);
+		book_clean(book);
+		position_negamax(root, book);
+
+		do {
+			bprint("Book deviate3 %d %d:\n", move_loss, total_loss);
+			book_clean(book);
+			position_deviate3(root, book, move_loss, total_loss, 0);
+			bprint("Book deviate3 %d todo\n", book->stats.n_todo);
+
+			book_expand(book, "Book deviate3", file);
+			n_diffs = book->stats.n_nodes + book->stats.n_links;
+
+			root = book_probe(book, board);
+			book_clean(book);
+			position_negamax(root, book);
+			if (n_diffs) book_save(book, file);
+		} while (n_diffs);
+		bprint("Book deviate3 %d %d...finished\n", move_loss, total_loss);
 	}
 }
 
@@ -2056,8 +2243,8 @@ void book_enhance(Book *book, Board *board, const int midgame_error, const int e
 			bprint("Book enhance %d %d...%d %d:\n", midgame_error, endcut_error, book->stats.n_nodes, book->stats.n_links);
 			book_clean(book);
 			position_enhance(root, book);
-			n_diffs = book->stats.n_nodes + book->stats.n_links;
 			book_expand(book, "Book enhance", file);
+			n_diffs = book->stats.n_nodes + book->stats.n_links;
 
 			root = book_probe(book, board);
 			book_clean(book);

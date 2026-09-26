@@ -85,6 +85,7 @@ typedef struct {
 	bool auto_swap;                       /**< change computer's side after each game */
 	bool auto_quit;                       /**< quit when game is over */
 	int repeat;                           /**< repeat 'n' games (before quitting)*/
+	int book_save_interval;               /**< minutes between timed book saves; 0 disables them */
 
 	// TODO: add more options?
 } Options;

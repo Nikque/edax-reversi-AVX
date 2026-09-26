@@ -80,7 +80,10 @@ void ui_init_xboard(UI *ui)
 	search->options.header = NULL;
 	search->options.separator = NULL;
 	ui->book.search = search;
-	book_load(&ui->book, options.book_file);
+	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
+		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
+		ui->book.need_saving = false; // keep the damaged input file untouched
+	}
 	search->id = 1;
 	search_set_observer(search, xboard_observer);
 	options.level = 60;
@@ -278,13 +281,15 @@ static inline int hash_size(int n)
  * @param ui User Interface.
  * @param stats total nodes & time statistics.
  */
-static void xboard_go(UI *ui, XBoardStats *stats)
+static void xboard_go(UI *ui, XBoardStats *stats, long long increment)
 {
 	Play *const play = ui->play;
 	Search *const search = &play->search;
 	Result *const result = search->result;
 
 	play_go(play, true);
+	if (options.play_type == EDAX_TIME_PER_GAME)
+		play->time[!play->player].left += increment;
 	xboard_move(play_get_last_move(play)->x);
 	play_ponder(play);
 	xboard_check_game_over(play);
@@ -443,6 +448,7 @@ void ui_loop_xboard(UI *ui)
 	XBoardStats stats = {0, 0, 0};
 	int edax_turn = EMPTY;
 	int last_edax_turn = !play->player;
+	long long increment = 0;
 	const char *(color[2]) = {"black", "white"};
 	
 	// loop forever
@@ -451,7 +457,7 @@ void ui_loop_xboard(UI *ui)
 
 		if (!ui_event_exist(ui) && !play_is_game_over(play) && (edax_turn == play->player)) {
 			log_print(xboard_log, "edax (auto_play)> turn = %s\n", color[edax_turn]);
-			xboard_go(ui, &stats);
+			xboard_go(ui, &stats, increment);
 
 		// proceed by reading a command
 		} else {
@@ -549,7 +555,7 @@ void ui_loop_xboard(UI *ui)
 			// go think!
 			} else if (strcmp(cmd, "go") == 0) {
 				edax_turn = play->player;
-				xboard_go(ui, &stats);
+				xboard_go(ui, &stats, increment);
 
 			// playother
 			} else if (strcmp(cmd, "playother") == 0) {
@@ -575,11 +581,13 @@ void ui_loop_xboard(UI *ui)
 				if (*next == ':') next = parse_int(next + 1, &s);
 				base = 60 * m + s;
 				inc = 0; next = parse_int(next, &inc);
+				increment = inc > 0 ? 1000ll * inc : 0;
 
-				if ((mps == 0 || mps > 30) && inc == 0) {
+				if (mps == 0 || (mps > 30 && inc == 0)) {
 					options.time = 1000ull * base ;
 					options.play_type = EDAX_TIME_PER_GAME;
 					log_print(xboard_log, "edax setup> time per game = %.2f s.\n", 0.001 * options.time);
+					play->time[BLACK].left = play->time[WHITE].left = options.time;
 				} else {
 					int t1 = base * 1000ull / mps;
 					int t2 = (base + inc * mps) * 30; // 30 <- 1000ms / 30moves

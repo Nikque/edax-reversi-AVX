@@ -99,7 +99,10 @@ void ui_init_gtp(UI *ui)
 
 	play_init(play, &ui->book);
 	ui->book.search = &play->search;
-	book_load(&ui->book, options.book_file);
+	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
+		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
+		ui->book.need_saving = false; // keep the damaged input file untouched
+	}
 	play->search.id = 1;
 	search_set_observer(&play->search, gtp_observer);
 	ui->mode = 3;
@@ -136,6 +139,8 @@ void ui_loop_gtp(UI *ui)
 	// loop forever
 	for (;;) {
 		errno = 0;
+		id = 0;
+		has_id = false;
 
 		if (log_is_open(gtp_log)) {
 			play_print(play, gtp_log->f);
@@ -148,7 +153,7 @@ void ui_loop_gtp(UI *ui)
 		if (isdigit(*cmd)) {
 			has_id = true;
 			parse_int(cmd, &id);
-			parse_command(param, cmd, param, strlen(param));
+			parse_command(param, cmd, param, strlen(param) + 1);
 		}
 
 		if (*cmd == '\0') {
@@ -218,7 +223,7 @@ void ui_loop_gtp(UI *ui)
 				if (play_must_pass(play)) {
 					play_move(play, PASS);
 				} else {
-					gtp_fail("wrong color", has_id, id);
+					gtp_fail("wrong color", id, has_id);
 					continue;
 				}
 			 }
@@ -239,7 +244,7 @@ void ui_loop_gtp(UI *ui)
 				if (play_must_pass(play)) {
 					play_move(play, PASS);
 				} else {
-					gtp_fail("wrong color", has_id, id);
+					gtp_fail("wrong color", id, has_id);
 					continue;
 				}
 			}
@@ -250,7 +255,7 @@ void ui_loop_gtp(UI *ui)
 		// optional GTP commands but needed or supported by Quarry
 		} else if (strcmp(cmd, "undo") == 0) {
 			if (play->i_game <= 0) {
-				gtp_fail("cannot undo", has_id, id);
+				gtp_fail("cannot undo", id, has_id);
 			} else {
 				play_undo(play);
 				gtp_send("", id, has_id);
@@ -274,11 +279,15 @@ void ui_loop_gtp(UI *ui)
 			double t = 0.0;
 			int n = 0;
 			s = gtp_parse_color(param, &color);
+			if (color != BLACK && color != WHITE) {
+				gtp_fail("syntax error (wrong or missing color)", id, has_id);
+				continue;
+			}
 			s = parse_real(s, &t); t *= 1000;
 			s = parse_int(s, &n);
 			options.level = 60;
 			if (options.play_type == EDAX_TIME_PER_MOVE) {// time_per_move ?
-				if (n == 0) play->time[color].left = (t + byo_yomi_time * 1000) / byo_yomi_stone;
+				if (n == 0) play->time[color].left = byo_yomi_stone > 0 ? (t + byo_yomi_time * 1000) / byo_yomi_stone : t;
 				else play->time[color].left = t / n;
 			} else { // time_per_game
 				play->time[color].left = t;
@@ -310,13 +319,13 @@ void ui_loop_gtp(UI *ui)
 				if (play_must_pass(play)) {
 					play_move(play, PASS);
 				} else {
-					gtp_fail("wrong color", has_id, id);
+					gtp_fail("wrong color", id, has_id);
 					continue;
 				}
 			}
 			play_go(play, false);
-			if (play_get_last_move(play)->x == PASS) gtp_send("pass", id, has_id);
-			else gtp_send(move_to_string(play_get_last_move(play)->x, WHITE, m), id, has_id);
+			if (play->result.move == PASS) gtp_send("pass", id, has_id);
+			else gtp_send(move_to_string(play->result.move, WHITE, m), id, has_id);
 
 		// optional commands
 		} else if (strcmp(cmd, "showboard") == 0) {
@@ -331,5 +340,3 @@ void ui_loop_gtp(UI *ui)
 		}
 	}
 }
-
-

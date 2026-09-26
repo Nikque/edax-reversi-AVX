@@ -170,7 +170,7 @@ bool ui_event_peek(UI *ui, char **cmd, char **param)
 		n = strlen(message);
 		*cmd = (char*) malloc(n + 1);
 		*param = (char*) malloc(n + 1);
-		parse_command(message, *cmd, *param, n);
+		parse_command(message, *cmd, *param, n + 1);
 		free(message);
 		return true;
 	} else {

@@ -82,6 +82,7 @@ Options options = {
 	false, //auto learn
 	false, //auto quit
 	0, //repeat
+	60, // minutes between timed book saves
 };
 
 /**
@@ -120,6 +121,7 @@ void options_usage(void)
 		"  -auto-swap <on/off>           automatically Edax's color between games\n"
 		"  -auto-store <on/off>          automatically save played games\n"
 		"  -game-file <file>             file to store all played game/s.\n"
+		"  -book-save-interval <minutes> minutes between timed book saves (0 disables them).\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
@@ -220,6 +222,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "auto-swap") == 0) parse_boolean(value, &options.auto_swap);
 		else if (strcmp(option, "auto-quit") == 0) parse_boolean(value, &options.auto_quit);
 		else if (strcmp(option, "repeat") == 0) parse_int(value, &options.repeat);
+		else if (strcmp(option, "book-save-interval") == 0) options.book_save_interval = string_to_int(value, options.book_save_interval);
 
 		else read = 0;
 	}
@@ -304,6 +307,7 @@ void options_bound(void)
 	BOUND(options.width, 3, 250, "width");
 	BOUND(options.level, 0, 60, "level");
 	BOUND(options.time, 1000, TIME_MAX, "time");
+	BOUND(options.book_save_interval, 0, 525600, "book-save-interval");
 
 	BOUND(options.alpha, SCORE_MIN, SCORE_MAX, "alpha");
 	BOUND(options.beta, SCORE_MIN, SCORE_MAX, "beta");
@@ -361,7 +365,8 @@ void options_dump(FILE *f)
 	fprintf(f, "\teval file: %s\n", options.eval_file);
 	fprintf(f, "\tbook file: %s\n", options.book_file);
 	fprintf(f, "\tbook allowed: %s\n", boolean_string[options.book_allowed]);
-	fprintf(f, "\tbook randomness: %d\n\n", options.book_randomness);
+	fprintf(f, "\tbook randomness: %d\n", options.book_randomness);
+	fprintf(f, "\tbook timed-save interval: %d minutes\n\n", options.book_save_interval);
 
 	fprintf(f, "ggs options\n");
 	fprintf(f, "\thost: %s\n", options.ggs_host ? options.ggs_host : "?");

@@ -87,25 +87,30 @@ bool play_load(Play *play, const char *file)
 	FILE *f;
 	int i, l;
 	char ext[8], move[8];
+	void (*load)(Game*, FILE*) = NULL;
 
-	f = fopen(file, "r");
+	l = strlen(file);
+	if (l < 4) {
+		sprintf(play->error_message, "Unknown game format extension: %s\n", file);
+		return false;
+	}
+	strcpy(ext, file + l - 4); string_to_lowercase(ext);
+	if (strcmp(ext, ".txt") == 0) load = game_import_text;
+	else if (strcmp(ext, ".ggf") == 0) load = game_import_ggf;
+	else if (strcmp(ext, ".sgf") == 0) load = game_import_sgf;
+	else if (strcmp(ext, ".pgn") == 0) load = game_import_pgn;
+	else if (strcmp(ext, ".edx") == 0) load = game_read;
+	else {
+		sprintf(play->error_message, "Unknown game format extension: %s\n", ext);
+		return false;
+	}
+	f = fopen(file, load == game_read ? "rb" : "r");
 	if (f == NULL) {
 		sprintf(play->error_message, "Cannot open file %s\n", file);
 		return false;
 	}
 
-	l = strlen(file); strcpy(ext, file + l - 4); string_to_lowercase(ext);
-
-	if (strcmp(ext, ".txt") == 0) game_import_text(&game, f);
-	else if (strcmp(ext, ".ggf") == 0) game_import_ggf(&game, f);
-	else if (strcmp(ext, ".sgf") == 0) game_import_sgf(&game, f);
-	else if (strcmp(ext, ".pgn") == 0) game_import_pgn(&game, f);
-	else if (strcmp(ext, ".edx") == 0) game_read(&game, f);
-	else {
-		sprintf(play->error_message, "Unknown game format extension: %s\n", ext);
-		fclose(f);
-		return false;
-	}
+	load(&game, f);
 
 	play->initial_board = game.initial_board;
 	play->initial_player = game.player;
@@ -134,6 +139,7 @@ void play_save(Play *play, const char *file)
 	FILE *f;
 	int i, j, l;
 	char ext[8];
+	void (*save)(const Game*, FILE*) = NULL;
 
 
 	game_init(&game);
@@ -145,22 +151,25 @@ void play_save(Play *play, const char *file)
 		}
 	}
 
-	f = fopen(file, "w");
+	l = strlen(file);
+	if (l < 4) { warn("Unknown game format extension: %s\n", file); return; }
+	strcpy(ext, file + l - 4); string_to_lowercase(ext);
+	if (strcmp(ext, ".txt") == 0) save = game_export_text;
+	else if (strcmp(ext, ".ggf") == 0) save = game_export_ggf;
+	else if (strcmp(ext, ".sgf") == 0) save = NULL;
+	else if (strcmp(ext, ".pgn") == 0) save = game_export_pgn;
+	else if (strcmp(ext, ".eps") == 0) save = game_export_eps;
+	else if (strcmp(ext, ".svg") == 0) save = game_export_svg;
+	else if (strcmp(ext, ".edx") == 0) save = game_write;
+	else { warn("Unknown game format extension: %s\n", ext); return; }
+	f = fopen(file, save == game_write ? "wb" : "w");
 	if (f == NULL) {
 		warn("Cannot open file %s\n", file);
 		return;
 	}
 
-	l = strlen(file); strcpy(ext, file + l - 4); string_to_lowercase(ext);
-
-	if (strcmp(ext, ".txt") == 0) game_export_text(&game, f);
-	else if (strcmp(ext, ".ggf") == 0) game_export_ggf(&game, f);
-	else if (strcmp(ext, ".sgf") == 0) game_save_sgf(&game, f, true);
-	else if (strcmp(ext, ".pgn") == 0) game_export_pgn(&game, f);
-	else if (strcmp(ext, ".eps") == 0) game_export_eps(&game, f);
-	else if (strcmp(ext, ".svg") == 0) game_export_svg(&game, f);
-	else if (strcmp(ext, ".edx") == 0) game_write(&game, f);
-	else warn("Unknown game format extension: %s\n", ext);
+	if (strcmp(ext, ".sgf") == 0) game_save_sgf(&game, f, true);
+	else save(&game, f);
 
 	fclose(f);
 }
@@ -1228,4 +1237,3 @@ const char* play_show_opening_name(Play *play, const char *(*opening_get_name)(c
 
 	return last;
 }
-

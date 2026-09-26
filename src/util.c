@@ -569,9 +569,13 @@ char* parse_find(const char *string, const int c)
  */
 char* parse_word(const char *string, char *word, unsigned int n)
  {
+	if (n == 0) return (char*) string;
 	if (string) {
 		string = parse_skip_spaces(string);
-		while (*string && !isspace(*string) && n--) *word++ = *string++;
+		while (*string && !isspace((unsigned char)*string)) {
+			if (n > 1) { *word++ = *string; --n; }
+			++string;
+		}
 	}
 	*word = '\0';
 	return (char*) string;
@@ -589,9 +593,13 @@ char* parse_word(const char *string, char *word, unsigned int n)
  */
 char* parse_field(const char *string, char *word, unsigned int n, char separator)
  {
+	if (n == 0) return (char*) string;
 	if (string) {
 		string = parse_skip_spaces(string);
-		while (*string && *string != separator && n--) *word++ = *string++;
+		while (*string && *string != separator) {
+			if (n > 1) { *word++ = *string; --n; }
+			++string;
+		}
 		if (*string == separator) ++string;
 	}
 	*word = '\0';
@@ -612,8 +620,9 @@ char* parse_field(const char *string, char *word, unsigned int n, char separator
 char* parse_line(const char *string, char *line, unsigned int n)
 {
 	const char *s = string;
+	if (n == 0) return (char*) string;
 	if (s) {
-		while (*s &&  *s != '\n' && *s != '\r' && n--) *line++ = *s++;
+		while (*s && *s != '\n' && *s != '\r' && n > 1) { *line++ = *s++; --n; }
 		if (*s == '\0') s = string;
 		else {
 			while (*s && *s != '\n' && *s != '\r' ) ++s;

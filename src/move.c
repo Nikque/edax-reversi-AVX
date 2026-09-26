@@ -533,7 +533,7 @@ void movelist_sort(MoveList *movelist)
 	// foreach_best_move(move, *movelist) ;
 
 	Move *previous_best = &movelist->move[0];
-	while (previous_best->next->next) {	// until last 2
+	while (previous_best->next && previous_best->next->next) {	// until last 2
 		Move *best = previous_best;
 		Move *move = previous_best->next;
 		do {

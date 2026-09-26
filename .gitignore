@@ -1,6 +1,8 @@
 *.o
 *.s
 *.exe
+*.obj
+/audit-*
 *~
 pgopti*
 *.dyn

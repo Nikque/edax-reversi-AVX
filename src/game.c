@@ -555,7 +555,7 @@ static int game_parse_ggf(FILE *f, char *tag, char *value)
 	if (c != '[') return PARSE_INVALID_TAG;
 	tag[i] = '\0';
 
-	for (i = 0; i < 1000; i++) {
+	for (i = 0; i < 999; i++) {
 		c = fgetc(f);
 		if (c == EOF) return PARSE_END_OF_FILE;
 		if (c == ']') break;
@@ -563,7 +563,7 @@ static int game_parse_ggf(FILE *f, char *tag, char *value)
 	}
 	value[i]='\0';
 
-	if (i == 1000) {
+	if (i == 999) {
 		for (i = 0; ; i++) {
 			c = fgetc(f);
 			if (c == EOF) return PARSE_END_OF_FILE;
@@ -992,7 +992,6 @@ void game_import_pgn(Game *game, FILE *f)
 	i = j = k = 0;
 	while(state != STATE_END_GAME) {
 		c = getc(f);
-		putchar(c);
 		if  (c == EOF) {
 			state = STATE_END_GAME;
 		}  else  if  (c == '{') { // skip comments
@@ -1043,12 +1042,15 @@ void game_import_pgn(Game *game, FILE *f)
 						memcpy(game->name[WHITE], info_value, 31);
 						game->name[WHITE][31] = '\0';
 					} else if (strcmp(info_tag, "date") == 0) {
-						sscanf(info_value, "%d.%d.%d", value, value + 1, value + 2);
-						game->date.year = value[0]; game->date.month = value[1]; game->date.day = value[2];
+						if (sscanf(info_value, "%d.%d.%d", value, value + 1, value + 2) == 3) {
+							game->date.year = value[0]; game->date.month = value[1]; game->date.day = value[2];
+						}
 					} else if (strcmp(info_tag, "time") == 0) {
-						sscanf(info_value, "%d:%d:%d", value, value + 1, value + 2);
-						game->date.hour = value[0]; game->date.minute = value[1]; game->date.second = value[2];
-					} else if (strcmp(info_tag, "FEN") == 0) {
+						if (sscanf(info_value, "%d:%d:%d", value, value + 1, value + 2) == 3 ||
+							sscanf(info_value, "%d.%d.%d", value, value + 1, value + 2) == 3) {
+							game->date.hour = value[0]; game->date.minute = value[1]; game->date.second = value[2];
+						}
+					} else if (strcmp(info_tag, "fen") == 0) {
 						game->player = board_from_FEN(&game->initial_board, info_value);
 					}
 					break;
@@ -1069,9 +1071,14 @@ void game_import_pgn(Game *game, FILE *f)
 			case STATE_BEGIN_MOVE:
 				state = STATE_END_MOVE;
 				move[k++] = c;
-				game->move[i] = string_to_coordinate(move);
-				game->hash = crc32c_u8(game->hash, game->move[i]);
-				i++;
+				if (i < 60) {
+					game->move[i] = string_to_coordinate(move);
+					game->hash = crc32c_u8(game->hash, game->move[i]);
+					i++;
+				} else if (i == 60) {
+					warn("PGN contains more than 60 moves; excess moves ignored\n");
+					i = 61;
+				}
 				break;
 			case STATE_BEGIN_INFO:
 				if (j >= info_size) warn("info tag too long, will be truncated.");
@@ -1087,6 +1094,10 @@ void game_import_pgn(Game *game, FILE *f)
 			}
 		}  else  if  (c == '*') {
 			switch(state) {
+			case STATE_START:
+			case STATE_END_INFO:
+				state = STATE_END_SCORE;
+				break;
 			case STATE_END_MOVE:
 				state = STATE_BEGIN_SCORE;
 				score[0] = score[1] = -SCORE_INF;
@@ -1219,7 +1230,7 @@ void game_export_pgn(const Game *game, FILE *f)
 	const char *result = half_score < -32 ? "*" : (half_score < 0 ? "0-1" : (half_score > 0 ? "1-0" : "1/2-1/2"));
 	const char *winner = (half_score < 0 ?  game->name[WHITE]: (half_score > 0 ? game->name[BLACK] : NULL));
 	Board board;
-	char s[80];
+	char s[128];
 	int i, j, k;
 	int player;
 
@@ -1230,8 +1241,8 @@ void game_export_pgn(const Game *game, FILE *f)
 	if (game->date.year == 0) fprintf(f, "[Date \"%d.??.??\"]\n", date->tm_year + 1900);
 	else if (game->date.month == 0) fprintf(f, "[Date \"%d.??.??\"]\n", game->date.year);
 	else if (game->date.day == 0) fprintf(f, "[Date \"%d.%d.??\"]\n", game->date.year, game->date.month);
-	fprintf(f, "[Date \"%d.%d.%d\"]\n", game->date.year, game->date.month, game->date.day);
-	if (game->date.hour >= 0) fprintf(f, "[Time \"%d.%d.%d\"]\n", game->date.hour, game->date.minute, game->date.second);
+	else fprintf(f, "[Date \"%d.%d.%d\"]\n", game->date.year, game->date.month, game->date.day);
+	if (game->date.hour >= 0) fprintf(f, "[Time \"%d:%d:%d\"]\n", game->date.hour, game->date.minute, game->date.second);
 	fputs("[Round \"?\"]\n", f);
 	fprintf(f, "[Black \"%s\"]\n", game->name[BLACK]);
 	fprintf(f, "[White \"%s\"]\n", game->name[WHITE]);
@@ -1548,7 +1559,7 @@ int game_analyze(Game *game, Search *search, const int n_empties, const bool app
 		Move best;
 		Line pv;
 		int n_empties;
-	} stack[99];
+	} stack[121];
 	int n_error = 0;
 	int n_move;
 	const int verbosity = search->options.verbosity;
@@ -1564,6 +1575,7 @@ int game_analyze(Game *game, Search *search, const int n_empties, const bool app
 		if (!can_move(board.player, board.opponent)) {
 			stack[n_move].best = MOVE_INIT;
 			line_init(&stack[n_move].pv, player);
+			stack[n_move].n_empties = bit_count(~(board.player | board.opponent));
 			stack[n_move++].played = MOVE_PASS;
 			board_pass(&board);
 			player = !player;
@@ -1589,6 +1601,7 @@ int game_analyze(Game *game, Search *search, const int n_empties, const bool app
 			game_export_text(game, stderr);
 			board_print(&board, player, stderr);
 			fprintf(stderr, "\n\n");			
+			search->options.verbosity = verbosity;
 			return 1; // stop, illegal moves
 		}
 	}
@@ -1599,18 +1612,18 @@ int game_analyze(Game *game, Search *search, const int n_empties, const bool app
 		search_run(search);
 		score = search->result->score;
 		
-		for (i = n_move - 1; stack[i].n_empties <= n_empties; --i) {
+		for (i = n_move - 1; i >= 0 && stack[i].n_empties <= n_empties; --i) {
 			stack[i].played.score = -score;
 			score = MAX(stack[i].played.score, stack[i].best.score);
 		}
 		
 		//backpropagate the score
-		while (stack[--n_move].n_empties <= n_empties) {
+		while (n_move > 0 && stack[--n_move].n_empties <= n_empties) {
 			if (stack[n_move].played.score < stack[n_move].best.score) {
 				++n_error;
 				// correct the move?
 				if (apply_correction && stack[n_move].best.x != NOMOVE) {
-					for (i = 0; i < 60 && game->move[i] != 0; ++i) {
+					for (i = 0; i < 60 && game->move[i] != NOMOVE; ++i) {
 						if (game->move[i] == stack[n_move].played.x) {
 							game_append_line(game, &stack[n_move].pv, i);
 						}
@@ -1675,4 +1688,3 @@ int game_complete(Game *game, Search *search)
 
 	return n;
 }
-

@@ -20,6 +20,28 @@
 #include "util.h"
 
 #include <locale.h>
+#include <stdio.h>
+#include <string.h>
+
+/**
+ * @brief Build the path of config.ini next to the executable.
+ *
+ * @param executable Executable path from argv[0].
+ * @param config_file Output path.
+ */
+static void get_config_file_path(const char *executable, char *config_file)
+{
+	const char *slash = strrchr(executable, '/');
+	const char *backslash = strrchr(executable, '\\');
+	const char *separator = slash;
+	size_t directory_length;
+
+	if (backslash && (!separator || backslash > separator)) separator = backslash;
+	directory_length = separator ? (size_t)(separator - executable + 1) : 0;
+	if (directory_length + sizeof("config.ini") > FILENAME_MAX + 1) directory_length = 0;
+	memcpy(config_file, executable, directory_length);
+	strcpy(config_file + directory_length, "config.ini");
+}
 
 /**
  * @brief Print version & copyright.
@@ -69,6 +91,7 @@ int main(int argc, char **argv)
 {
 	UI *ui;
 	int i, r, level = 0, size = 8;
+	char config_file[FILENAME_MAX + 1];
 	char *problem_file = NULL;
 	char *wthor_file = NULL;
 	char *count_type = NULL;
@@ -79,6 +102,8 @@ int main(int argc, char **argv)
 
 	// options from edax.ini
 	options_parse("edax.ini");
+	get_config_file_path(argv[0], config_file);
+	options_parse(config_file);
 
 	// allocate ui
 	ui = (UI*) mm_malloc(sizeof *ui);	// Eval in Search in Play in UI
