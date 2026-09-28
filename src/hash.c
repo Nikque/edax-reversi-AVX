@@ -69,7 +69,7 @@ void hash_init(HashTable *hash_table, const unsigned long long size)
 	}
 
 	hash_table->n_hash = hash_table->hash_mask + HASH_N_WAY;	// (4.5.5)
-	hash_cleanup(hash_table);
+	hash_wipe(hash_table);
 
 	hash_table->n_lock = 1 << (31 - lzcnt_u32(get_cpu_number() | 1) + 8);	// round down to 2 ^ n, then * 256
 	hash_table->lock_mask = hash_table->n_lock - 1;
@@ -82,10 +82,35 @@ void hash_init(HashTable *hash_table, const unsigned long long size)
 /**
  * @brief Clear the hashtable.
  *
- * Set all hash table entries to zero.
+ * Make all hash table entries empty.
+ * The entries are not rewritten: the table base date moves past
+ * every stored date, and entries dated before the base are handled exactly as empty ones
+ * (no match, lowest level). The memory is only wiped when the date range is used up.
+ *
  * @param hash_table Hash table to clear.
  */
 void hash_cleanup(HashTable *hash_table)
+{
+	// newer than any stored date (hash_feed may store date 1 while date is 0)
+	const unsigned int next_base = hash_table->base + hash_table->date + 2;
+
+	assert(hash_table != NULL && hash_table->hash != NULL);
+	if (next_base <= 255 - 127) {	// room for dates up to 127 after the base
+		info("< cleaning hashtable (base %d) >\n", next_base);
+		hash_table->base = (unsigned char) next_base;
+		hash_table->date = 0;
+		return;
+	}
+	hash_wipe(hash_table);
+}
+
+/**
+ * @brief Clear the hashtable memory.
+ *
+ * Set all hash table entries to zero.
+ * @param hash_table Hash table to clear.
+ */
+void hash_wipe(HashTable *hash_table)
 {
 	unsigned int i = 0, imax = hash_table->n_hash;
 	Hash *pHash = hash_table->hash;
@@ -129,6 +154,7 @@ void hash_cleanup(HashTable *hash_table)
 		pHash->data = HASH_DATA_INIT;
 	}
 	hash_table->date = 0;
+	hash_table->base = 0;
 }
 
 /**
@@ -177,6 +203,21 @@ inline unsigned int writeable_level(HashData *data)
 #else	// slow but more portable implementation.
 	return (data->wl.c.date << 24) + (data->wl.c.cost << 16) + (data->wl.c.selectivity << 8) + data->wl.c.depth;
 #endif
+}
+
+/** true if the entry was stored after the last cleanup (else it is empty). */
+#define	hash_is_live(hash_table, hash)	((hash)->data.wl.c.date >= (hash_table)->base)
+
+/**
+ * @brief Level of an entry, as an eagerly cleaned table would have it.
+ *
+ * @param hash_table Hash table.
+ * @param hash Hash entry.
+ * @return level with the date relative to the base, 0 for an empty entry.
+ */
+static inline unsigned int entry_level(const HashTable *hash_table, Hash *hash)
+{
+	return hash_is_live(hash_table, hash) ? writeable_level(&hash->data) - ((unsigned int) hash_table->base << 24) : 0;
 }
 
 /**
@@ -349,13 +390,13 @@ static void hash_set(Hash *hash, HashLock *lock, const Board *board, HashStoreDa
  * @param storedata.move Best move.
  * @return true if an entry has been updated, false otherwise.
  */
-static bool hash_update(Hash *hash, HashLock *lock, const Board *board, HashStoreData *storedata)
+static bool hash_update(const HashTable *hash_table, Hash *hash, HashLock *lock, const Board *board, HashStoreData *storedata)
 {
 	bool ok = false;
 
-	if (board_equal(&hash->board, board)) {
+	if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 		spin_lock(lock);
-		if (board_equal(&hash->board, board)) {
+		if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 			if (hash->data.wl.us.selectivity_depth == storedata->data.wl.us.selectivity_depth)
 				data_update(&hash->data, storedata);
 			else	data_upgrade(&hash->data, storedata);
@@ -391,13 +432,13 @@ static bool hash_update(Hash *hash, HashLock *lock, const Board *board, HashStor
  * @param storedata.move Best move.
  * @return true if an entry has been replaced, false otherwise.
  */
-static bool hash_replace(Hash *hash, HashLock *lock, const Board *board, HashStoreData *storedata)
+static bool hash_replace(const HashTable *hash_table, Hash *hash, HashLock *lock, const Board *board, HashStoreData *storedata)
 {
 	bool ok = false;
 
-	if (board_equal(&hash->board, board)) {
+	if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 		spin_lock(lock);
-		if (board_equal(&hash->board, board)) {
+		if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 			data_new(&hash->data, storedata);
 			ok = true;
 		}
@@ -419,13 +460,13 @@ static bool hash_replace(Hash *hash, HashLock *lock, const Board *board, HashSto
  * @param storedata.data.upper Upper score bound.
  * @param storedata.move Best move.
  */
-static bool hash_reset(Hash *hash, HashLock *lock, const Board *board, HashStoreData *storedata)
+static bool hash_reset(const HashTable *hash_table, Hash *hash, HashLock *lock, const Board *board, HashStoreData *storedata)
 {
 	bool ok = false;
 
-	if (board_equal(&hash->board, board)) {
+	if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 		spin_lock(lock);
-		if (board_equal(&hash->board, board)) {
+		if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 			if (hash->data.wl.us.selectivity_depth == storedata->data.wl.us.selectivity_depth) {
 				if (hash->data.lower < storedata->data.lower) hash->data.lower = storedata->data.lower;
 				if (hash->data.upper > storedata->data.upper) hash->data.upper = storedata->data.upper;
@@ -466,17 +507,17 @@ void hash_feed(HashTable *hash_table, const Board *board, const unsigned long lo
 	HashLock *lock; 
 	int i;
 
-	storedata->data.wl.c.date = hash_table->date ? hash_table->date : 1;
+	storedata->data.wl.c.date = (hash_table->date ? hash_table->date : 1) + hash_table->base;
 	storedata->data.wl.c.cost = 0;
 
 	worst = hash = hash_table->hash + (hash_code & hash_table->hash_mask);
 	lock = hash_table->lock + (hash_code & hash_table->lock_mask);
-	if (hash_reset(hash, lock, board, storedata)) return;
+	if (hash_reset(hash_table, hash, lock, board, storedata)) return;
 
 	for (i = 1; i < HASH_N_WAY; ++i) {
 		++hash;
-		if (hash_reset(hash, lock, board, storedata)) return;
-		if (writeable_level(&worst->data) > writeable_level(&hash->data)) {
+		if (hash_reset(hash_table, hash, lock, board, storedata)) return;
+		if (entry_level(hash_table, worst) > entry_level(hash_table, hash)) {
 			worst = hash;
 		}
 	}
@@ -523,13 +564,13 @@ void hash_store(HashTable *hash_table, const Board *board, const unsigned long l
 
 	worst = hash = hash_table->hash + (hash_code & hash_table->hash_mask);
 	lock = hash_table->lock + (hash_code & hash_table->lock_mask);
-	storedata->data.wl.c.date = hash_table->date;
-	if (hash_update(hash, lock, board, storedata)) return;
+	storedata->data.wl.c.date = hash_table->date + hash_table->base;
+	if (hash_update(hash_table, hash, lock, board, storedata)) return;
 
 	for (i = 1; i < HASH_N_WAY; ++i) {
 		++hash;
-		if (hash_update(hash, lock, board, storedata)) return;
-		if (writeable_level(&worst->data) > writeable_level(&hash->data)) {
+		if (hash_update(hash_table, hash, lock, board, storedata)) return;
+		if (entry_level(hash_table, worst) > entry_level(hash_table, hash)) {
 			worst = hash;
 		}
 	}
@@ -597,13 +638,13 @@ void hash_force(HashTable *hash_table, const Board *board, const unsigned long l
 
 	worst = hash = hash_table->hash + (hash_code & hash_table->hash_mask);
 	lock = hash_table->lock + (hash_code & hash_table->lock_mask);
-	storedata->data.wl.c.date = hash_table->date;
-	if (hash_replace(hash, lock, board, storedata)) return;
+	storedata->data.wl.c.date = hash_table->date + hash_table->base;
+	if (hash_replace(hash_table, hash, lock, board, storedata)) return;
 
 	for (i = 1; i < HASH_N_WAY; ++i) {
 		++hash;
-		if (hash_replace(hash, lock, board, storedata)) return;
-		if (writeable_level(&worst->data) > writeable_level(&hash->data)) {
+		if (hash_replace(hash_table, hash, lock, board, storedata)) return;
+		if (entry_level(hash_table, worst) > entry_level(hash_table, hash)) {
 			worst = hash;
 		}
 	}
@@ -643,13 +684,14 @@ bool hash_get(HashTable *hash_table, const Board *board, const unsigned long lon
 		HASH_COLLISIONS(	})
 		HASH_COLLISIONS(	spin_unlock(lock);)
 		HASH_COLLISIONS(})
-		if (board_equal(&hash->board, board)) {
+		if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 			lock = hash_table->lock + (hash_code & hash_table->lock_mask);
 			spin_lock(lock);
-			if (board_equal(&hash->board, board)) {
+			if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 				*data = hash->data;
+				data->wl.c.date -= hash_table->base;	// as stored by an eagerly cleaned table
 				HASH_STATS(++statistics.n_hash_found;)
-				hash->data.wl.c.date = hash_table->date;
+				hash->data.wl.c.date = hash_table->date + hash_table->base;
 				ok = true;
 			}
 			spin_unlock(lock);
@@ -690,10 +732,10 @@ void hash_exclude_move(HashTable *hash_table, const Board *board, const unsigned
 
 	hash = hash_table->hash + (hash_code & hash_table->hash_mask);
 	for (i = 0; i < HASH_N_WAY; ++i) {
-		if (board_equal(&hash->board, board)) {
+		if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 			lock = hash_table->lock + (hash_code & hash_table->lock_mask);
 			spin_lock(lock);
-			if (board_equal(&hash->board, board)) {
+			if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 				if (hash->data.move[0] == move) {
 					hash->data.move[0] = hash->data.move[1];
 					hash->data.move[1] = NOMOVE;
@@ -726,6 +768,7 @@ void hash_copy(const HashTable *src, HashTable *dest)
 		*pDest++ = *pSrc++;
 	}
 	dest->date = src->date;
+	dest->base = src->base;
 }
 
 /**

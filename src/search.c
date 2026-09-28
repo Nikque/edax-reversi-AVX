@@ -366,7 +366,7 @@ void search_alloc_thread_hash(Search *search)
 	}
 	search->thread_hash.hash_mask = (1 << THREAD_LOCAL_HASH_SIZE) - 1;
 	search->thread_hash.n_hash = 1 << THREAD_LOCAL_HASH_SIZE;
-	hash_cleanup(&search->thread_hash);
+	hash_wipe(&search->thread_hash);	// read directly by NWS_endgame_local(), so really cleared
 }
 
 /**
