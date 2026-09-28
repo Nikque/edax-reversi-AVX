@@ -29,6 +29,8 @@ Performance (the results of every command are unchanged, except where noted in t
 
 New option: `book-merge-auto-save` (`config.ini`, or `-book-merge-auto-save on/off`; default `on`) saves the book to `<book file>.mrg` after each successful `book merge`. The original book file is not overwritten, and the save on exit is unchanged. With `off`, `book merge` behaves exactly as before.
 
+Builds: Windows with Visual Studio 2022 (MSVC 19.44), Linux with gcc 11.4 on Ubuntu 22.04, Android with NDK r27d, macOS x64 with the release-binaries workflow. The 32-bit Linux build links libatomic statically (i486 or later). The 32-bit macOS executable is still omitted.
+
 ## v4.5.5-nikque.2 and earlier: 18 bug fixes and build notes
 
 This fork starts from upstream tag `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It adds `book deviate2`, `book deviate3`, and configurable book autosave, and corrects the following 18 bugs. The original `book deviate` now re-probes its root after the first `book_expand`: `book_add` can move a hash bucket's `Position` array with `realloc`, so passing the old root pointer to the second `position_deviate` could access freed memory. Its selection rules are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for command examples and the `book merge` workflow.

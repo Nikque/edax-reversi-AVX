@@ -125,7 +125,7 @@ Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuha
 | macOS Intel x86-64 | `mEdax-x64-modern` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 
-`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。
+`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。v4.5.5-nikque.3 の実行ファイルは、Windows版を Visual Studio 2022（MSVC 19.44）、Linux版を Ubuntu 22.04（WSL）の gcc 11.4、Android版を NDK r27d でビルドし、macOS版は release-binaries ワークフローでビルドしました。32ビットLinux版（`lEdax-x86`）は、bookの並列処理に必要なアトミック命令のため libatomic を静的にリンクしています（i486以降のCPUが必要です）。
 
 元配布物の旧32ビットmacOS用 `mEdax-x86` は除外しました。現在のXcode SDKにはi386用のリンクライブラリがなく修正版をビルドできません。元の実行ファイルをそのまま同梱しても、今回の修正は反映されません。
 
