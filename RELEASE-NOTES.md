@@ -1,5 +1,7 @@
 # Edax 4.5.5: release notes
 
+[日本語](RELEASE-NOTES.ja.md)
+
 ## v4.5.5-nikque.3
 
 Book performance, 11 bug fixes and an automatic save after `book merge`. The book file format is unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for measurements and the output checks against v4.5.5-nikque.2.

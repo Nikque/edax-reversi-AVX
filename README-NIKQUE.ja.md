@@ -1,6 +1,6 @@
 # Edax 4.5.5 修正版
 
-[English](README-NIKQUE.en.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [修正一覧](RELEASE-NOTES.md)
+[English](README-NIKQUE.en.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [修正一覧](RELEASE-NOTES.ja.md)
 
 この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS x64・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
 
@@ -74,7 +74,7 @@ book学習と同時に対局や解析を行う場合は、`n-tasks`（`-n`）で
 | 局面数の上限 | 約21億局面を超えると桁あふれしていました。追加を拒否します。 |
 | バケット数 | 上限が2^26で、10億局面を超えると検索が遅くなっていました。局面数に応じて決めます。 |
 
-一覧は [RELEASE-NOTES.md](RELEASE-NOTES.md) にあります。
+一覧は [RELEASE-NOTES.ja.md](RELEASE-NOTES.ja.md) にあります。
 
 ## bookの学習と保守
 
@@ -102,7 +102,7 @@ book保存時は、一時ファイルへの書き込みをディスクに確定�
 
 ## その他の修正（v4.5.5-nikque.2 まで）
 
-従来の `book deviate` を含む18件のバグを修正しました。全件の一覧は [RELEASE-NOTES.md](RELEASE-NOTES.md) にあります。
+従来の `book deviate` を含む18件のバグを修正しました。全件の一覧は [RELEASE-NOTES.ja.md](RELEASE-NOTES.ja.md) にあります。
 
 | 分野 | 修正内容 |
 |---|---|
