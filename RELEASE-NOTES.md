@@ -2,7 +2,7 @@
 
 ## v4.5.5-nikque.3
 
-Book performance and 11 bug fixes. The book file format is unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for measurements and the output checks against v4.5.5-nikque.2.
+Book performance, 11 bug fixes and an automatic save after `book merge`. The book file format is unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for measurements and the output checks against v4.5.5-nikque.2.
 
 Performance (the results of every command are unchanged, except where noted in the READMEs):
 
@@ -26,6 +26,8 @@ Performance (the results of every command are unchanged, except where noted in t
 | 27 | Clear the padding byte of the book date written in the header. |
 | 28 | Refuse to add positions beyond the `int` limit of the book format. |
 | 29 | Choose the number of buckets from the number of positions (no fixed 2^26 limit) and grow them before a merge that would overload them. |
+
+New option: `book-merge-auto-save` (`config.ini`, or `-book-merge-auto-save on/off`; default `on`) saves the book to `<book file>.mrg` after each successful `book merge`. The original book file is not overwritten, and the save on exit is unchanged. With `off`, `book merge` behaves exactly as before.
 
 ## v4.5.5-nikque.2 and earlier: 18 bug fixes and build notes
 

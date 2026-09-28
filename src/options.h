@@ -87,6 +87,7 @@ typedef struct {
 	int repeat;                           /**< repeat 'n' games (before quitting)*/
 	int book_save_interval;               /**< minutes between timed book saves; 0 disables them */
 	int book_deviate_save_rounds;          /**< productive deviate rounds between saves; 0 means completion only */
+	bool book_merge_auto_save;            /**< save the book to "<book-file>.mrg" after each successful book merge */
 
 	// TODO: add more options?
 } Options;

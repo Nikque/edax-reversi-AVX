@@ -704,6 +704,17 @@ void ui_loop_edax(UI *ui)
 						book_fix_parallel(book);
 						book_negamax(book);
 						book_sort_parallel(book);
+						if (options.book_merge_auto_save) {
+							// keep need_saving: the exit save to the book file behaves as before
+							const bool need_saving = book->need_saving;
+							if (strlen(options.book_file) + sizeof ".mrg" > sizeof book_file) {
+								warn("Book file name too long; merged book was not saved\n");
+							} else {
+								file_add_ext(options.book_file, ".mrg", book_file);
+								if (book_save(book, book_file)) printf("Merged book saved to %s\n", book_file);
+								book->need_saving = need_saving;
+							}
+						}
 					} else warn("Book %s was not merged\n", book_file);
 
 				// fix an opening book

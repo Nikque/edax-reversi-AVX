@@ -84,6 +84,7 @@ Options options = {
 	0, //repeat
 	60, // minutes between timed book saves
 	1, // save after every productive deviate round by default
+	true, // save the merged book after book merge
 };
 
 /**
@@ -124,6 +125,7 @@ void options_usage(void)
 		"  -game-file <file>             file to store all played game/s.\n"
 		"  -book-save-interval <minutes> minutes between timed book saves (0 disables them).\n"
 		"  -book-deviate-save-rounds <n> save deviate progress every n rounds; 0 means completion only.\n"
+		"  -book-merge-auto-save <on/off> save the book to <book-file>.mrg after book merge.\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
@@ -226,6 +228,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "repeat") == 0) parse_int(value, &options.repeat);
 		else if (strcmp(option, "book-save-interval") == 0) options.book_save_interval = string_to_int(value, options.book_save_interval);
 		else if (strcmp(option, "book-deviate-save-rounds") == 0) options.book_deviate_save_rounds = string_to_int(value, options.book_deviate_save_rounds);
+		else if (strcmp(option, "book-merge-auto-save") == 0) parse_boolean(value, &options.book_merge_auto_save);
 
 		else read = 0;
 	}
@@ -371,7 +374,8 @@ void options_dump(FILE *f)
 	fprintf(f, "\tbook allowed: %s\n", boolean_string[options.book_allowed]);
 	fprintf(f, "\tbook randomness: %d\n", options.book_randomness);
 	fprintf(f, "\tbook timed-save interval: %d minutes\n", options.book_save_interval);
-	fprintf(f, "\tbook deviate-save interval: %d productive rounds (0 = completion only)\n\n", options.book_deviate_save_rounds);
+	fprintf(f, "\tbook deviate-save interval: %d productive rounds (0 = completion only)\n", options.book_deviate_save_rounds);
+	fprintf(f, "\tbook merge auto-save: %s\n\n", boolean_string[options.book_merge_auto_save]);
 
 	fprintf(f, "ggs options\n");
 	fprintf(f, "\thost: %s\n", options.ggs_host ? options.ggs_host : "?");

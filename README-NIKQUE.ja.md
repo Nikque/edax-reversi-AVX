@@ -6,7 +6,7 @@
 
 ## v4.5.5-nikque.3 の変更点
 
-大規模book（数億局面・数十GB）で `book deviate`・`book deviate2`・`book deviate3`・`book merge` を使うときの処理時間とメモリ使用量を改善し、11件の不具合を修正しました。bookのファイル形式は変わっていません。以前のbookをそのまま読み書きできます。
+大規模book（数億局面・数十GB）で `book deviate`・`book deviate2`・`book deviate3`・`book merge` を使うときの処理時間とメモリ使用量を改善し、11件の不具合を修正しました。また、`book merge` の後にbookを自動で保存する設定を追加しました。bookのファイル形式は変わっていません。以前のbookをそのまま読み書きできます。
 
 ### 処理時間とメモリ
 
@@ -35,9 +35,18 @@
 
 book学習と同時に対局や解析を行う場合は、`n-tasks`（`-n`）でスレッド数を指定できます。
 
+### merge後の自動保存（新しい設定）
+
+`bin/config.ini` の `book-merge-auto-save` が `on`（既定）のとき、`book merge` が成功すると、統合後のbookを `<bookファイル名>.mrg`（既定では `data/book.dat.mrg`）に自動で保存し、`Merged book saved to data/book.dat.mrg` と表示します。`book save` を別に実行する必要はありません。保存先のファイル名は、deviate系の進捗ファイル（`.dev`・`.dev2`・`.dev3`）と同じく、設定されたbookファイル名に拡張子を付けたものです。`book load` で別のbookを開いている場合も同じ名前になります。
+
+- `.mrg` を使うには、`book load data/book.dat.mrg` で読み込むか、ファイル名を変更してください。元のbook（`data/book.dat`）は自動保存では上書きしません。
+- mergeが失敗した場合（統合元が存在しない・壊れているなど）は保存しません。
+- 終了時の保存は以前と同じです。merge後に `book save` をせずにEdaxを終了すると、以前と同様に設定されたbookファイル（`data/book.dat`）へ保存されます。
+- `off` にすると、`.mrg` の保存と表示を行わず、以前とまったく同じ動作になります。コマンドラインの `-book-merge-auto-save off` でも指定できます。
+
 ### 同一性の確認
 
-変更前後で次のコマンドを同じ条件で実行し、出力が一致することを確認しました。一致しないのは、変更前どうしでも実行ごとに変わる箇所（bookの同点の手からの乱数選択、`.edx` に含まれる値、画面の時間・速度表示）だけです。
+変更前後で次のコマンドを同じ条件で実行し、出力が一致することを確認しました。一致しないのは、変更前どうしでも実行ごとに変わる箇所（bookの同点の手からの乱数選択、`.edx` に含まれる値、画面の時間・速度表示）だけです。新しい自動保存で増える `.mrg` ファイルと表示は、この比較の対象外です（`book-merge-auto-save = off` では変更前と完全に一致します）。
 
 - book：`new`・`load`・`save`・`import`・`export`・`merge`・`info`・`stats`・`show`・`analyze`・`fix`・`negamax`・`correct`・`prune`・`subtree`・`add`・`check`・`problem`・`extract`・`deviate`・`deviate2`・`deviate3`・`enhance`・`play`・`deepen`・`feed-hash`・`store`・`depth`・`randomness`・`on`・`off`
 - 対局：`play`・`go`・`hint`・`save`・`load`・`vmirror`・`hmirror`・`rotate`・`undo`・`redo`・`setboard`
@@ -87,7 +96,7 @@ bookを読み込んだEdaxのコマンド入力画面で、次のコマンドを
 
 ### `book merge` と `book fix`
 
-bookを統合するには、統合先のbookを読み込んで `book merge source.dat` を実行し、結果を残す場合は `book save merged.dat` で保存します。mergeは統合元にしかない局面を追加し、統合先に既にある局面は上書きしません。続いてLinkの再構築、不整合な局面（古い `nomove` Leafを含む）の修復、評価値の再計算、着手の並べ替えを行います。Linkの張り直しで統合先の局面のLeafが空になった場合、統合元の同じ局面のLeafがまだLinkになっていなければそれを使い、そうでなければ探索します。現在のbookを単独で修復する `book fix` も利用できますが、このmerge手順の前提条件ではありません。統合元のファイルが存在しない、または構造が壊れている場合、mergeを中止し現在のbookを維持します。merge中のメモリ使用量は統合先のbookの分だけです。
+bookを統合するには、統合先のbookを読み込んで `book merge source.dat` を実行します。`book-merge-auto-save = on`（既定）なら結果は `<bookファイル名>.mrg` に自動で保存されます。別の名前で残す場合や `off` の場合は `book save merged.dat` で保存します。mergeは統合元にしかない局面を追加し、統合先に既にある局面は上書きしません。続いてLinkの再構築、不整合な局面（古い `nomove` Leafを含む）の修復、評価値の再計算、着手の並べ替えを行います。Linkの張り直しで統合先の局面のLeafが空になった場合、統合元の同じ局面のLeafがまだLinkになっていなければそれを使い、そうでなければ探索します。現在のbookを単独で修復する `book fix` も利用できますが、このmerge手順の前提条件ではありません。統合元のファイルが存在しない、または構造が壊れている場合、mergeを中止し現在のbookを維持します。merge中のメモリ使用量は統合先のbookの分だけです。
 
 book保存時は、一時ファイルへの書き込みをディスクに確定させてから保存先を置き換えます。保存に失敗しても旧bookを保持しますが、保存中はbookとほぼ同じ容量の追加空き領域が必要です。
 
@@ -116,7 +125,7 @@ Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuha
 | macOS Intel x86-64 | `mEdax-x64-modern` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 
-`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。
+`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。
 
 元配布物の旧32ビットmacOS用 `mEdax-x86` は除外しました。現在のXcode SDKにはi386用のリンクライブラリがなく修正版をビルドできません。元の実行ファイルをそのまま同梱しても、今回の修正は反映されません。
 
