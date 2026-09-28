@@ -1118,8 +1118,10 @@ static void position_negamax_parallel(Position *position, Book *book, const int 
 		int spin = 0;
 		while (atomic_load_uchar(&position->done) != done) {
 			if (++spin < 64) {
-#if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
+#if defined(_M_X64) || defined(_M_IX86)
 				_mm_pause();
+#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+				__builtin_ia32_pause(); // same as _mm_pause(), also without SSE headers (-march=i386)
 #endif
 			} else {
 				spin = 0;

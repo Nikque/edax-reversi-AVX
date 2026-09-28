@@ -78,6 +78,8 @@ ifeq ($(COMP),gcc)
 	endif
 	ifeq ($(ARCH),x86)
 		CFLAGS += -m32 -march=i386 -mtune=generic -DUSE_GAS_X86 -fno-pie -no-pie
+		# i386 has no cmpxchg: the book's atomic compare-exchange calls libatomic
+		LIBS += -l:libatomic.a
 		ifeq ($(BUILD),optimize)
 			CFLAGS += -fomit-frame-pointer
 		endif
