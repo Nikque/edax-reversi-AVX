@@ -1052,6 +1052,30 @@ int get_cpu_number(void)
 }
 
 /**
+ * @brief Get the size of the physical memory.
+ * @return Memory size in bytes, 0 if unknown.
+ */
+unsigned long long get_physical_memory(void)
+{
+#if defined(_WIN32)
+	MEMORYSTATUSEX status;
+
+	status.dwLength = sizeof (status);
+	if (GlobalMemoryStatusEx(&status)) return status.ullTotalPhys;
+	return 0;
+
+#elif defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
+	long pages = sysconf(_SC_PHYS_PAGES), page_size = sysconf(_SC_PAGESIZE);
+
+	if (pages > 0 && page_size > 0) return (unsigned long long) pages * page_size;
+	return 0;
+
+#else
+	return 0;
+#endif
+}
+
+/**
  * @brief Pseudo-random number generator.
  *
  * A good pseudo-random generator (derived from rand48 or Java's one) to set the

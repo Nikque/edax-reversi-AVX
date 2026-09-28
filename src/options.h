@@ -88,6 +88,7 @@ typedef struct {
 	int book_save_interval;               /**< minutes between timed book saves; 0 disables them */
 	int book_deviate_save_rounds;          /**< productive deviate rounds between saves; 0 means completion only */
 	bool book_merge_auto_save;            /**< save the book to "<book-file>.mrg" after each successful book merge */
+	bool hash_table_auto;                 /**< choose hash_table_size from the thread count and the memory size */
 
 	// TODO: add more options?
 } Options;

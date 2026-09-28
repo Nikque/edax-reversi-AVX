@@ -85,6 +85,7 @@ Options options = {
 	60, // minutes between timed book saves
 	1, // save after every productive deviate round by default
 	true, // save the merged book after book merge
+	false, // hash table size set by hash-table-size (auto: from the thread count and the memory size)
 };
 
 /**
@@ -102,7 +103,7 @@ void options_usage(void)
 		"  -vv                           very verbose mode (eq. -verbose 2).\n"
 		"  -noise <n>                    noise level (print search output from ply <n>).\n"
 		"  -width <n>                    line width.\n"
-		"  -h|hash-table-size <nbits>    hash table size.\n"
+		"  -h|hash-table-size <nbits>    hash table size (2^nbits entries), or auto.\n"
 		"  -n|n-tasks <n>                search in parallel using n tasks.\n"
 		"  -cpu                          search using 1 cpu/thread.\n"
 #ifdef __APPLE__
@@ -163,7 +164,10 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "noise") == 0) options.noise = string_to_int(value, options.noise);
 		else if (strcmp(option, "width") == 0) options.width = string_to_int(value, options.width);
 
-		else if (strcmp(option, "h") == 0  || strcmp(option, "hash-table-size") == 0) options.hash_table_size = string_to_int(value, options.hash_table_size);
+		else if (strcmp(option, "h") == 0  || strcmp(option, "hash-table-size") == 0) {
+			options.hash_table_auto = (strcmp(value, "auto") == 0);
+			if (!options.hash_table_auto) options.hash_table_size = string_to_int(value, options.hash_table_size);
+		}
 		else if (strcmp(option, "n") == 0 || strcmp(option, "n-tasks") == 0) options.n_task = string_to_int(value, options.n_task);
 		else if (strcmp(option, "l") == 0 || strcmp(option, "level") == 0) {
 			options.level = string_to_int(value, options.level);
@@ -292,6 +296,30 @@ void options_parse(const char *file)
 }
 
 /**
+ * @brief Choose the hash table size from the number of search threads and the memory size.
+ *
+ * More threads fill the table faster, so it grows with the thread count (one bit when it is
+ * multiplied by 4: 21 for 1-3 threads, 22 for 4-15, 23 for 16-63; the gain measured with larger
+ * tables was small). The three tables (main + pv + shallow, 27 bytes per main entry) use at most
+ * 1/32 of the memory.
+ *
+ * @param n_task Number of search threads.
+ * @return hash table size (in number of bits).
+ */
+static int hash_table_size_auto(const int n_task)
+{
+	const unsigned long long memory = get_physical_memory();
+	int size = 21, n;
+
+	for (n = 4; n <= n_task; n *= 4) ++size;
+	if (size > 25) size = 25;
+	if (memory) {
+		while (size > 21 && (27ULL << size) > memory / 32) --size;
+	}
+	return size;
+}
+
+/**
  * @brief Keep options between realistic values.
  */
 void options_bound(void) 
@@ -299,14 +327,15 @@ void options_bound(void)
 	int tmp;
 	int max_threads;
 
+	max_threads = MIN(get_cpu_number(), MAX_THREADS);
+	BOUND(options.n_task, 1, max_threads, "n-tasks");
+
+	if (options.hash_table_auto) options.hash_table_size = hash_table_size_auto(options.n_task);
 	if (sizeof (void*) == 4) {
 		BOUND(options.hash_table_size, 10, 25, "hash-table-size");	// 51KB to 1.7GB
 	} else {
 		BOUND(options.hash_table_size, 10, 30, "hash-table-size");	// 51KB to 53GB
 	}
-
-	max_threads = MIN(get_cpu_number(), MAX_THREADS);
-	BOUND(options.n_task, 1, max_threads, "n-tasks");
 
 	BOUND(options.verbosity, 0, 4, "verbosity");
 	BOUND(options.noise, 0, 60, "noise");
