@@ -242,14 +242,28 @@ typedef pthread_mutex_t SpinLock;
 #include <winsock2.h>
 #include <windows.h>
 
+/** Light locks like pthread spin lock / mutex on other systems (not recursive); CRITICAL_SECTION when unavailable. */
+#if !defined(EDAX_WIN_CRITICAL_SECTION) && (defined(_MSC_VER) || (defined(_WIN32_WINNT) && _WIN32_WINNT >= 0x0600))
+	#define WIN_SPINLOCK
+	#define WIN_SRWLOCK
+#endif
+
 /** Typedef to a personalized Thread type for portability */
 typedef HANDLE Thread;
 
 /** Typedef to a personalized Lock type for portability */
+#ifdef WIN_SRWLOCK
+typedef SRWLOCK Lock;
+#else
 typedef CRITICAL_SECTION Lock;
+#endif
 
 /** Typedef to a personalized SpinLock type for portability */
+#ifdef WIN_SPINLOCK
+typedef volatile long SpinLock;
+#else
 typedef CRITICAL_SECTION SpinLock;
+#endif
 
 /** Some buggy compilers need the following declarations */
 #if defined __MINGW32__ && (_WIN32_WINNT < 0x0600)
@@ -273,7 +287,11 @@ typedef CONDITION_VARIABLE Condition;
 #define condition_init(c) InitializeConditionVariable(&(c)->cond)
 
 /** wait for a condition change */
+#ifdef WIN_SRWLOCK
+#define condition_wait(c) SleepConditionVariableSRW(&(c)->cond, &(c)->lock, INFINITE, 0)
+#else
 #define condition_wait(c) SleepConditionVariableCS(&(c)->cond, &(c)->lock, INFINITE)
+#endif
 
 /** signal a condition change */
 #define condition_signal(c) WakeConditionVariable(&(c)->cond)
@@ -289,6 +307,13 @@ typedef CONDITION_VARIABLE Condition;
 /** @macro to detach a thread */
 #define thread_detach(thread) CloseHandle(thread)
 
+#ifdef WIN_SRWLOCK
+/** slim reader/writer lock used as a mutex (like pthread_mutex on other systems; not recursive) */
+#define lock(c) AcquireSRWLockExclusive(&(c)->lock)
+#define unlock(c) ReleaseSRWLockExclusive(&(c)->lock)
+#define lock_init(c) InitializeSRWLock(&(c)->lock)
+#define lock_free(c) ((void) 0)
+#else
 /** @macro Lock a spinlock with a macro for genericity */
 #define lock(c) EnterCriticalSection(&(c)->lock)
 
@@ -300,7 +325,32 @@ typedef CONDITION_VARIABLE Condition;
 
 /** @macro Initialize a mutex with a macro for genericity. */
 #define lock_free(c) DeleteCriticalSection(&(c)->lock)
+#endif
 
+#ifdef WIN_SPINLOCK
+/** Test-and-test-and-set spin lock (like pthread_spin_lock on other systems; not recursive). */
+static inline void win_spin_lock(volatile long *s)
+{
+	while (_InterlockedExchange(s, 1)) {
+		do YieldProcessor(); while (*s);
+	}
+}
+
+static inline void win_spin_unlock(volatile long *s)
+{
+  #if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
+	_ReadWriteBarrier();	// x86 stores have release semantics
+	*s = 0;
+  #else
+	_InterlockedExchange(s, 0);
+  #endif
+}
+
+#define spin_lock(c) win_spin_lock(&(c)->spin)
+#define spin_unlock(c) win_spin_unlock(&(c)->spin)
+#define spin_init(c) ((c)->spin = 0)
+#define spin_free(c) ((void) 0)
+#else
 /** @macro Lock a spinlock with a macro for genericity */
 #define spin_lock(c) EnterCriticalSection(&(c)->spin)
 
@@ -312,6 +362,7 @@ typedef CONDITION_VARIABLE Condition;
 
 /** @macro Initialize a mutex with a macro for genericity. */
 #define spin_free(c) DeleteCriticalSection(&(c)->spin)
+#endif
 
 
 #endif
@@ -335,6 +386,7 @@ static inline void atomic_add(volatile unsigned long long *value, long long i)
 
 void cpu(void);
 int get_cpu_number(void);
+unsigned long long get_physical_memory(void);
 
 /*
  * Error management
