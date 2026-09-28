@@ -26,6 +26,23 @@
 #define RCD 0.5
 #endif
 
+/** 512-bit registers available (not disabled by -mno-evex512 / AVX10/256) */
+#if defined(__AVX512F__) && !defined(EVAL_GATHER512)
+  #if defined(__EVEX512__)
+	#define EVAL_GATHER512
+  #elif defined(__clang__)
+    #if __clang_major__ < 18	// no -mno-evex512 before clang 18
+	#define EVAL_GATHER512
+    #endif
+  #elif defined(__GNUC__)
+    #if __GNUC__ < 14	// no -mno-evex512 before gcc 14
+	#define EVAL_GATHER512
+    #endif
+  #elif defined(_MSC_VER)
+	#define EVAL_GATHER512
+  #endif
+#endif
+
 /**
  * @brief evaluate a midgame position with the evaluation function.
  *
@@ -47,7 +64,36 @@ static int accumlate_eval(int ply, Eval *eval)
 	if (ply >= EVAL_N_2PLY - 1)
 		ply = EVAL_N_2PLY - 2;
 
-#if defined(__AVX2__) && !defined(__bdver4__) && !defined(__znver1__) && !defined(__znver2__)
+#ifdef EVAL_GATHER512
+	// 46 features in 3 x 16-lane gathers (the last 2 lanes unused); integer sums, so the same value as below.
+	enum {
+		W_C9 = offsetof(Eval_weight, C9) / 4,
+		W_C10 = offsetof(Eval_weight, C10) / 4,
+		W_S100 = offsetof(Eval_weight, S100) / 4,
+		W_S101 = offsetof(Eval_weight, S101) / 4,
+		W_S8 = offsetof(Eval_weight, S8x4) / 4,
+		W_S7 = offsetof(Eval_weight, S7654) / 4
+	};
+	w = *EVAL_WEIGHT + ply;
+	__m128i SW = _mm_cvtsi32_si128((b0 ^ 1) * 16);	// 16 for even, 0 for odd
+	__m512i FF = _mm512_add_epi32(_mm512_cvtepu16_epi32(eval->feature.v16[0]), _mm512_set_epi32(
+		W_S101, W_S101, W_S101, W_S101, W_S100, W_S100, W_S100, W_S100, W_C10, W_C10, W_C10, W_C10, W_C9, W_C9, W_C9, W_C9));
+	__m512i DD = _mm512_i32gather_epi32(FF, (const int *) w, 4);
+	__m512i SS = _mm512_srai_epi32(_mm512_sll_epi32(DD, SW), 16);	// select word and sign extend
+
+	FF = _mm512_add_epi32(_mm512_cvtepu16_epi32(eval->feature.v16[1]), _mm512_set_epi32(
+		W_S7, W_S7, W_S8, W_S8, W_S8, W_S8, W_S8, W_S8, W_S8, W_S8, W_S8, W_S8, W_S8, W_S8, W_S8, W_S8));
+	DD = _mm512_i32gather_epi32(FF, (const int *) w, 4);
+	SS = _mm512_add_epi32(SS, _mm512_srai_epi32(_mm512_sll_epi32(DD, SW), 16));
+
+	FF = _mm512_add_epi32(_mm512_cvtepu16_epi32(eval->feature.v16[2]), _mm512_set1_epi32(W_S7));
+	DD = _mm512_mask_i32gather_epi32(_mm512_setzero_si512(), 0x3fff, FF, (const int *) w, 4);
+	SS = _mm512_add_epi32(SS, _mm512_srai_epi32(_mm512_sll_epi32(DD, SW), 16));
+	sum = _mm512_reduce_add_epi32(SS);
+	w = (Eval_weight *)(w->S0 + b0);
+	return sum + *(w->S0);
+
+#elif defined(__AVX2__) && !defined(__bdver4__) && !defined(__znver1__) && !defined(__znver2__)
 	enum {
 		W_C9 = offsetof(Eval_weight, C9) / 4,
 		W_C10 = offsetof(Eval_weight, C10) / 4,
