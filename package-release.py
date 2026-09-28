@@ -36,6 +36,7 @@ OTHER_FILES = (
     "README-NIKQUE.en.md",
     "README-NIKQUE.ja.md",
     "RELEASE-NOTES.md",
+    "RELEASE-NOTES.ja.md",
     "bin/README.MS-Windows.txt",
     "bin/config.ini",
     "bin/data/book.dat",

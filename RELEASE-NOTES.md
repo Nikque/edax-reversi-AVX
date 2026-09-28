@@ -13,7 +13,7 @@ Performance (the results of every command are unchanged, except where noted in t
 - Negamax, the selection of the positions to expand by `book deviate`, `deviate2` and `deviate3`, and the link rebuild, check and sort of `book merge` run on `n-tasks` threads.
 - `book_clean` no longer rewrites every position, and positions to expand are recorded instead of being searched for in the whole book (same expansion order).
 - `deviate2`/`deviate3` process positions by increasing accumulated loss, so each position is walked once.
-- `book merge` streams the source file (check pass, then merge pass) instead of loading it, and reuses the source Leaf of a relinked position instead of searching it again when the source Leaf is still not a Link.
+- `book merge` streams the source file (check pass, then merge pass) instead of loading it, and reuses the source Leaf of a relinked position instead of searching it again when the source Leaf is still not a Link. This reuse makes a merge of two 657-million-position books about 42 times faster (10,934 s to 263 s; 16,408 s and 117.2 GiB with v4.5.5-nikque.2, 263 s and 37.0 GiB now), but a few scores may differ slightly from a new search: 27,897 of 659 million positions (0.004%) in that merge, mostly by 1 or 2. v4.5.5-nikque.2 itself varies by a similar amount between runs.
 
 | ID | Corrected behavior |
 |---|---|
