@@ -3184,7 +3184,7 @@ static void* depth_worker_run(void *v)
 	DeviateWorker *w = &lw->w;
 	Book *book = w->book;
 	const int parity = lw->level & 1;
-	const int player_deviation = parity ? w->b : w->a, opponent_deviation = parity ? w->a : w->b;
+	const int player_deviation = parity ? w->b : w->a; // the child ply uses the other deviation
 	const int lower = parity ? -w->upper : w->lower, upper = parity ? -w->lower : w->upper;
 	const int mark = (book->epoch << 24) | parity, child_mark = (book->epoch << 24) | (parity ^ 1);
 	long long k;

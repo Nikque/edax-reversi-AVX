@@ -16,4 +16,6 @@ tests\regression.exe core 1
 tests\regression.exe core 4
 ```
 
+v4.5.5-nikque.3 adds `missinglink` (a link to a missing position is skipped by negamax and removed by `book fix`), `mergefile` (a truncated merge source leaves the destination unchanged; a complete one is merged), and `linkstore` (links move between in-place and heap storage without loss).
+
 Additional case names are listed in `tests/regression.c`. Some cases write small `audit-*` files in the current directory. Run them from a disposable checkout if you want to keep the source directory clean.
