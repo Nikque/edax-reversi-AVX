@@ -1,4 +1,33 @@
-# Edax 4.5.5: 18 bug fixes and build notes
+# Edax 4.5.5: release notes
+
+## v4.5.5-nikque.3
+
+Book performance and 11 bug fixes. The book file format is unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for measurements and the output checks against v4.5.5-nikque.2.
+
+Performance (the results of every command are unchanged, except where noted in the READMEs):
+
+- Books are read and written through a 16 MB buffer.
+- An in-memory position takes 56 bytes (was 64) and stores up to 4 links itself; a book saved by Edax is loaded into one exactly sized block.
+- Negamax, the selection of the positions to expand by `book deviate`, `deviate2` and `deviate3`, and the link rebuild, check and sort of `book merge` run on `n-tasks` threads.
+- `book_clean` no longer rewrites every position, and positions to expand are recorded instead of being searched for in the whole book (same expansion order).
+- `deviate2`/`deviate3` process positions by increasing accumulated loss, so each position is walked once.
+- `book merge` streams the source file (check pass, then merge pass) instead of loading it, and reuses the source Leaf of a relinked position instead of searching it again when the source Leaf is still not a Link.
+
+| ID | Corrected behavior |
+|---|---|
+| 19 | Skip links to positions missing from the book instead of crashing; `book fix` removes them. |
+| 20 | Initialize the engine before reading piped commands: a `quit` received while the book was loading crashed Edax. |
+| 21 | `book fill` no longer walks a board stored in a bucket array that may move while positions are added (use after free). |
+| 22 | Report duplicate or failed position additions, release the links of a child that is not added, and stop learning when memory is exhausted. |
+| 23 | Flush a saved book to disk before it replaces the previous file. |
+| 24 | Positions added by `book merge` start with their Leaf score, so positions not reachable from the root no longer keep +/-127. |
+| 25 | An empty or truncated `.edx` file, or one with an illegal move, no longer erases the current game. |
+| 26 | Use `GetTickCount64` on Windows (`GetTickCount` wraps after 49.7 days). |
+| 27 | Clear the padding byte of the book date written in the header. |
+| 28 | Refuse to add positions beyond the `int` limit of the book format. |
+| 29 | Choose the number of buckets from the number of positions (no fixed 2^26 limit) and grow them before a merge that would overload them. |
+
+## v4.5.5-nikque.2 and earlier: 18 bug fixes and build notes
 
 This fork starts from upstream tag `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It adds `book deviate2`, `book deviate3`, and configurable book autosave, and corrects the following 18 bugs. The original `book deviate` now re-probes its root after the first `book_expand`: `book_add` can move a hash bucket's `Position` array with `realloc`, so passing the old root pointer to the second `position_deviate` could access freed memory. Its selection rules are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for command examples and the `book merge` workflow.
 

@@ -1,8 +1,71 @@
 # Edax 4.5.5 修正版
 
-[English](README-NIKQUE.en.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [18件のバグ修正一覧](RELEASE-NOTES.md)
+[English](README-NIKQUE.en.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [修正一覧](RELEASE-NOTES.md)
 
 この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS x64・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
+
+## v4.5.5-nikque.3 の変更点
+
+大規模book（数億局面・数十GB）で `book deviate`・`book deviate2`・`book deviate3`・`book merge` を使うときの処理時間とメモリ使用量を改善し、11件の不具合を修正しました。bookのファイル形式は変わっていません。以前のbookをそのまま読み書きできます。
+
+### 処理時間とメモリ
+
+6.57億局面・28.95GBの実bookで計測しました（Ryzen 9 9950X、32論理CPU、別のEdaxプロセスが並行して稼働中の環境）。
+
+| 処理（全量book） | v4.5.5-nikque.2 | v4.5.5-nikque.3 |
+|---|---|---|
+| bookのロード | 445.6秒 | 48.9秒 |
+| ロード後のメモリ | 58.4GiB | 35.5GiB |
+| bookの保存 | 657.2秒 | 28.3秒 |
+| negamax（deviate系は開始時と毎周に実行） | 936.5秒 | 約33秒 |
+| `book deviate 2 4` の1周（展開対象0件） | 2,909.6秒 | 142.0秒 |
+| deviate2 / deviate3 の展開対象の選択 | 446.8秒 / 479.2秒 | 21.4秒 / 22.9秒 |
+| 6.6億局面どうしの `book merge` | 約117GBが必要 | 395.7秒、約37GiB |
+
+展開対象が多い場合、deviate2・deviate3 の1周は1件ずつの探索（1件あたり子局面と親局面の2回）に大半の時間を使います。この部分の速さは変わりません。
+
+主な変更内容は次のとおりです。
+
+- bookの読み書きを16MBのバッファ経由で行います（以前は1局面あたり約15回の小さな読み書き）。
+- メモリ上の局面を64バイトから56バイトにしました。Linkが4個以下の局面（大規模bookの99%）は、Linkを別の領域に確保せず局面の中に置きます。
+- Edaxが保存したbookは、ロード時に1つの領域へ隙間なく配置します（以前は配列の予備領域が約20%ありました）。
+- negamax、deviate系の展開対象の選択、merge時のLinkの再構築・検査・並べ替えを、`n-tasks`（既定はCPU数）のスレッドで並列に処理します。並列処理でも結果は同じです。
+- 各周の「全局面の印を消す」処理と「展開対象を探す全局面走査」をなくしました。展開の順序は以前と同じです。
+- `book merge` は統合元のbookを読み込まず、ファイルを2回読みます（1回目で全体を検査、2回目で局面を追加）。統合元が壊れている場合は統合先を変更しません。統合元がすでに探索済みの局面については、その結果（最善の未登録手）を再利用し、探索をやり直しません。
+
+book学習と同時に対局や解析を行う場合は、`n-tasks`（`-n`）でスレッド数を指定できます。
+
+### 同一性の確認
+
+変更前後で次のコマンドを同じ条件で実行し、出力が一致することを確認しました。一致しないのは、変更前どうしでも実行ごとに変わる箇所（bookの同点の手からの乱数選択、`.edx` に含まれる値、画面の時間・速度表示）だけです。
+
+- book：`new`・`load`・`save`・`import`・`export`・`merge`・`info`・`stats`・`show`・`analyze`・`fix`・`negamax`・`correct`・`prune`・`subtree`・`add`・`check`・`problem`・`extract`・`deviate`・`deviate2`・`deviate3`・`enhance`・`play`・`deepen`・`feed-hash`・`store`・`depth`・`randomness`・`on`・`off`
+- 対局：`play`・`go`・`hint`・`save`・`load`・`vmirror`・`hmirror`・`rotate`・`undo`・`redo`・`setboard`
+
+1スレッドと8スレッド、生成した小規模bookと実bookから切り出した649万局面のbook、Windows版5種（x86-64 / v3 / v4、x86、x86-sse）で確認しています。探索ハッシュの扱いは変更していません。
+
+以下の2点は、修正の結果として出力が変わります。
+
+- `book merge` で追加した局面のうち、初期局面から辿れない局面の評価値（以前は ±127 などが残っていた）。
+- 統合後の局面数が統合先のバケット数の32倍を超える `book merge`（例：`book new` 直後のbookへの大規模merge）では、バケット数を増やすため、保存される局面の順序が変わります。局面の内容は同じです。
+
+### 不具合の修正
+
+| 内容 | 以前の動作 |
+|---|---|
+| 存在しない局面を指すLinkの扱い | negamaxなどで異常終了していました。`book fix` がそのLinkを取り除きます。 |
+| パイプで入力したコマンドの処理 | 起動中（bookのロード中）に `quit` が届くと異常終了していました。 |
+| `book fill` | 局面の追加中に解放済みのメモリへ書き込み、異常終了することがありました。 |
+| メモリ不足時の局面追加 | 局面を黙って失っていました。学習を停止するようにしました。 |
+| 保存時のディスク書き出し | ファイル内容をディスクに確定させる前に置き換えていました。 |
+| mergeで追加された局面の評価値 | 初期局面から辿れない局面に ±127 が残っていました。 |
+| 空・途中切れ・不正な手を含む `.edx` の読み込み | 現在の棋譜が消えていました。読み込みを中止し、棋譜を残します。 |
+| Windowsの時計 | OS起動から約49.7日で値が巻き戻っていました。 |
+| bookヘッダーの日時 | 未初期化の1バイトを書き出していました。 |
+| 局面数の上限 | 約21億局面を超えると桁あふれしていました。追加を拒否します。 |
+| バケット数 | 上限が2^26で、10億局面を超えると検索が遅くなっていました。局面数に応じて決めます。 |
+
+一覧は [RELEASE-NOTES.md](RELEASE-NOTES.md) にあります。
 
 ## bookの学習と保守
 
@@ -24,11 +87,11 @@ bookを読み込んだEdaxのコマンド入力画面で、次のコマンドを
 
 ### `book merge` と `book fix`
 
-bookを統合するには、統合先のbookを読み込んで `book merge source.dat` を実行し、結果を残す場合は `book save merged.dat` で保存します。mergeは統合元にしかない局面を追加し、統合先に既にある局面は上書きしません。続いてLinkの再構築、不整合な局面（古い `nomove` Leafを含む）の修復、評価値の再計算、着手の並べ替えを行います。Linkの再構築を検査より前に行うよう修正したため、追加された子局面が原因の誤った `nomove is wrong` 判定を避けられます。現在のbookを単独で修復する `book fix` も利用できますが、このmerge手順の前提条件ではありません。統合元のファイルが存在しない、または構造が壊れている場合、mergeを中止し現在のbookを維持します。
+bookを統合するには、統合先のbookを読み込んで `book merge source.dat` を実行し、結果を残す場合は `book save merged.dat` で保存します。mergeは統合元にしかない局面を追加し、統合先に既にある局面は上書きしません。続いてLinkの再構築、不整合な局面（古い `nomove` Leafを含む）の修復、評価値の再計算、着手の並べ替えを行います。Linkの張り直しで統合先の局面のLeafが空になった場合、統合元の同じ局面のLeafがまだLinkになっていなければそれを使い、そうでなければ探索します。現在のbookを単独で修復する `book fix` も利用できますが、このmerge手順の前提条件ではありません。統合元のファイルが存在しない、または構造が壊れている場合、mergeを中止し現在のbookを維持します。merge中のメモリ使用量は統合先のbookの分だけです。
 
-book保存時は、一時ファイルへの書き込みを確認してから保存先を置き換えます。保存に失敗しても旧bookを保持しますが、保存中はbookとほぼ同じ容量の追加空き領域が必要です。
+book保存時は、一時ファイルへの書き込みをディスクに確定させてから保存先を置き換えます。保存に失敗しても旧bookを保持しますが、保存中はbookとほぼ同じ容量の追加空き領域が必要です。
 
-## その他の修正
+## その他の修正（v4.5.5-nikque.2 まで）
 
 従来の `book deviate` を含む18件のバグを修正しました。全件の一覧は [RELEASE-NOTES.md](RELEASE-NOTES.md) にあります。
 
@@ -53,10 +116,8 @@ Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuha
 | macOS Intel x86-64 | `mEdax-x64-modern` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 
-`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds` を設定してください。Windows v4版を再ビルドする場合はVisual Studio 2022のx64 Developer Command Promptで `build-win-v4.cmd` を実行します。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。
+`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。
 
 元配布物の旧32ビットmacOS用 `mEdax-x86` は除外しました。現在のXcode SDKにはi386用のリンクライブラリがなく修正版をビルドできません。元の実行ファイルをそのまま同梱しても、今回の修正は反映されません。
 
-通常のWindowsビルドで従来の回帰試験24ケースと、新しい保存間隔の試験を通過しました。合法棋譜300局、石の反転549,161件、独立した完全読み96局面（1・4スレッド）、Cassio API、イベントキューも照合しました。ビルドと配布ZIPの確認結果は[検証報告](https://github.com/Nikque/edax-reversi-AVX/releases/tag/v4.5.5-nikque.2)に記載します。
-
-このforkの作業には **ChatGPT-6 Astra** と **ChatGPT-6 Sol** を使用しました。Edaxと原著作者の表記を維持し、元のGPL-3.0ライセンスに基づいて配布します。実行ファイルを再配布する場合も、対応するソースとライセンスを入手可能にしてください。
+このforkの作業には **ChatGPT-6 Astra** と **ChatGPT-6 Sol** を使用し、v4.5.5-nikque.3 の性能改善と不具合修正には **Claude Opus 5.5**（Claude Code）を使用しました。Edaxと原著作者の表記を維持し、元のGPL-3.0ライセンスに基づいて配布します。実行ファイルを再配布する場合も、対応するソースとライセンスを入手可能にしてください。

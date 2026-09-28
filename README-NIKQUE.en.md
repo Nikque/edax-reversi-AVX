@@ -1,8 +1,71 @@
 # Edax 4.5.5 corrected build
 
-[日本語](README-NIKQUE.ja.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [18 bug fixes](RELEASE-NOTES.md)
+[日本語](README-NIKQUE.ja.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [Change list](RELEASE-NOTES.md)
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS x64, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
+
+## Changes in v4.5.5-nikque.3
+
+This release makes `book deviate`, `book deviate2`, `book deviate3`, and `book merge` much faster on large books (hundreds of millions of positions, tens of GB), reduces book memory, and fixes 11 bugs. The book file format is unchanged: existing books load and save as before.
+
+### Time and memory
+
+Measured on a real 28.95 GB book of 656.9 million positions (Ryzen 9 9950X, 32 logical CPUs, with another Edax process running on the same machine).
+
+| Operation (whole book) | v4.5.5-nikque.2 | v4.5.5-nikque.3 |
+|---|---|---|
+| Load the book | 445.6 s | 48.9 s |
+| Memory after loading | 58.4 GiB | 35.5 GiB |
+| Save the book | 657.2 s | 28.3 s |
+| Negamax (run by the deviate commands at start and after every round) | 936.5 s | about 33 s |
+| One round of `book deviate 2 4` (nothing to expand) | 2,909.6 s | 142.0 s |
+| Selecting the positions to expand, deviate2 / deviate3 | 446.8 s / 479.2 s | 21.4 s / 22.9 s |
+| `book merge` of two 660-million-position books | needs about 117 GB | 395.7 s, about 37 GiB |
+
+When many positions are selected, a `deviate2` or `deviate3` round spends most of its time searching them (two searches per position: the new child and the parent). That search time is unchanged.
+
+Main changes:
+
+- Books are read and written through a 16 MB buffer (previously about 15 small reads or writes per position).
+- A position takes 56 bytes in memory instead of 64. Up to 4 links are stored inside the position (99% of the positions of a large book) instead of a separate allocation.
+- A book saved by Edax is loaded into one exactly sized block (previously about 20% of the arrays were spare capacity).
+- Negamax, the selection of the positions to expand, and the link rebuild, check and sort of `book merge` run on `n-tasks` threads (the number of CPUs by default). The results are the same as with one thread.
+- Each round no longer rewrites a flag in every position or scans the whole book for positions to expand. Positions are expanded in the same order as before.
+- `book merge` reads the source file twice (first to check it, then to add positions) instead of loading it, and leaves the destination unchanged if the source is damaged. When the source book has already searched a position, its result (the best move without a link) is reused instead of searching again.
+
+Use `n-tasks` (`-n`) to limit the threads if you play or analyze games while a book is learning.
+
+### Output checks
+
+The following commands were run with the previous and the new version under the same conditions, and their outputs were compared. The only differences are the ones that also change between two runs of the previous version: the random choice among equally scored book moves, values stored in `.edx` files, and displayed times and speeds.
+
+- book: `new`, `load`, `save`, `import`, `export`, `merge`, `info`, `stats`, `show`, `analyze`, `fix`, `negamax`, `correct`, `prune`, `subtree`, `add`, `check`, `problem`, `extract`, `deviate`, `deviate2`, `deviate3`, `enhance`, `play`, `deepen`, `feed-hash`, `store`, `depth`, `randomness`, `on`, `off`
+- game: `play`, `go`, `hint`, `save`, `load`, `vmirror`, `hmirror`, `rotate`, `undo`, `redo`, `setboard`
+
+The checks used one and eight threads, small generated books and a 6.49-million-position book cut from the real book, and five Windows builds (x86-64, v3, v4, x86, x86-sse). The search hash handling is unchanged.
+
+Two outputs change on purpose:
+
+- The scores of positions added by `book merge` that cannot be reached from the initial position (they used to keep values such as +/-127).
+- The order of the saved positions after a `book merge` whose result exceeds 32 positions per bucket of the destination (for example a large merge into a book just created with `book new`), because the number of buckets is increased. The positions are the same.
+
+### Bug fixes
+
+| Issue | Previous behavior |
+|---|---|
+| Links to positions missing from the book | Negamax and other walks crashed. `book fix` now removes these links. |
+| Commands sent through a pipe | A `quit` received while the engine was starting (loading the book) crashed Edax. |
+| `book fill` | Could write to freed memory while adding positions, and crash. |
+| Adding a position when memory is exhausted | The position was silently lost. Learning now stops. |
+| Saving to disk | The file replaced the previous book before its data was flushed to disk. |
+| Scores of positions added by a merge | Positions not reachable from the initial position kept +/-127. |
+| Loading an empty or truncated `.edx` file, or one with an illegal move | The current game was erased. The file is now rejected and the game kept. |
+| Windows clock | Wrapped around after 49.7 days of uptime. |
+| Book header date | An uninitialized padding byte was written. |
+| Number of positions | Overflowed beyond about 2.1 billion positions. Additions are now refused. |
+| Number of buckets | Limited to 2^26, so searches slowed down beyond 1 billion positions. It now depends on the number of positions. |
+
+[RELEASE-NOTES.md](RELEASE-NOTES.md) lists every change.
 
 ## Book learning and maintenance
 
@@ -24,13 +87,13 @@ The original `book deviate` had a pointer lifetime bug. Its first `book_expand` 
 
 ### `book merge` and `book fix`
 
-To combine books, load the destination book and run `book merge source.dat`, followed by `book save merged.dat` to persist the result. Merge adds positions that exist only in the source; it does not overwrite positions already in the destination. It then rebuilds Links, repairs inconsistent positions (including stale `nomove` Leaves), recomputes scores and sorts moves. The Link rebuild now precedes validation, so a newly added child does not cause a false `nomove is wrong` failure. A separate `book fix` remains available to repair the current book; it is not a prerequisite for this merge path. If the source file is missing or structurally malformed, merge is rejected and the current book is retained.
+To combine books, load the destination book and run `book merge source.dat`, followed by `book save merged.dat` to persist the result. Merge adds positions that exist only in the source; it does not overwrite positions already in the destination. It then rebuilds Links, repairs inconsistent positions (including stale `nomove` Leaves), recomputes scores and sorts moves. When the link rebuild empties the Leaf of a destination position, the Leaf of the same position in the source is used if it is still not a Link; otherwise the position is searched. A separate `book fix` remains available to repair the current book; it is not a prerequisite for this merge path. If the source file is missing or structurally malformed, merge is rejected and the current book is retained. During a merge, memory is needed for the destination book only.
 
-Book saving writes to a checked temporary file before replacing the destination. An interrupted or failed save leaves the previous book intact, but needs enough free space for roughly another copy of the book.
+Book saving writes to a temporary file, flushes it to disk, then replaces the destination. An interrupted or failed save leaves the previous book intact, but needs enough free space for roughly another copy of the book.
 
-## Other corrected behavior
+## Other corrected behavior (up to v4.5.5-nikque.2)
 
-This release corrects 18 bugs, including the original `book deviate` pointer bug; [RELEASE-NOTES.md](RELEASE-NOTES.md) lists all 18.
+Up to v4.5.5-nikque.2 this fork corrected 18 bugs, including the original `book deviate` pointer bug; [RELEASE-NOTES.md](RELEASE-NOTES.md) lists all of them.
 
 | Area | Changes |
 |---|---|
@@ -53,10 +116,8 @@ The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied 
 | macOS Intel x86-64 | `mEdax-x64-modern` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 
-The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration; set paths, `book-save-interval`, and `book-deviate-save-rounds` for your environment. To rebuild the Windows v4 executable, run `build-win-v4.cmd` from a Visual Studio 2022 x64 Developer Command Prompt. The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP.
+The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration; set paths, `book-save-interval`, and `book-deviate-save-rounds` for your environment. To rebuild a Windows executable, open a Visual Studio 2022 Developer Command Prompt, change to `src`, and run a target such as `nmake -f NMakefile vc-x64-v4` (`build-win-v4.cmd` also builds the v4 executable). The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP.
 
 The upstream 32-bit macOS `mEdax-x86` is deliberately omitted. Current Xcode SDKs lack the i386 libraries needed to link a corrected binary; including the upstream executable would leave this fork's fixes absent from that file.
 
-The original 24 regression cases passed on the normal Windows build; the new save-cadence regression also passed. Additional checks covered 300 legal games, 549,161 flip comparisons, 96 independent exact endgame positions with one and four search threads, Cassio calls, and event queue handling. Build and package checks are described in the [validation report](https://github.com/Nikque/edax-reversi-AVX/releases/tag/v4.5.5-nikque.2).
-
-Work on this fork used **ChatGPT-6 Astra** and **ChatGPT-6 Sol**. Edax and its original authors retain their respective attribution. This fork is distributed under the original GPL-3.0 license; keep the source and license available when redistributing the executable.
+Work on this fork used **ChatGPT-6 Astra** and **ChatGPT-6 Sol**; the performance work and bug fixes of v4.5.5-nikque.3 used **Claude Opus 5.5** (Claude Code). Edax and its original authors retain their respective attribution. This fork is distributed under the original GPL-3.0 license; keep the source and license available when redistributing the executable.
