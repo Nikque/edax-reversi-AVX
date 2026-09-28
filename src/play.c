@@ -110,21 +110,48 @@ bool play_load(Play *play, const char *file)
 		return false;
 	}
 
-	load(&game, f);
+	if (load == game_read) {
+		if (!game_read_checked(&game, f)) {
+			sprintf(play->error_message, "Incomplete game file %s\n", file);
+			fclose(f);
+			return false;
+		}
+	} else {
+		load(&game, f);
+	}
+	fclose(f);
+
+	// check every move before the current game is replaced (same rules as play_move)
+	{
+		Board board = game.initial_board;
+		int player = game.player;
+		Move m;
+		for (i = 0; i < 60 && game.move[i] != NOMOVE; ++i) {
+			if (!can_move(board.player, board.opponent) && can_move(board.opponent, board.player)) {
+				m = MOVE_INIT;
+				board_get_move_flip(&board, PASS, &m);
+				board_update(&board, &m);
+				player ^= 1;
+			}
+			m = MOVE_INIT;
+			board_get_move_flip(&board, game.move[i], &m);
+			if (!board_check_move(&board, &m)) {
+				sprintf(play->error_message, "Illegal move #%d: %s\n", i, move_to_string(game.move[i], player, move));
+				return false;
+			}
+			board_update(&board, &m);
+			player ^= 1;
+		}
+	}
 
 	play->initial_board = game.initial_board;
 	play->initial_player = game.player;
 	play_new(play);
 	for (i = 0; i < 60 && game.move[i] != NOMOVE; ++i) {
 		if (play_must_pass(play)) play_move(play, PASS);
-		if (!play_move(play, game.move[i])) {
-			sprintf(play->error_message, "Illegal move #%d: %s\n", i, move_to_string(game.move[i], play->player, move));
-			fclose(f);
-			return false;
-		}
+		play_move(play, game.move[i]);
 	}
 
-	fclose(f);
 	return true;
 }
 

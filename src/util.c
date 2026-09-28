@@ -102,12 +102,12 @@ long long cpu_clock(void)
 
 long long real_clock(void)
 {
-	return GetTickCount();
+	return (long long) GetTickCount64(); // GetTickCount() wraps after 49.7 days
 }
 
 long long cpu_clock(void)
 {
-	return GetTickCount();
+	return (long long) GetTickCount64();
 }
 
 #endif

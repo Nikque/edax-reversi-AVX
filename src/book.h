@@ -46,6 +46,7 @@ typedef struct Book {
 	int n;
 	int n_nodes;
 	bool need_saving;
+	bool failed;                 /**< a position could not be added (out of memory): learning stops */
 	unsigned char epoch; /**< current done/todo epoch (see book_clean) */
 	struct {
 		unsigned long long *item; /**< (bucket << 32 | index) of positions marked todo since book_clean */

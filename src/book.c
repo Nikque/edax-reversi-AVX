@@ -27,7 +27,9 @@
 #include <time.h>
 #include <stdarg.h>
 #include <limits.h>
-#ifndef _WIN32
+#ifdef _WIN32
+#include <io.h>
+#else
 #include <unistd.h>
 #include <sched.h>
 #endif
@@ -122,7 +124,7 @@ typedef char position_size_check[(sizeof (void*) != 8 || sizeof (Position) == 56
 #define position_links(p) ((p)->n_link > POSITION_INLINE_LINKS ? (p)->links.array : (p)->links.in)
 
 static Position* book_probe(const Book*, const Board*);
-static void book_add(Book*, const Position*);
+static int book_add(Book*, const Position*);
 static void book_mark_todo(Book*, Position*);
 static void position_print(const Position*, const Board*, FILE*);
 
@@ -322,6 +324,9 @@ static void position_merge(Position *dest, const Position *src)
 		dest->leaf = src->leaf;
 		dest->level = src->level;
 	}
+	// start from the leaf score (as position_search() does), not from -SCORE_INF:
+	// positions that negamax cannot reach from the root would keep +/-127 values
+	if (dest->leaf.move != NOMOVE && dest->leaf.score > dest->score.value) dest->score.value = dest->leaf.score;
 }
 
 /**
@@ -898,7 +903,7 @@ static void position_expand(Position *position, Book *book)
 		position->leaf.score = -child.score.value;
 		position_search(position, book);
 		position_unique(&child);
-		book_add(book, &child);
+		if (book_add(book, &child) <= 0) position_free(&child); // already in the book, or not added
 	}
 }
 
@@ -948,6 +953,7 @@ static int position_negamax(Position *position, Book *book)
 		foreach_link(l, position) {
 			board_next(&position->board, l->move, &target);
 			child = book_probe(book, &target);
+			if (child == NULL) continue; // link to a missing position (corrupted book, see book_fix)
 			position_negamax(child, book);
 			if (l->score != -child->score.value) {
 				l->score = -child->score.value;
@@ -991,6 +997,8 @@ static inline bool atomic_cas_uchar(unsigned char *p, const unsigned char from, 
 {
 	return (unsigned char) _InterlockedCompareExchange8((volatile char*) p, (char) to, (char) from) == from;
 }
+#if defined(_M_X64) || defined(_M_IX86)
+// x86 loads/stores already have acquire/release ordering: only stop the compiler
 static inline unsigned char atomic_load_uchar(const unsigned char *p)
 {
 	const unsigned char v = *(volatile const unsigned char*) p;
@@ -1002,6 +1010,16 @@ static inline void atomic_store_uchar(unsigned char *p, const unsigned char v)
 	_ReadWriteBarrier();
 	*(volatile unsigned char*) p = v;
 }
+#else // ARM64: use interlocked (full barrier) operations
+static inline unsigned char atomic_load_uchar(const unsigned char *p)
+{
+	return (unsigned char) _InterlockedOr8((volatile char*) p, 0);
+}
+static inline void atomic_store_uchar(unsigned char *p, const unsigned char v)
+{
+	_InterlockedExchange8((volatile char*) p, (char) v);
+}
+#endif
 #else
 static inline bool atomic_cas_uchar(unsigned char *p, unsigned char from, const unsigned char to)
 {
@@ -1179,7 +1197,7 @@ static void position_prune(Position *position, Book *book, const int player_devi
 			if (position->score.value - l->score <= player_deviation && lower <= l->score && l->score <= upper) {
 				board_next(&position->board, l->move, &target);
 				child = book_probe(book, &target);
-				position_prune(child, book, opponent_deviation, player_deviation, -upper, -lower);
+				if (child) position_prune(child, book, opponent_deviation, player_deviation, -upper, -lower);
 			}
 		}
 		if (book->stats.n_todo % BOOK_INFO_RESOLUTION == 0) {
@@ -1216,6 +1234,25 @@ static void position_remove_links(Position *position, Book *book)
 }
 
 /**
+ * @brief Check if a position links to a position missing from the book.
+ *
+ * @param position Position.
+ * @param book Opening book.
+ * @return true if a link leads to a missing position.
+ */
+static bool position_has_missing_link(const Position *position, const Book *book)
+{
+	const Link *l;
+	Board target;
+
+	foreach_link(l, position) {
+		board_next(&position->board, l->move, &target);
+		if (!book_probe(book, &target)) return true;
+	}
+	return false;
+}
+
+/**
  * @brief Deviate a position.
  *
  * This is the important part of the opening book code, where it finds the best moves to add to the book.
@@ -1247,7 +1284,7 @@ static void position_deviate(Position *position, Book *book, const int player_de
 			if (position->score.value - l->score <= player_deviation && lower <= l->score && l->score <= upper) {
 				board_next(&position->board, l->move, &target);
 				child = book_probe(book, &target);
-				position_deviate(child, book, opponent_deviation, player_deviation, -upper, -lower);
+				if (child) position_deviate(child, book, opponent_deviation, player_deviation, -upper, -lower);
 			}
 		}
 
@@ -1293,7 +1330,7 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 		if (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss) {
 			board_next(&position->board, l->move, &target);
 			child = book_probe(book, &target);
-			position_deviate_total(child, book, move_loss, total_loss, loss + move_error, skip_solved);
+			if (child) position_deviate_total(child, book, move_loss, total_loss, loss + move_error, skip_solved);
 		}
 	}
 
@@ -1335,7 +1372,7 @@ static void position_enhance(Position *position, Book *book)
 		foreach_link(l, position) {
 			board_next(&position->board, l->move, &target);
 			child = book_probe(book, &target);
-			if (-child->score.upper >= position->score.lower || -child->score.lower >= position->score.upper) {
+			if (child && (-child->score.upper >= position->score.lower || -child->score.lower >= position->score.upper)) {
 				position_enhance(child, book);
 			}
 		}
@@ -1502,16 +1539,17 @@ static void position_array_init(PositionArray *a)
  *
  * @param a Positions' array.
  * @param p Position to add.
- * @return true in case of success.
+ * @param epoch Current book epoch.
+ * @return 1 if the position was added, 0 if it is already there, -1 if memory is exhausted.
  */
-static bool position_array_add(PositionArray *a, const Position *p, const unsigned char epoch)
+static int position_array_add(PositionArray *a, const Position *p, const unsigned char epoch)
 {
 	int i;
 
 	board_check(&p->board);
 	assert(position_is_ok(p));
 
-	for (i = 0; i < a->n; ++i) if (board_equal(&a->positions[i].board, &p->board)) return false;
+	for (i = 0; i < a->n; ++i) if (board_equal(&a->positions[i].board, &p->board)) return 0;
 	if (a->size < 0 || a->n == a->size) {
 		Position *n;
 		const int size = a->n + a->n / 2 + 1;
@@ -1523,7 +1561,7 @@ static bool position_array_add(PositionArray *a, const Position *p, const unsign
 		}
 		if (n == NULL) {
 			error("cannot add a position to the book\n");
-			return false;
+			return -1;
 		}
 		a->positions = n;
 		a->size = size;
@@ -1532,7 +1570,7 @@ static bool position_array_add(PositionArray *a, const Position *p, const unsign
 	a->positions[a->n].done = epoch; // a new position is 'done' until the next book_clean()
 	a->positions[a->n].todo = 0;
 	++a->n;
-	return true;
+	return 1;
 }
 
 /**
@@ -1599,6 +1637,7 @@ static void book_set_date(Book *book)
 	time_t t = time(NULL);
 	struct tm *tm = localtime(&t);
 
+	memset(&book->date, 0, sizeof book->date); // the padding byte is saved too
 	book->date.year = tm->tm_year + 1900;
 	book->date.month = tm->tm_mon + 1;
 	book->date.day = tm->tm_mday;
@@ -1650,17 +1689,32 @@ static Position* book_probe(const Book *book, const Board *board)
 /**
  * @brief Add a position to the book.
  *
+ * A failure (memory exhausted, or more positions than the file format allows)
+ * sets book->failed, which stops the learning loops.
+ *
  * @param book Opening book.
  * @param p Position to add.
+ * @return 1 if the position was added, 0 if it is already in the book, -1 on failure.
+ *         On 0 or -1 the caller keeps the ownership of the position's links.
  */
-static void book_add(Book *book, const Position *p)
+static int book_add(Book *book, const Position *p)
 {
 	const unsigned long long i = board_get_hash_code(&p->board) & (book->n - 1);
+	int r;
 
-	if (position_array_add(book->array + i, p, book->epoch)) {
+	if (book->n_nodes == INT_MAX) {
+		error("the book cannot hold more than %d positions\n", INT_MAX);
+		book->failed = true;
+		return -1;
+	}
+	r = position_array_add(book->array + i, p, book->epoch);
+	if (r > 0) {
 		++book->n_nodes;
 		++book->stats.n_nodes;
+	} else if (r < 0) {
+		book->failed = true;
 	}
+	return r;
 }
 
 /**
@@ -1771,6 +1825,7 @@ void book_init(Book *book)
 	for (i = 0; i < book->n; ++i) position_array_init(book->array + i);
 
 	book->n_nodes = 0;
+	book->failed = false;
 	book->epoch = 1;
 	book->todo_list.item = NULL;
 	book->todo_list.n = book->todo_list.size = 0;
@@ -1778,6 +1833,69 @@ void book_init(Book *book)
 	book->pool = NULL;
 	random_seed(&book->random, real_clock());
 	book->need_saving = false;
+}
+
+/**
+ * @brief Number of buckets for a book of n positions.
+ *
+ * About 16 positions per bucket or less (65536 buckets at least). The upper
+ * limit used to be 2^26 buckets (1.07 billion positions); books of any size
+ * that the file format can hold now keep short buckets.
+ *
+ * @param n Number of positions.
+ * @return Number of buckets (a power of 2).
+ */
+static int book_bucket_count(const long long n)
+{
+	int b = 65536;
+	while (b < (1 << 28) && (long long) b * 16 < n) b <<= 1;
+	return b;
+}
+
+/**
+ * @brief Increase the number of buckets of a book.
+ *
+ * Used before adding many positions to a book with too few buckets (e.g. a
+ * new book merged with a large one): every book search scans a bucket, so the
+ * time grows with the number of positions per bucket. Positions keep their
+ * relative order (bucket order, then position order).
+ *
+ * @param book Opening book.
+ * @param n_positions Expected number of positions.
+ */
+static void book_grow_buckets(Book *book, const long long n_positions)
+{
+	const int n = book_bucket_count(n_positions);
+	PositionArray *array, *a;
+	Position *p;
+	int i;
+
+	if (n_positions <= (long long) book->n * 32 || n <= book->n) return; // not worth moving the book
+	array = (PositionArray*) malloc(n * sizeof *array);
+	if (array == NULL) return; // keep the current buckets
+	for (i = 0; i < n; ++i) position_array_init(array + i);
+	foreach_position(p, a, book) {
+		PositionArray *b = array + (board_get_hash_code(&p->board) & (n - 1));
+		if (b->n == b->size) {
+			const int size = b->size + b->size / 2 + 1;
+			Position *q = (Position*) realloc(b->positions, size * sizeof (Position));
+			if (q == NULL) { // keep the current buckets
+				for (i = 0; i < n; ++i) free(array[i].positions);
+				free(array);
+				return;
+			}
+			b->positions = q; b->size = size;
+		}
+		b->positions[b->n++] = *p; // the links move with the position
+	}
+	for (a = book->array; a < book->array + book->n; ++a) if (a->size >= 0) free(a->positions);
+	free(book->array);
+	free(book->pool);
+	book->pool = NULL;
+	book->array = array;
+	book->n = n;
+	book->todo_list.valid = false; // positions moved
+	book->todo_list.n = 0;
 }
 
 /**
@@ -1870,8 +1988,7 @@ bool book_load(Book *book, const char *file)
 		}
 		if (expected < 0) { error("Invalid position count in %s", file); goto book_load_failed; }
 
-		loaded.n = 65536;
-		while (loaded.n < (1 << 26) && (long long)loaded.n * 16 < expected) loaded.n <<= 1;
+		loaded.n = book_bucket_count(expected);
 
 		loaded.array = (PositionArray*) malloc(loaded.n * sizeof (PositionArray));
 		if (loaded.array == NULL) {
@@ -1898,7 +2015,23 @@ bool book_load(Book *book, const char *file)
 			if (pooling) {
 				const int b = (int) (board_get_hash_code(&p.board) & (loaded.n - 1));
 				PositionArray *a = loaded.array + b;
-				if (b < last_bucket) pooling = false; // not saved in this bucket order
+				if (b < last_bucket) { // not saved in this bucket order: stop using the pool
+					pooling = false;
+					if (used < expected / 2) { // mostly unused: move what it holds and release it now
+						PositionArray *c;
+						for (c = loaded.array; c < loaded.array + loaded.n; ++c) {
+							if (c->size < 0) {
+								Position *q = (Position*) malloc(c->n * sizeof (Position));
+								if (q == NULL) { error("cannot allocate space to store the positions"); goto book_load_failed; }
+								memcpy(q, c->positions, c->n * sizeof (Position));
+								c->positions = q; c->size = c->n;
+							}
+						}
+						free(pool);
+						loaded.pool = pool = NULL;
+						used = 0;
+					}
+				}
 				if (pooling && (a->n == 0 || (a->size < 0 && a->positions + a->n == pool + used))) {
 					int k;
 					for (k = 0; k < a->n; ++k) if (board_equal(&a->positions[k].board, &p.board)) break;
@@ -1915,7 +2048,7 @@ bool book_load(Book *book, const char *file)
 					continue;
 				}
 			}
-			book_add(&loaded, &p);
+			if (book_add(&loaded, &p) <= 0) position_free(&p); // duplicated position: the count check below fails
 		}
 
 		if (pool && used < expected) { // release the unused part of the pool (in place only)
@@ -2084,6 +2217,13 @@ bool book_save(Book *book, const char *file)
 			book_stream_close(&stream);
 		}
 	}
+	// the data must be on disk before the new file replaces the book
+	if (r == 7 && fflush(f) != 0) r = 0;
+#ifdef _WIN32
+	if (r == 7 && _commit(_fileno(f)) != 0) r = 0;
+#else
+	if (r == 7 && fsync(fileno(f)) != 0) r = 0;
+#endif
 	if (fclose(f) != 0) r = 0;
 	if (r != 7) {
 		error("\nCannot write complete book to %s; existing book was not replaced", file);
@@ -2347,24 +2487,33 @@ static void book_fix_find(BookTask *task)
 	int b, k;
 	for (b = task->first; b < task->last; ++b) {
 		const PositionArray *a = task->book->array + b;
-		for (k = 0; k < a->n; ++k) if (!position_is_ok(a->positions + k)) book_task_push(task, TASK_ITEM(b, k, 0));
+		for (k = 0; k < a->n; ++k) {
+			if (!position_is_ok(a->positions + k)) book_task_push(task, TASK_ITEM(b, k, 0));
+			else if (position_has_missing_link(a->positions + k, task->book)) book_task_push(task, TASK_ITEM(b, k, 1));
+		}
 	}
 }
 
 void book_fix_parallel(Book *book)
 {
 	BookTask task[MAX_THREADS];
-	int i, n, n_fix = 0;
+	int i, n, n_fix = 0, n_missing = 0;
 	long long j;
 
 	bprint("Fixing book...\r");
 	n = book_parallel(book, book_fix_find, task);
 	for (i = 0; i < n; ++i) if (task[i].oom) { book_tasks_free(task, n); book_fix(book); return; }
 	for (i = 0; i < n; ++i) for (j = 0; j < task[i].n; ++j) {
-		position_fix(book->array[TASK_BUCKET(task[i].item[j])].positions + TASK_INDEX(task[i].item[j]), book);
+		Position *p = book->array[TASK_BUCKET(task[i].item[j])].positions + TASK_INDEX(task[i].item[j]);
+		if (TASK_MOVE(task[i].item[j]) == 0) position_fix(p, book);
+		else {
+			position_remove_links(p, book);
+			++n_missing;
+		}
 		++n_fix;
 	}
 	book_tasks_free(task, n);
+	if (n_missing) warn("links to missing positions removed from %d positions\n", n_missing);
 	bprint("Fixing book...%d done\n", n_fix);
 }
 
@@ -2422,6 +2571,7 @@ bool book_merge_file(Book *dest, const char *file)
 
 	for (pass = 0; pass < 2; ++pass) {
 		const long long start = 8 + 2 + sizeof dest->date + sizeof dest->options + sizeof expected;
+		if (pass) book_grow_buckets(dest, (long long) dest->n_nodes + expected); // the source is valid: prepare the destination
 #ifdef _WIN32
 		if (pass && _fseeki64(f, start, SEEK_SET) != 0) goto merge_end;
 #else
@@ -2440,7 +2590,7 @@ bool book_merge_file(Book *dest, const char *file)
 					const unsigned long long b = board_get_hash_code(&p.board) & (dest->n - 1);
 					PositionArray *a = dest->array + b;
 					position_merge(&merged, &p);
-					if (!position_array_add(a, &merged, dest->epoch)) { position_free(&p); error("cannot add a position"); goto merge_end; }
+					if (dest->n_nodes == INT_MAX || position_array_add(a, &merged, dest->epoch) <= 0) { position_free(&p); error("cannot add a position to the book"); goto merge_end; }
 					a->positions[a->n - 1].todo = MERGE_MARK;
 					++dest->n_nodes; ++dest->stats.n_nodes; ++n_added;
 				} else if (q->todo != MERGE_MARK) { // remember the source leaf (see book_link_parallel)
@@ -2520,21 +2670,29 @@ void book_link(Book *book)
 /**
  * @brief Fix a book.
  *
+ * Wrong positions are recomputed; links to positions missing from the book
+ * are removed (their best score may become the leaf, as book prune does).
+ *
  * @param book opening book.
  */
 void book_fix(Book *book)
 {
 	PositionArray *a;
 	Position *p;
-	int i = 0;
+	int i = 0, n_missing = 0;
 
 	bprint("Fixing book...\r");
 	foreach_position(p, a, book) {
 		if (!position_is_ok(p)) {
 			position_fix(p, book);
 			if (++i % BOOK_INFO_RESOLUTION == 0) { bprint("fixing book...%d\r", i);  }
+		} else if (position_has_missing_link(p, book)) {
+			position_remove_links(p, book);
+			++n_missing;
+			if (++i % BOOK_INFO_RESOLUTION == 0) { bprint("fixing book...%d\r", i);  }
 		}
 	}
+	if (n_missing) warn("links to missing positions removed from %d positions\n", n_missing);
 	bprint("Fixing book...%d done\n", i);
 }
 
@@ -2681,6 +2839,7 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 		}
 		if (position_is_todo(p, book)) {
 			position_expand(p, book);
+			if (book->failed) break; // a position could not be added: stop learning
 			bprint("%s...%d/%d done: %d positions, %d links\r", action, ++i, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
 			if (book->search->options.verbosity >= 2) putchar('\n'); else putchar('\r');
 			
@@ -2747,7 +2906,7 @@ void book_play(Book *book)
 			book_negamax(book);
 			book_save(book, file);
 		}
-	} while (n_diffs);
+	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	bprint("Book play... finished\n");
 }
 
@@ -2774,7 +2933,8 @@ void book_fill(Book *book, const int depth)
 			p = a->positions + k;
 			n_empties = board_count_empties(&p->board);
 			if (n_empties >= book->options.n_empties) {
-				board_fill(&p->board, book, depth);
+				Board board = p->board; // board_fill() changes its board and adding positions may move p
+				board_fill(&board, book, depth);
 				if (n_diffs < book->stats.n_nodes + book->stats.n_links) {
 					n_diffs = book->stats.n_nodes + book->stats.n_links;
 					bprint("Book fill...%d %d done\r", book->stats.n_nodes, book->stats.n_links); 
@@ -2786,7 +2946,7 @@ void book_fill(Book *book, const int depth)
 			book_negamax(book);
 			book_save(book, file);
 		}
-	} while (n_diffs);
+	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	bprint("Book fill... finished\n");
 }
 
@@ -2804,7 +2964,11 @@ static inline bool atomic_cas_int(int *p, const int from, const int to)
 {
 	return _InterlockedCompareExchange((volatile long*) p, (long) to, (long) from) == (long) from;
 }
+#if defined(_M_X64) || defined(_M_IX86)
 static inline int atomic_load_int(const int *p) { const int v = *(volatile const int*) p; _ReadWriteBarrier(); return v; }
+#else
+static inline int atomic_load_int(const int *p) { return (int) _InterlockedOr((volatile long*) p, 0); }
+#endif
 #else
 static inline bool atomic_cas_int(int *p, int from, const int to) { return __atomic_compare_exchange_n(p, &from, to, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE); }
 static inline int atomic_load_int(const int *p) { return __atomic_load_n(p, __ATOMIC_ACQUIRE); }
@@ -3171,7 +3335,7 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 			book_clean(book);
 			book_negamax_position(root, book);
 			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
-		} while (n_diffs);
+		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book deviate %d %d...finished\n", relative_error, absolute_error);
 	}
 }
@@ -3209,7 +3373,7 @@ void book_deviate2(Book *book, Board *board, const int move_loss, const int tota
 			book_clean(book);
 			book_negamax_position(root, book);
 			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
-		} while (n_diffs);
+		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book deviate2 %d %d...finished\n", move_loss, total_loss);
 	}
 }
@@ -3239,7 +3403,7 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 			book_clean(book);
 			book_negamax_position(root, book);
 			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
-		} while (n_diffs);
+		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book deviate3 %d %d...finished\n", move_loss, total_loss);
 	}
 }
@@ -3340,7 +3504,7 @@ void book_enhance(Book *book, Board *board, const int midgame_error, const int e
 			book_clean(book);
 			position_negamax(root, book);
 			if (n_diffs) book_save(book, file);
-		} while (n_diffs);
+		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book enhance %d %d...finished\n", midgame_error, endcut_error);
 	}
 }
@@ -3546,7 +3710,7 @@ void book_add_board(Book *book, const Board *board)
 			position_search(&position, book);
 			if (BOOK_DEBUG) {printf("new: "); position_print(&position, board, stdout);}
 			position_unique(&position);
-			book_add(book, &position);
+			if (book_add(book, &position) <= 0) position_free(&position);
 		}
 	}
 }

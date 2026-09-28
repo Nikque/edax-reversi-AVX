@@ -58,6 +58,7 @@ bool game_equals(const Game*, const Game*);
 void wthor_to_game(const WthorGame*, Game*);
 void game_to_wthor(const Game*, WthorGame*);
 void game_read(Game*, FILE*);
+bool game_read_checked(Game*, FILE*);
 void game_write(const Game*, FILE*);
 void game_import_text(Game*, FILE*);
 void game_import_wthor(Game*, FILE*);

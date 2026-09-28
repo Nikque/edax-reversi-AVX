@@ -631,6 +631,7 @@ void ui_loop_edax(UI *ui)
 
 				book->search = &play->search;
 				book->search->options.verbosity = book->options.verbosity;
+				book->failed = false; // see book_add()
 				book_param = parse_word(param, book_cmd, FILENAME_MAX);
 
 				// store the last played game

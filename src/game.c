@@ -428,7 +428,21 @@ void line_to_game(const Board *initial_board, const Line *line, Game *game)
  */
 void game_read(Game *game, FILE *f)
 {
-	if (fread(game, sizeof (Game), 1, f) == 0) game_init(game);
+	game_read_checked(game, f);
+}
+
+/**
+ * @brief Read a game from a binary file, reporting incomplete files.
+ *
+ * @param game The output game (initialized when the file is incomplete).
+ * @param f The file stream.
+ * @return true if a complete game was read.
+ */
+bool game_read_checked(Game *game, FILE *f)
+{
+	if (fread(game, sizeof (Game), 1, f) == 1) return true;
+	game_init(game);
+	return false;
 }
 
 /**
