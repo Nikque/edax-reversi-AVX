@@ -664,7 +664,7 @@ void ui_loop_edax(UI *ui)
 
 				// load an opening book (binary format) from the disc
 				} else if (strcmp(book_cmd, "load") == 0 || strcmp(book_cmd, "open") == 0) {
-					Book next;
+					Book next = {0};
 					parse_word(book_param, book_file, FILENAME_MAX);
 					next.search = book->search;
 					if (book_load(&next, book_file)) {
@@ -697,17 +697,13 @@ void ui_loop_edax(UI *ui)
 
 				// merge an opening book to the current one
 				} else if (strcmp(book_cmd, "merge") == 0) {
-					Book src;
 					parse_word(book_param, book_file, FILENAME_MAX);
-					src.search = &play->search;
-					if (book_load(&src, book_file)) {
-						book_merge(book, &src);
-						book_link(book); // rebuild links before validating imported positions
-						book_fix(book);
+					if (book_merge_file(book, book_file)) { // the source book is streamed, not loaded
+						book_link_parallel(book); // rebuild links before validating imported positions
+						book_fix_parallel(book);
 						book_negamax(book);
-						book_sort(book);
+						book_sort_parallel(book);
 					} else warn("Book %s was not merged\n", book_file);
-					book_free(&src);
 
 				// fix an opening book
 				} else if (strcmp(book_cmd, "fix") == 0) {

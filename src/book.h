@@ -42,9 +42,16 @@ typedef struct Book {
 	} stats;
 	struct PositionArray *array;
 	struct PositionStack* stack;
+	void *pool;                  /**< positions stored at load time (see book_load) */
 	int n;
 	int n_nodes;
 	bool need_saving;
+	unsigned char epoch; /**< current done/todo epoch (see book_clean) */
+	struct {
+		unsigned long long *item; /**< (bucket << 32 | index) of positions marked todo since book_clean */
+		int n, size;
+		bool valid;               /**< false: book_expand must scan the whole book */
+	} todo_list;
 	Random random;
 	Search *search;
 } Book;
@@ -69,6 +76,10 @@ bool book_save(Book*, const char*);
 void book_import(Book*, const char*);
 void book_export(Book*, const char*);
 void book_merge(Book*, const Book*);
+bool book_merge_file(Book*, const char*);
+void book_link_parallel(Book*);
+void book_fix_parallel(Book*);
+void book_sort_parallel(Book*);
 void book_sort(Book *book);
 void book_negamax(Book*);
 void book_prune(Book*);

@@ -168,8 +168,10 @@ int main(int argc, char **argv)
 
 	// other protocols
 	} else {
-		ui_event_init(ui);
+		// initialize the engine (and load the book) before the input thread may
+		// call play_stop() on a not yet initialized search (piped "quit" crash)
 		ui->init(ui);
+		ui_event_init(ui);
 		ui->loop(ui);
 		if (ui->free) ui->free(ui);
 		ui_event_free(ui);

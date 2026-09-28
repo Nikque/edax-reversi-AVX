@@ -29,6 +29,7 @@
 #include <limits.h>
 #ifndef _WIN32
 #include <unistd.h>
+#include <sched.h>
 #endif
 
 #define BOOK_DEBUG 0
@@ -67,34 +68,6 @@ typedef struct Link {
 const Link BAD_LINK = {-SCORE_INF, NOMOVE};
 
 /**
- * @brief read a link.
- *
- * @param link link to read in.
- * @param f input stream.
- */
-static inline bool link_read(Link *link, FILE *f)
-{
-	int r;
-	r  = fread(&link->score, 1, 1, f);
-	r += fread(&link->move, 1, 1, f);
-	return r == 2;
-}
-
-/**
- * @brief write a link.
- *
- * @param link link to write out.
- * @param f output stream.
- */
-static inline bool link_write(const Link *link, FILE *f)
-{
-	int r;
-	r  = fwrite(&link->score, 1, 1, f);
-	r += fwrite(&link->move, 1, 1, f);
-	return r == 2;
-}
-
-/**
  * @brief check if a link is unvalid.
  *
  * @param link checked link.
@@ -105,34 +78,81 @@ static inline bool link_is_bad(const Link *link)
 	return link->score == -SCORE_INF;
 }
 
+/** Number of links stored inside the Position itself (99% of positions of a large book). */
+#define POSITION_INLINE_LINKS 4
+
 /**
  * struct Position
  * @brief A position stored in the book.
  */
 typedef struct Position {
 	Board board;               /**< (unique) board */
-	Link leaf;                 /**< best remaining move */
-	Link* link;                /**< linking moves */
+	union {
+		Link *array;           /**< heap array, used when n_link > POSITION_INLINE_LINKS */
+		Link in[POSITION_INLINE_LINKS]; /**< in-place storage for up to POSITION_INLINE_LINKS links */
+	} links;                   /**< linking moves (use position_links()) */
 	unsigned int n_wins;       /**< game win count */
 	unsigned int n_draws;      /**< game draw count */
 	unsigned int n_losses;     /**< game loss count */
 	unsigned int n_lines;      /**< unterminated line count */
+	int deviate2_loss;         /**< minimum accumulated move loss from the deviate2 root */
 	struct {
 		short value, lower, upper;
 	} score;                   /**< Position value & bounds */
+	Link leaf;                 /**< best remaining move */
 	unsigned char n_link;      /**< linking moves number */
 	unsigned char level;       /**< search level */
 	unsigned char done;        /**< done/undone flag */
 	unsigned char todo;        /**< todo flag */
-	int deviate2_loss;         /**< minimum accumulated move loss from the deviate2 root */
-} Position;
+} Position;                    /* 56 bytes on 64-bit targets (was 64) */
+
+typedef char position_size_check[(sizeof (void*) != 8 || sizeof (Position) == 56) ? 1 : -1];
+
+/*
+ * done/todo flags hold the book epoch at which they were set, so that
+ * book_clean() only has to change the epoch instead of rewriting every
+ * position (a full scan is still done once every 127 epochs).
+ */
+#define position_is_done(p, book) ((p)->done == (book)->epoch)
+#define position_set_done(p, book) ((p)->done = (book)->epoch)
+#define position_is_todo(p, book) ((p)->todo == (book)->epoch)
+#define position_set_todo(p, book) ((p)->todo = (book)->epoch)
+
+/** @brief linking moves of a position, wherever they are stored. */
+#define position_links(p) ((p)->n_link > POSITION_INLINE_LINKS ? (p)->links.array : (p)->links.in)
 
 static Position* book_probe(const Book*, const Board*);
 static void book_add(Book*, const Position*);
+static void book_mark_todo(Book*, Position*);
 static void position_print(const Position*, const Board*, FILE*);
 
 #define foreach_link(l, p)  \
-	for ((l) = (p)->link; (l) < (p)->link + (p)->n_link; ++(l))
+	for ((l) = position_links(p); (l) < position_links(p) + (p)->n_link; ++(l))
+
+/**
+ * @brief Replace the links of a position.
+ *
+ * @param position Position (its previous links are released).
+ * @param links New links (may not alias the position's storage).
+ * @param n Number of links.
+ * @return false if memory is exhausted (the position is left without links).
+ */
+static bool position_set_links(Position *position, const Link *links, const int n)
+{
+	if (position->n_link > POSITION_INLINE_LINKS) free(position->links.array);
+	position->links.array = NULL;
+	position->n_link = 0;
+	if (n > POSITION_INLINE_LINKS) {
+		Link *array = (Link*) malloc(sizeof (Link) * n);
+		if (array == NULL) return false;
+		memcpy(array, links, sizeof (Link) * n);
+		position->links.array = array;
+	} else if (n > 0) {
+		memcpy(position->links.in, links, sizeof (Link) * n);
+	}
+	position->n_link = (unsigned char) n;
+	return true;
+}
 
 /**
  * @brief return the number of plies from where the search is solving.
@@ -219,7 +239,7 @@ static bool position_is_ok(const Position *position)
 			return false;
 		}
 	} else if (l->move == NOMOVE) {
-		if (get_mobility(position->board.player, position->board.opponent) != position->n_link && !(position->n_link == 1 && position->link->move == PASS)) {
+		if (get_mobility(position->board.player, position->board.opponent) != position->n_link && !(position->n_link == 1 && position_links(position)[0].move == PASS)) {
 			warn("nomove is wrong\n");
 			position_print(position, &position->board, stdout);
 			return false;
@@ -233,15 +253,16 @@ static bool position_is_ok(const Position *position)
 	}
 
 	// doublons ?
+	l = position_links(position);
 	for (i = 0; i < position->n_link; ++i) {
 		for (j = i + 1; j < position->n_link; ++j) {
-			if (position->link[j].move == position->link[i].move) {
+			if (l[j].move == l[i].move) {
 				warn("doublon found in links\n");
 				position_print(position, &position->board, stdout);
 				return false;
 			}
 		}
-		if (position->leaf.move == position->link[i].move) {
+		if (position->leaf.move == l[i].move) {
 			warn("doublon found in links/leaf\n");
 			position_print(position, &position->board, stdout);
 			return false;
@@ -260,7 +281,7 @@ static void position_init(Position *position)
 	position->board.player = position->board.opponent = 0;
 
 	position->leaf = BAD_LINK;
-	position->link = NULL;
+	position->links.array = NULL;
 
 	position->n_wins = position->n_draws = position->n_losses = position->n_lines = 0;
 	position->score.value = position->score.lower = -SCORE_INF;
@@ -270,6 +291,7 @@ static void position_init(Position *position)
 	position->level = 0;
 	position->done = true;
 	position->todo = false;
+	position->deviate2_loss = 0;
 }
 
 /**
@@ -309,49 +331,121 @@ static void position_merge(Position *dest, const Position *src)
  */
 static void position_free(Position *position)
 {
-	free(position->link);
+	if (position->n_link > POSITION_INLINE_LINKS) free(position->links.array);
+}
+
+/**
+ * @brief Buffered sequential access to a binary book file.
+ *
+ * The binary format stores each position as 40 bytes of fixed fields,
+ * n_link links of 2 bytes and a 2-byte leaf. Reading or writing it field by
+ * field costs ~15 stdio calls per position (about 10 billion calls for a
+ * 650 million position book), so records are packed into a large buffer.
+ */
+typedef struct BookStream {
+	FILE *f;
+	unsigned char *buffer;
+	size_t size, n, pos;
+} BookStream;
+
+#define BOOK_STREAM_SIZE (16u << 20)
+#define POSITION_FIXED_SIZE 40
+
+static bool book_stream_open(BookStream *s, FILE *f)
+{
+	s->f = f;
+	s->size = BOOK_STREAM_SIZE;
+	s->n = s->pos = 0;
+	s->buffer = (unsigned char*) malloc(s->size);
+	return s->buffer != NULL;
+}
+
+static void book_stream_close(BookStream *s)
+{
+	free(s->buffer);
+	s->buffer = NULL;
+}
+
+static bool book_stream_read(BookStream *s, void *data, size_t len)
+{
+	unsigned char *d = (unsigned char*) data;
+	while (len) {
+		size_t k;
+		if (s->pos == s->n) {
+			s->n = fread(s->buffer, 1, s->size, s->f);
+			s->pos = 0;
+			if (s->n == 0) return false;
+		}
+		k = s->n - s->pos; if (k > len) k = len;
+		memcpy(d, s->buffer + s->pos, k);
+		s->pos += k; d += k; len -= k;
+	}
+	return true;
+}
+
+/** @return true if no unread byte remains in the stream. */
+static bool book_stream_at_end(BookStream *s)
+{
+	return s->pos == s->n && fgetc(s->f) == EOF && !ferror(s->f);
+}
+
+static bool book_stream_write(BookStream *s, const void *data, size_t len)
+{
+	const unsigned char *d = (const unsigned char*) data;
+	while (len) {
+		size_t k;
+		if (s->n == s->size) {
+			if (fwrite(s->buffer, 1, s->n, s->f) != s->n) return false;
+			s->n = 0;
+		}
+		k = s->size - s->n; if (k > len) k = len;
+		memcpy(s->buffer + s->n, d, k);
+		s->n += k; d += k; len -= k;
+	}
+	return true;
+}
+
+static bool book_stream_flush(BookStream *s)
+{
+	bool ok = (s->n == 0 || fwrite(s->buffer, 1, s->n, s->f) == s->n);
+	s->n = 0;
+	return ok;
 }
 
 /**
  * @brief Read a position.
  *
  * @param position Position to read in.
- * @param f Input stream.
+ * @param s Input stream.
  */
-static bool position_read(Position *position, FILE *f)
+static bool position_read(Position *position, BookStream *s)
 {
-	int i;
-	int r;
+	unsigned char h[POSITION_FIXED_SIZE];
+	Link links[256];
 
-	r  = fread(&position->board.player, sizeof (unsigned long long), 1, f);
-	r += fread(&position->board.opponent, sizeof (unsigned long long), 1, f);
-
-	r += fread(&position->n_wins, sizeof (unsigned int), 1, f);
-	r += fread(&position->n_draws, sizeof (unsigned int), 1, f);
-	r += fread(&position->n_losses,  sizeof (unsigned int), 1, f);
-	r += fread(&position->n_lines,  sizeof (unsigned int), 1, f);
-
-	r += fread(&position->score.value, sizeof (short), 1, f);
-	r += fread(&position->score.lower, sizeof (short), 1, f);
-	r += fread(&position->score.upper, sizeof (short), 1, f);
-
-	r += fread(&position->n_link, 1, 1, f);
-	r += fread(&position->level, 1, 1, f);
-
-	if (r != 11) return false;
+	if (!book_stream_read(s, h, sizeof h)) return false;
+	memcpy(&position->board.player, h, 8);
+	memcpy(&position->board.opponent, h + 8, 8);
+	memcpy(&position->n_wins, h + 16, 4);
+	memcpy(&position->n_draws, h + 20, 4);
+	memcpy(&position->n_losses, h + 24, 4);
+	memcpy(&position->n_lines, h + 28, 4);
+	memcpy(&position->score.value, h + 32, 2);
+	memcpy(&position->score.lower, h + 34, 2);
+	memcpy(&position->score.upper, h + 36, 2);
+	position->level = h[39];
 
 	position->done = position->todo = false;
+	position->deviate2_loss = 0;
 
-	if (position->n_link) {
-		position->link = (Link*) malloc(sizeof (Link) * position->n_link);
-		if (position->link == NULL) error("cannot allocate opening book position's moves\n");
-		for (i = 0; i < position->n_link; ++i) {
-			if (!link_read(position->link + i, f)) { free(position->link); return false; }
-		}
-	} else {
-		position->link = NULL;
+	if (!book_stream_read(s, links, sizeof (Link) * h[38])) return false;
+	if (!book_stream_read(s, &position->leaf, sizeof (Link))) return false;
+
+	position->n_link = 0;
+	if (!position_set_links(position, links, h[38])) {
+		error("cannot allocate opening book position's moves\n");
+		return false;
 	}
-	if (!link_read(&position->leaf, f)) { free(position->link); return false; }
 
 	return true;
 }
@@ -416,33 +510,26 @@ static bool position_import(Position *position, FILE *f)
  * @param position position to write out.
  * @param f output stream.
  */
-static bool position_write(const Position *position, FILE* f)
+static bool position_write(const Position *position, BookStream *s)
 {
-	int i;
-	int r;
+	unsigned char h[POSITION_FIXED_SIZE + 2 * 257];
+	const int n = position->n_link;
 
-	r  = fwrite(&position->board.player, sizeof (unsigned long long), 1, f);
-	r += fwrite(&position->board.opponent, sizeof (unsigned long long), 1, f);
+	memcpy(h, &position->board.player, 8);
+	memcpy(h + 8, &position->board.opponent, 8);
+	memcpy(h + 16, &position->n_wins, 4);
+	memcpy(h + 20, &position->n_draws, 4);
+	memcpy(h + 24, &position->n_losses, 4);
+	memcpy(h + 28, &position->n_lines, 4);
+	memcpy(h + 32, &position->score.value, 2);
+	memcpy(h + 34, &position->score.lower, 2);
+	memcpy(h + 36, &position->score.upper, 2);
+	h[38] = position->n_link;
+	h[39] = position->level;
+	if (n) memcpy(h + POSITION_FIXED_SIZE, position_links(position), sizeof (Link) * n);
+	memcpy(h + POSITION_FIXED_SIZE + sizeof (Link) * n, &position->leaf, sizeof (Link));
 
-	r += fwrite(&position->n_wins, sizeof (unsigned int), 1, f);
-	r += fwrite(&position->n_draws, sizeof (unsigned int), 1, f);
-	r += fwrite(&position->n_losses,  sizeof (unsigned int), 1, f);
-	r += fwrite(&position->n_lines,  sizeof (unsigned int), 1, f);
-
-	r += fwrite(&position->score.value, sizeof (short), 1, f);
-	r += fwrite(&position->score.lower, sizeof (short), 1, f);
-	r += fwrite(&position->score.upper, sizeof (short), 1, f);
-
-	r += fwrite(&position->n_link, 1, 1, f);
-	r += fwrite(&position->level, 1, 1, f);
-
-	if (r != 11) return false;
-
-	for (i = 0; i < position->n_link; ++i)
-		if (!link_write(position->link + i, f)) return false;
-	if (!link_write(&position->leaf, f)) return false;
-
-	return true;
+	return book_stream_write(s, h, POSITION_FIXED_SIZE + sizeof (Link) * (n + 1));
 }
 
 /**
@@ -473,7 +560,7 @@ static void position_unique(Position *position)
 	board = position->board;
 	if ((s = board_unique(&board, &position->board)) != 0) {
 		for (i = 0; i < position->n_link; ++i) {
-			position->link[i].move = symetry(position->link[i].move, s);
+			position_links(position)[i].move = symetry(position_links(position)[i].move, s);
 		}
 		position->leaf.move = symetry(position->leaf.move, s);
 	}
@@ -498,9 +585,9 @@ static int position_get_moves(const Position *position, const Board *board, Move
 
 		if (board_equal(&sym, board)) {
 			for (i = 0; i < position->n_link; ++i) {
-				x = symetry(position->link[i].move, s);
+				x = symetry(position_links(position)[i].move, s);
 				board_get_move_flip(board, x, move);
-				move->score = position->link[i].score;
+				move->score = position_links(position)[i].score;
 				previous = previous->next = move;
 				++move;
 			}
@@ -643,14 +730,23 @@ static bool position_add_link(Position *position, const Link *link)
 		}
 	}
 
-	l = (Link*) realloc(position->link, sizeof (Link) * (++position->n_link));
-	if (l == NULL) {
-		--position->n_link;
-		error("cannot allocate opening book position's moves\n");
-		return false;
+	if (last < POSITION_INLINE_LINKS) {
+		position->links.in[last] = *link;
+	} else {
+		if (last == POSITION_INLINE_LINKS) { // move the in-place links to the heap
+			l = (Link*) malloc(sizeof (Link) * (last + 1));
+			if (l) memcpy(l, position->links.in, sizeof (Link) * last);
+		} else {
+			l = (Link*) realloc(position->links.array, sizeof (Link) * (last + 1));
+		}
+		if (l == NULL) {
+			error("cannot allocate opening book position's moves\n");
+			return false;
+		}
+		l[last] = *link;
+		position->links.array = l;
 	}
-	position->link = l;
-	position->link[last] = *link;
+	++position->n_link;
 
 	if (link->score > position->score.value) position->score.value = link->score;
 
@@ -669,9 +765,10 @@ static void position_sort(Position *position)
 	Link *i, *j, *best;
 
 	if (position->n_link > 1) {
-		for (i = position->link; i < position->link + position->n_link - 1; ++i) {
+		Link *links = position_links(position);
+		for (i = links; i < links + position->n_link - 1; ++i) {
 			best = i;
-			for (j = i + 1; j < position->link + position->n_link; ++j) {
+			for (j = i + 1; j < links + position->n_link; ++j) {
 				if (j->score > best->score) best = j;
 			}
 			if (best > i) {
@@ -819,13 +916,13 @@ static int position_negamax(Position *position, Book *book)
 	Board target;
 	Position *child;
 
-	if (!position->done) {
+	if (!position_is_done(position, book)) {
 		GameStats stat = {0,0,0,0};
 		const int n_empties = board_count_empties(&position->board);
 		const int search_depth = LEVEL[position->level][n_empties].depth;
 		const int bias = (search_depth & 1) - (n_empties & 1);
 
-		position->done = 1;
+		position_set_done(position, book);
 
 		position->score.value = position->score.lower = position->score.upper = -SCORE_INF;
 
@@ -875,6 +972,187 @@ static int position_negamax(Position *position, Book *book)
 	return position->score.value;
 }
 
+/*
+ * Parallel negamax.
+ *
+ * The negamaxed values of a position only depend on its leaf and on the final
+ * values of its children (max and sums), so the result does not depend on the
+ * order in which positions are computed. Several threads walk the book from the
+ * same root; a thread computes a position after claiming it (done = epoch|0x80),
+ * the others help by walking its children and then wait for it. Links always go
+ * to a position with fewer empties (or to the passed position, that cannot pass
+ * back), so waiting cannot deadlock.
+ */
+#define NEGAMAX_MAX_LINKS 64
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+static inline bool atomic_cas_uchar(unsigned char *p, const unsigned char from, const unsigned char to)
+{
+	return (unsigned char) _InterlockedCompareExchange8((volatile char*) p, (char) to, (char) from) == from;
+}
+static inline unsigned char atomic_load_uchar(const unsigned char *p)
+{
+	const unsigned char v = *(volatile const unsigned char*) p;
+	_ReadWriteBarrier();
+	return v;
+}
+static inline void atomic_store_uchar(unsigned char *p, const unsigned char v)
+{
+	_ReadWriteBarrier();
+	*(volatile unsigned char*) p = v;
+}
+#else
+static inline bool atomic_cas_uchar(unsigned char *p, unsigned char from, const unsigned char to)
+{
+	return __atomic_compare_exchange_n(p, &from, to, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
+static inline unsigned char atomic_load_uchar(const unsigned char *p) { return __atomic_load_n(p, __ATOMIC_ACQUIRE); }
+static inline void atomic_store_uchar(unsigned char *p, const unsigned char v) { __atomic_store_n(p, v, __ATOMIC_RELEASE); }
+#endif
+
+/**
+ * @brief Compute the negamaxed values of a position from its (already negamaxed) children.
+ * Same computation as position_negamax().
+ */
+static void position_negamax_compute(Position *position, Book *book, Position **children)
+{
+	GameStats stat = {0,0,0,0};
+	const int n_empties = board_count_empties(&position->board);
+	const int search_depth = LEVEL[position->level][n_empties].depth;
+	const int bias = (search_depth & 1) - (n_empties & 1);
+	Link *l = position_links(position);
+	int i;
+
+	position->score.value = position->score.lower = position->score.upper = -SCORE_INF;
+
+	if (position->leaf.score > -SCORE_INF) {
+		position->score.value = position->leaf.score;
+		if (search_depth == n_empties && LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) {
+			position->score.lower = position->score.upper = position->score.value;
+			if (position->leaf.score > 0) ++stat.n_wins;
+			else if (position->leaf.score < 0) ++stat.n_losses;
+			else ++stat.n_draws;
+		} else if (search_depth == n_empties) {
+			position->score.lower = position->score.value - book->options.endcut_error;
+			position->score.upper = position->score.value + book->options.endcut_error;
+		} else {
+			position->score.lower = position->score.value - book->options.midgame_error - bias;
+			position->score.upper = position->score.value + book->options.midgame_error - bias;
+		}
+		++stat.n_lines;
+	}
+
+	for (i = 0; i < position->n_link; ++i) {
+		const Position *child = children[i];
+		if (child == NULL) continue; // dangling link (corrupted book)
+		if (l[i].score != -child->score.value) {
+			l[i].score = -child->score.value;
+			book->need_saving = true;
+		}
+		if (l[i].score > position->score.value) position->score.value = l[i].score;
+		if (-child->score.upper > position->score.lower) position->score.lower = -child->score.upper;
+		if (-child->score.lower > position->score.upper) position->score.upper = -child->score.lower;
+
+		stat.n_wins += child->n_losses;
+		stat.n_draws += child->n_draws;
+		stat.n_losses += child->n_wins;
+		stat.n_lines += child->n_lines;
+	}
+
+	position->n_wins = (unsigned int) MIN(UINT_MAX, stat.n_wins);
+	position->n_draws = (unsigned int) MIN(UINT_MAX, stat.n_draws);
+	position->n_losses = (unsigned int) MIN(UINT_MAX, stat.n_losses);
+	position->n_lines = (unsigned int) MIN(UINT_MAX, stat.n_lines);
+}
+
+static void position_negamax_parallel(Position *position, Book *book, const int id)
+{
+	const unsigned char done = book->epoch, busy = (unsigned char) (book->epoch | 0x80);
+	const unsigned char d = atomic_load_uchar(&position->done);
+	Position *children[NEGAMAX_MAX_LINKS];
+	const Link *l;
+	Board target;
+	int i, n, first;
+	bool own;
+
+	if (d == done) return;
+	own = (d != busy && atomic_cas_uchar(&position->done, d, busy));
+
+	n = position->n_link;
+	if (n > NEGAMAX_MAX_LINKS) fatal_error("too many links\n");
+	l = position_links(position);
+	for (i = 0; i < n; ++i) {
+		board_next(&position->board, l[i].move, &target);
+		children[i] = book_probe(book, &target);
+	}
+	// threads start with different children to spread the work
+	first = n ? (id * 7 + board_count_empties(&position->board)) % n : 0;
+	for (i = 0; i < n; ++i) {
+		Position *child = children[(first + i) % n];
+		if (child && atomic_load_uchar(&child->done) != done) position_negamax_parallel(child, book, id);
+	}
+
+	if (own) {
+		position_negamax_compute(position, book, children);
+		atomic_store_uchar(&position->done, done);
+	} else {
+		int spin = 0;
+		while (atomic_load_uchar(&position->done) != done) {
+			if (++spin < 64) {
+#if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
+				_mm_pause();
+#endif
+			} else {
+				spin = 0;
+#ifdef _WIN32
+				Sleep(0);
+#else
+				sched_yield();
+#endif
+			}
+		}
+	}
+}
+
+typedef struct NegamaxWorker {
+	Book *book;
+	Position *root;
+	int id;
+	Thread thread;
+} NegamaxWorker;
+
+static void* negamax_worker(void *v)
+{
+	NegamaxWorker *w = (NegamaxWorker*) v;
+	position_negamax_parallel(w->root, w->book, w->id);
+	return NULL;
+}
+
+/**
+ * @brief Negamax the book sub-tree of a position with options.n_task threads.
+ *
+ * @param root Position to negamax (book_clean() must have been called).
+ * @param book Opening book.
+ */
+static void book_negamax_position(Position *root, Book *book)
+{
+	NegamaxWorker w[MAX_THREADS];
+	int i, n = options.n_task;
+
+	if (n > MAX_THREADS) n = MAX_THREADS;
+	if (n <= 1) {
+		position_negamax(root, book);
+		return;
+	}
+	for (i = 0; i < n; ++i) {
+		w[i].book = book; w[i].root = root; w[i].id = i;
+	}
+	for (i = 1; i < n; ++i) thread_create(&w[i].thread, negamax_worker, w + i);
+	negamax_worker(w);
+	for (i = 1; i < n; ++i) thread_join(w[i].thread);
+}
+
 
 /**
  * @brief Prune a position.
@@ -894,7 +1172,7 @@ static void position_prune(Position *position, Book *book, const int player_devi
 
 	// if position is not done yet & good enough & inside the book height limit
 	if (lower <= position->score.value && position->score.value <= upper && board_count_empties(&position->board) >= book->options.n_empties - 1) {
-		position->done = true; book->stats.n_todo++;
+		position_set_done(position, book); book->stats.n_todo++;
 
 		// prune all children close to the best move
 		foreach_link(l, position) {
@@ -919,18 +1197,21 @@ static void position_prune(Position *position, Book *book, const int player_devi
  */
 static void position_remove_links(Position *position, Book *book)
 {
-	int i, j;
-	Link *l = position->link;
+	int i, n = 0;
+	const Link *l = position_links(position);
+	Link kept[256];
 	Board target;
 
 	for (i = 0; i < position->n_link; ++i) {
 		board_next(&position->board, l[i].move, &target);
 		if (!book_probe(book, &target)) {
 			if (l[i].score > position->leaf.score) position->leaf = l[i];
-			for (j = i + 1; j < position->n_link; ++j) l[j - 1] = l[j];
-			--position->n_link;
-			--i;
+		} else {
+			kept[n++] = l[i];
 		}
+	}
+	if (n != position->n_link && !position_set_links(position, kept, n)) {
+		error("cannot allocate opening book position's moves\n");
 	}
 }
 
@@ -958,8 +1239,8 @@ static void position_deviate(Position *position, Book *book, const int player_de
 	Position *child;
 
 	// if position is not done yet & good enough & inside the book height limit
-	if (!position->done && lower <= position->score.value && position->score.value <= upper && board_count_empties(&position->board) >= book->options.n_empties && !board_is_game_over(&position->board)) {
-		position->done = true;
+	if (!position_is_done(position, book) && lower <= position->score.value && position->score.value <= upper && board_count_empties(&position->board) >= book->options.n_empties && !board_is_game_over(&position->board)) {
+		position_set_done(position, book);
 
 		// deviate all children close to the best move
 		foreach_link(l, position) {
@@ -972,7 +1253,7 @@ static void position_deviate(Position *position, Book *book, const int player_de
 
 		// expand the best remaining move
 		if (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper) {
-			position->todo = true; book->stats.n_todo++;
+			book_mark_todo(book, position); book->stats.n_todo++;
 			if (book->stats.n_todo % 10 == 0) bprint("Book deviate %d todo\r", book->stats.n_todo);
 		}
 	}
@@ -1003,8 +1284,8 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 	// A transposed position can be reached by different lines. Revisit it only
 	// when this path has a smaller accumulated loss, which leaves more budget
 	// available to every continuation from the same board.
-	if (position->done && loss >= position->deviate2_loss) return;
-	position->done = true;
+	if (position_is_done(position, book) && loss >= position->deviate2_loss) return;
+	position_set_done(position, book);
 	position->deviate2_loss = loss;
 
 	foreach_link(l, position) {
@@ -1023,21 +1304,11 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 		&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) return;
 
 	move_error = position->score.value - position->leaf.score;
-	if (position->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss && !position->todo) {
-		position->todo = true;
+	if (position->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss && !position_is_todo(position, book)) {
+		book_mark_todo(book, position);
 		book->stats.n_todo++;
 		if (book->stats.n_todo % 10 == 0) bprint("Book deviate%d %d todo\r", skip_solved ? 2 : 3, book->stats.n_todo);
 	}
-}
-
-static void position_deviate2(Position *position, Book *book, const int move_loss, const int total_loss, const int loss)
-{
-	position_deviate_total(position, book, move_loss, total_loss, loss, true);
-}
-
-static void position_deviate3(Position *position, Book *book, const int move_loss, const int total_loss, const int loss)
-{
-	position_deviate_total(position, book, move_loss, total_loss, loss, false);
 }
 
 /**
@@ -1058,8 +1329,8 @@ static void position_enhance(Position *position, Book *book)
 	Board target;
 	Position *child;
 
-	if (!position->done && board_count_empties(&position->board) >= book->options.n_empties && !board_is_game_over(&position->board)) {
-		position->done = true;
+	if (!position_is_done(position, book) && board_count_empties(&position->board) >= book->options.n_empties && !board_is_game_over(&position->board)) {
+		position_set_done(position, book);
 
 		foreach_link(l, position) {
 			board_next(&position->board, l->move, &target);
@@ -1087,7 +1358,7 @@ static void position_enhance(Position *position, Book *book)
 			}
 
 			if (lower >= position->score.lower || upper >= position->score.upper) {
-				position->todo = true;
+				book_mark_todo(book, position);
 			}
 		}
 	}
@@ -1204,6 +1475,9 @@ static void position_fix(Position *position, Book *book)
 
 /**
  * @brief An array with positions.
+ *
+ * size < 0: the positions are stored in the book pool filled at load time
+ * (capacity == n); the array moves to its own heap block when it grows.
  */
 typedef struct PositionArray {
 	Position *positions;
@@ -1230,7 +1504,7 @@ static void position_array_init(PositionArray *a)
  * @param p Position to add.
  * @return true in case of success.
  */
-static bool position_array_add(PositionArray *a, const Position *p)
+static bool position_array_add(PositionArray *a, const Position *p, const unsigned char epoch)
 {
 	int i;
 
@@ -1238,20 +1512,25 @@ static bool position_array_add(PositionArray *a, const Position *p)
 	assert(position_is_ok(p));
 
 	for (i = 0; i < a->n; ++i) if (board_equal(&a->positions[i].board, &p->board)) return false;
-	if (a->n == a->size) {
+	if (a->size < 0 || a->n == a->size) {
 		Position *n;
-		a->size += a->size / 2 + 1;
-		n = (Position*) realloc(a->positions, a->size * sizeof (Position));
+		const int size = a->n + a->n / 2 + 1;
+		if (a->size < 0) { // the array lives in the book pool: move it to its own block
+			n = (Position*) malloc(size * sizeof (Position));
+			if (n) memcpy(n, a->positions, a->n * sizeof (Position));
+		} else {
+			n = (Position*) realloc(a->positions, size * sizeof (Position));
+		}
 		if (n == NULL) {
 			error("cannot add a position to the book\n");
-			a->size = a->n;
 			return false;
 		}
 		a->positions = n;
+		a->size = size;
 	}
 	a->positions[a->n] = *p;
-	a->positions[a->n].done = true;
-	a->positions[a->n].todo = false;
+	a->positions[a->n].done = epoch; // a new position is 'done' until the next book_clean()
+	a->positions[a->n].todo = 0;
 	++a->n;
 	return true;
 }
@@ -1289,7 +1568,7 @@ static void position_array_free(PositionArray *a)
 {
 	int i;
 	for (i = 0; i < a->n; ++i) position_free(a->positions + i);
-	free(a->positions);
+	if (a->size >= 0) free(a->positions); // else: part of the book pool
 }
 
 /**
@@ -1378,7 +1657,7 @@ static void book_add(Book *book, const Position *p)
 {
 	const unsigned long long i = board_get_hash_code(&p->board) & (book->n - 1);
 
-	if (position_array_add(book->array + i, p)) {
+	if (position_array_add(book->array + i, p, book->epoch)) {
 		++book->n_nodes;
 		++book->stats.n_nodes;
 	}
@@ -1401,6 +1680,37 @@ static void book_remove(Book *book, const Position *p)
 }
 
 /**
+ * @brief Mark a position to be expanded and remember where it is.
+ *
+ * Positions never move inside their bucket while a book is being deviated
+ * (new positions are appended), so book_expand() can visit the marked
+ * positions in the original bucket order without scanning the whole book.
+ *
+ * @param book Opening book.
+ * @param p Position (must belong to the book).
+ */
+static void book_mark_todo(Book *book, Position *p)
+{
+	position_set_todo(p, book);
+	if (book->todo_list.valid) {
+		const unsigned long long i = board_get_hash_code(&p->board) & (book->n - 1);
+		if (book->todo_list.n == book->todo_list.size) {
+			const int size = book->todo_list.size + book->todo_list.size / 2 + 1024;
+			unsigned long long *item = (unsigned long long*) realloc(book->todo_list.item, size * sizeof *item);
+			if (item == NULL) { book->todo_list.valid = false; return; } // fall back to a full scan
+			book->todo_list.item = item;
+			book->todo_list.size = size;
+		}
+		book->todo_list.item[book->todo_list.n++] = (i << 32) | (unsigned long long) (p - book->array[i].positions);
+	}
+}
+
+static int todo_item_cmp(const void *a, const void *b)
+{
+	const unsigned long long x = *(const unsigned long long*) a, y = *(const unsigned long long*) b;
+	return (x > y) - (x < y);
+}
+/**
  * @brief Set all positions as undone.
  *
  * @param book Opening book.
@@ -1410,7 +1720,12 @@ static void book_clean(Book *book)
 	PositionArray *a;
 	Position *p;
 	book->stats.n_nodes = book->stats.n_links = book->stats.n_todo = 0;
-	foreach_position(p, a, book) p->done = p->todo = false;
+	book->todo_list.n = 0;
+	book->todo_list.valid = true;
+	if (++book->epoch == 0x80) { // values >= 0x80 are used by the parallel negamax
+		foreach_position(p, a, book) { p->done = p->todo = 0; p->deviate2_loss = 0; }
+		book->epoch = 1;
+	}
 }
 
 /**
@@ -1456,6 +1771,11 @@ void book_init(Book *book)
 	for (i = 0; i < book->n; ++i) position_array_init(book->array + i);
 
 	book->n_nodes = 0;
+	book->epoch = 1;
+	book->todo_list.item = NULL;
+	book->todo_list.n = book->todo_list.size = 0;
+	book->todo_list.valid = false;
+	book->pool = NULL;
 	random_seed(&book->random, real_clock());
 	book->need_saving = false;
 }
@@ -1472,6 +1792,12 @@ void book_free(Book *book)
 		position_array_free(book->array + i);
 	}
 	free(book->array);
+	free(book->pool);
+	book->pool = NULL;
+	free(book->todo_list.item);
+	book->todo_list.item = NULL;
+	book->todo_list.n = book->todo_list.size = 0;
+	book->todo_list.valid = false;
 }
 
 /**
@@ -1509,12 +1835,16 @@ bool book_load(Book *book, const char *file)
 	FILE *f = fopen(file, "rb");
 	if (f) {
 		Book loaded = {0};
-		Position p;
+		BookStream stream = {0};
+		Position p, *pool = NULL;
+		int used = 0, last_bucket = -1;
+		bool pooling;
 		unsigned int header_edax, header_book;
 		unsigned char header_version, header_release;
 		int i, expected;
 		int r;
 		loaded.search = book->search;
+		loaded.epoch = 1;
 
 		info("Loading book from %s...", file);
 		r = fread(&header_edax, sizeof (unsigned int), 1, f);
@@ -1550,18 +1880,55 @@ bool book_load(Book *book, const char *file)
 		}
 		for (i = 0; i < loaded.n; ++i) position_array_init(loaded.array + i);
 
+		if (!book_stream_open(&stream, f)) {
+			error("cannot allocate the book read buffer");
+			goto book_load_failed;
+		}
+		// A saved book lists its positions bucket by bucket: store them contiguously
+		// in one pool, exactly sized (no per-bucket block, no spare capacity).
+		// Positions out of bucket order fall back to the usual growing arrays.
+		pool = (expected > 0) ? (Position*) malloc((size_t) expected * sizeof (Position)) : NULL;
+		loaded.pool = pool;
+		pooling = (pool != NULL);
 		for (i = 0; i < expected; ++i) {
-			if (!position_read(&p, f)) {
+			if (!position_read(&p, &stream)) {
 				error("Truncated opening book %s at position %d/%d", file, i, expected);
 				goto book_load_failed;
+			}
+			if (pooling) {
+				const int b = (int) (board_get_hash_code(&p.board) & (loaded.n - 1));
+				PositionArray *a = loaded.array + b;
+				if (b < last_bucket) pooling = false; // not saved in this bucket order
+				if (pooling && (a->n == 0 || (a->size < 0 && a->positions + a->n == pool + used))) {
+					int k;
+					for (k = 0; k < a->n; ++k) if (board_equal(&a->positions[k].board, &p.board)) break;
+					if (k == a->n) {
+						if (a->n == 0) { a->positions = pool + used; a->size = -1; }
+						pool[used] = p;
+						pool[used].done = loaded.epoch;
+						pool[used].todo = 0;
+						++used; ++a->n; ++loaded.n_nodes; ++loaded.stats.n_nodes;
+					} else {
+						position_free(&p); // duplicated position: the count check below fails
+					}
+					last_bucket = b;
+					continue;
+				}
 			}
 			book_add(&loaded, &p);
 		}
 
-		if (ferror(f) || fgetc(f) != EOF || loaded.n_nodes != expected) {
+		if (pool && used < expected) { // release the unused part of the pool (in place only)
+			if (used == 0) { free(pool); loaded.pool = pool = NULL; }
+#ifdef _MSC_VER
+			else _expand(pool, (size_t) used * sizeof (Position));
+#endif
+		}
+		if (ferror(f) || !book_stream_at_end(&stream) || loaded.n_nodes != expected) {
 			error("Invalid opening book size or position count in %s", file);
 			goto book_load_failed;
 		}
+		book_stream_close(&stream);
 
 		random_seed(&loaded.random, real_clock());
 		loaded.need_saving = false;
@@ -1572,10 +1939,14 @@ bool book_load(Book *book, const char *file)
 		return true;
 
 book_load_failed:
+		book_stream_close(&stream);
 		fclose(f);
 		if (loaded.array) book_free(&loaded);
 		book->array = NULL;
 		book->n = book->n_nodes = 0;
+		book->todo_list.item = NULL;
+		book->todo_list.n = book->todo_list.size = 0;
+		book->todo_list.valid = false;
 		book->need_saving = false; // never overwrite a damaged source automatically
 		return false;
 	} else {
@@ -1700,11 +2071,17 @@ bool book_save(Book *book, const char *file)
 	r += fwrite(&book->n_nodes, sizeof book->n_nodes, 1, f);
 
 	if (r == 7) {
-		foreach_position(p, a, book) {
-			if (!position_write(p, f)) {
-				r = 0;
-				break;
+		BookStream stream;
+		if (!book_stream_open(&stream, f)) r = 0;
+		else {
+			foreach_position(p, a, book) {
+				if (!position_write(p, &stream)) {
+					r = 0;
+					break;
+				}
 			}
+			if (!book_stream_flush(&stream)) r = 0;
+			book_stream_close(&stream);
 		}
 	}
 	if (fclose(f) != 0) r = 0;
@@ -1753,6 +2130,354 @@ void book_merge(Book *dest, const Book *src)
 	}
 }
 
+/*
+ * Bucket-range parallelism.
+ * Each task gets a contiguous range of buckets; tasks only read the book
+ * structure (no position is added or removed while they run).
+ */
+typedef struct BookTask {
+	Book *book;
+	int first, last;           /**< bucket range [first, last) */
+	unsigned long long *item;  /**< collected (bucket << 32 | index << 8 | move) items, in bucket order */
+	long long n, size;
+	bool oom;
+	void (*run)(struct BookTask*);
+	Thread thread;
+} BookTask;
+
+static void book_task_push(BookTask *task, const unsigned long long item)
+{
+	if (task->n == task->size) {
+		const long long size = task->size + task->size / 2 + 4096;
+		unsigned long long *p = (unsigned long long*) realloc(task->item, size * sizeof *p);
+		if (p == NULL) { task->oom = true; return; }
+		task->item = p; task->size = size;
+	}
+	task->item[task->n++] = item;
+}
+
+static void* book_task_main(void *v)
+{
+	BookTask *task = (BookTask*) v;
+	task->run(task);
+	return NULL;
+}
+
+/**
+ * @brief Run a function on every bucket range with options.n_task threads.
+ * @return number of tasks (task[0..n-1] hold the results, in bucket order).
+ */
+static int book_parallel(Book *book, void (*run)(BookTask*), BookTask *task)
+{
+	int i, n = options.n_task;
+	if (n > MAX_THREADS) n = MAX_THREADS;
+	if (n < 1) n = 1;
+	for (i = 0; i < n; ++i) {
+		task[i].book = book;
+		task[i].first = (int) ((long long) book->n * i / n);
+		task[i].last = (int) ((long long) book->n * (i + 1) / n);
+		task[i].item = NULL; task[i].n = task[i].size = 0; task[i].oom = false;
+		task[i].run = run;
+	}
+	for (i = 1; i < n; ++i) thread_create(&task[i].thread, book_task_main, task + i);
+	run(task);
+	for (i = 1; i < n; ++i) thread_join(task[i].thread);
+	return n;
+}
+
+static void book_tasks_free(BookTask *task, const int n)
+{
+	int i;
+	for (i = 0; i < n; ++i) free(task[i].item);
+}
+
+#define TASK_ITEM(b, k, x) (((unsigned long long) (b) << 32) | ((unsigned long long) (k) << 8) | (unsigned long long) (x))
+#define TASK_BUCKET(item) ((int) ((item) >> 32))
+#define TASK_INDEX(item) ((int) (((item) >> 8) & 0xffffff))
+#define TASK_MOVE(item) ((int) ((item) & 0xff))
+#define TASK_NO_LINK 0xff /* the position has no new link but its leaf must be searched */
+
+static bool position_has_link(const Position *position, const int x)
+{
+	const Link *l;
+	foreach_link(l, position) if (l->move == x) return true;
+	return false;
+}
+
+/** Phase 1 of book_link: find the missing links (read only). */
+static void book_link_find(BookTask *task)
+{
+	Book *book = task->book;
+	int b, k, x;
+	Board next;
+
+	for (b = task->first; b < task->last; ++b) {
+		const PositionArray *a = book->array + b;
+		for (k = 0; k < a->n; ++k) {
+			const Position *p = a->positions + k;
+			unsigned long long moves = board_get_moves(&p->board);
+			bool found = false;
+			if (moves) {
+				foreach_bit(x, moves) {
+					if (!position_has_link(p, x)) {
+						board_next(&p->board, x, &next);
+						if (book_probe(book, &next)) { book_task_push(task, TASK_ITEM(b, k, x)); found = true; }
+					}
+				}
+			} else if (can_move(p->board.opponent, p->board.player) && !position_has_link(p, PASS)) {
+				next.player = p->board.opponent;
+				next.opponent = p->board.player;
+				if (book_probe(book, &next)) { book_task_push(task, TASK_ITEM(b, k, PASS)); found = true; }
+			}
+			if (!found && p->leaf.move == NOMOVE) book_task_push(task, TASK_ITEM(b, k, TASK_NO_LINK));
+		}
+	}
+}
+
+/*
+ * Leaves of the merge source for positions that are in both books.
+ * When relinking clears the leaf of such a position, the source leaf can be
+ * used instead of a new search if it is still not a link: after relinking, the
+ * destination links include every link of the source position, so the source
+ * best non-link move is also the best non-link move of the destination.
+ */
+typedef struct MergeHint {
+	unsigned long long key;    /**< bucket << 32 | index in the destination book */
+	Link leaf;
+	unsigned char level;
+} MergeHint;
+
+static MergeHint *merge_hint = NULL;
+static long long merge_hint_n = 0, merge_hint_size = 0;
+
+static void merge_hint_free(void)
+{
+	free(merge_hint); merge_hint = NULL;
+	merge_hint_n = merge_hint_size = 0;
+}
+
+static bool merge_hint_add(const unsigned long long key, const Link *leaf, const int level)
+{
+	if (merge_hint_n == merge_hint_size) {
+		const long long size = merge_hint_size + merge_hint_size / 2 + 4096;
+		MergeHint *h = (MergeHint*) realloc(merge_hint, size * sizeof *h);
+		if (h == NULL) return false;
+		merge_hint = h; merge_hint_size = size;
+	}
+	merge_hint[merge_hint_n].key = key;
+	merge_hint[merge_hint_n].leaf = *leaf;
+	merge_hint[merge_hint_n].level = (unsigned char) level;
+	++merge_hint_n;
+	return true;
+}
+
+static int merge_hint_cmp(const void *a, const void *b)
+{
+	const unsigned long long x = ((const MergeHint*) a)->key, y = ((const MergeHint*) b)->key;
+	return (x > y) - (x < y);
+}
+
+static const MergeHint* merge_hint_find(const unsigned long long key)
+{
+	long long lo = 0, hi = merge_hint_n - 1;
+	while (lo <= hi) {
+		const long long mid = (lo + hi) / 2;
+		if (merge_hint[mid].key == key) return merge_hint + mid;
+		if (merge_hint[mid].key < key) lo = mid + 1; else hi = mid - 1;
+	}
+	return NULL;
+}
+
+/**
+ * @brief Link a book using several threads.
+ *
+ * Same links and leaf searches as book_link(), in the same order. The only
+ * difference: scores of links that already existed are not refreshed here
+ * (book_negamax() recomputes them for every position reachable from the root).
+ */
+void book_link_parallel(Book *book)
+{
+	BookTask task[MAX_THREADS];
+	int i, n;
+	long long j;
+
+	bprint("Linking book...\r");
+	n = book_parallel(book, book_link_find, task);
+	for (i = 0; i < n; ++i) if (task[i].oom) { book_tasks_free(task, n); error("cannot allocate link list; using sequential link\n"); book_link(book); return; }
+
+	for (i = 0; i < n; ++i) {
+		for (j = 0; j < task[i].n; ++j) {
+			const unsigned long long item = task[i].item[j];
+			Position *p = book->array[TASK_BUCKET(item)].positions + TASK_INDEX(item);
+			const int x = TASK_MOVE(item);
+			const bool last = (j + 1 == task[i].n || (task[i].item[j + 1] >> 8) != (item >> 8));
+			if (x != TASK_NO_LINK) {
+				Board next;
+				Position *child;
+				Link link;
+				if (x == PASS) { next.player = p->board.opponent; next.opponent = p->board.player; }
+				else board_next(&p->board, x, &next);
+				child = book_probe(book, &next);
+				link.score = -child->score.value;
+				link.move = x;
+				if (position_add_link(p, &link)) ++book->stats.n_links;
+			}
+			if (last && p->leaf.move == NOMOVE) {
+				const MergeHint *hint = merge_hint_find(((unsigned long long) TASK_BUCKET(item) << 32) | (unsigned long long) TASK_INDEX(item));
+				const int n_moves = get_mobility(p->board.player, p->board.opponent);
+				if (hint && hint->level == p->level && hint->leaf.move != NOMOVE && !position_has_link(p, hint->leaf.move)) {
+					// the source book already searched this position with a subset of these links
+					p->leaf = hint->leaf;
+					if (p->leaf.score > p->score.value) p->score.value = p->leaf.score;
+					book->need_saving = true;
+				} else if (p->n_link < n_moves || (p->n_link == 0 && n_moves == 0 && p->score.value == -SCORE_INF)) {
+					position_search(p, book);
+				}
+			}
+		}
+	}
+	book_tasks_free(task, n);
+	merge_hint_free();
+	bprint("Linking book...%d done\n", book->n_nodes);
+}
+
+/** Phase 1 of book_fix: find wrong positions (read only). */
+static void book_fix_find(BookTask *task)
+{
+	int b, k;
+	for (b = task->first; b < task->last; ++b) {
+		const PositionArray *a = task->book->array + b;
+		for (k = 0; k < a->n; ++k) if (!position_is_ok(a->positions + k)) book_task_push(task, TASK_ITEM(b, k, 0));
+	}
+}
+
+void book_fix_parallel(Book *book)
+{
+	BookTask task[MAX_THREADS];
+	int i, n, n_fix = 0;
+	long long j;
+
+	bprint("Fixing book...\r");
+	n = book_parallel(book, book_fix_find, task);
+	for (i = 0; i < n; ++i) if (task[i].oom) { book_tasks_free(task, n); book_fix(book); return; }
+	for (i = 0; i < n; ++i) for (j = 0; j < task[i].n; ++j) {
+		position_fix(book->array[TASK_BUCKET(task[i].item[j])].positions + TASK_INDEX(task[i].item[j]), book);
+		++n_fix;
+	}
+	book_tasks_free(task, n);
+	bprint("Fixing book...%d done\n", n_fix);
+}
+
+static void book_sort_range(BookTask *task)
+{
+	int b, k;
+	for (b = task->first; b < task->last; ++b) {
+		PositionArray *a = task->book->array + b;
+		for (k = 0; k < a->n; ++k) position_sort(a->positions + k);
+	}
+}
+
+void book_sort_parallel(Book *book)
+{
+	BookTask task[MAX_THREADS];
+	bprint("Sorting book...");
+	book_tasks_free(task, book_parallel(book, book_sort_range, task));
+	bprint("done>\n");
+}
+
+#define MERGE_MARK 0xff /* todo value of the positions added by book_merge_file (never an epoch) */
+
+/**
+ * @brief Merge a book file into the current book without loading it.
+ *
+ * The file is read twice: first to check that it is a complete book, then to
+ * add the positions missing from the destination (same rules as book_merge()).
+ * On any error the destination book is left unchanged.
+ *
+ * @param dest Destination opening book.
+ * @param file Source book file.
+ * @return true on success.
+ */
+bool book_merge_file(Book *dest, const char *file)
+{
+	FILE *f = fopen(file, "rb");
+	BookStream stream = {0};
+	Position p, merged;
+	unsigned int header_edax = 0, header_book = 0;
+	unsigned char header[10];
+	int i, expected = -1, n_added = 0, pass;
+	bool ok = false, use_hints = true;
+
+	if (f == NULL) { error("cannot open %s", file); return false; }
+	if (fread(&header_edax, 4, 1, f) != 1 || fread(&header_book, 4, 1, f) != 1 || header_edax != EDAX || header_book != BOOK
+	 || fread(header, 2, 1, f) != 1 || header[0] != VERSION) {
+		error("%s is not a compatible edax opening book", file);
+		fclose(f); return false;
+	}
+	{ Book h; if (fread(&h.date, sizeof h.date, 1, f) != 1 || fread(&h.options, sizeof h.options, 1, f) != 1 || fread(&expected, sizeof expected, 1, f) != 1 || expected < 0) {
+		error("Cannot read book settings from %s", file);
+		fclose(f); return false;
+	} }
+	if (!book_stream_open(&stream, f)) { fclose(f); return false; }
+
+	for (pass = 0; pass < 2; ++pass) {
+		const long long start = 8 + 2 + sizeof dest->date + sizeof dest->options + sizeof expected;
+#ifdef _WIN32
+		if (pass && _fseeki64(f, start, SEEK_SET) != 0) goto merge_end;
+#else
+		if (pass && fseeko(f, start, SEEK_SET) != 0) goto merge_end;
+#endif
+		stream.n = stream.pos = 0;
+		bprint("%s book %s...\r", pass ? "Merging" : "Checking", file);
+		for (i = 0; i < expected; ++i) {
+			if (!position_read(&p, &stream)) {
+				error("Truncated opening book %s at position %d/%d", file, i, expected);
+				goto merge_end;
+			}
+			if (pass) {
+				Position *q = book_probe(dest, &p.board);
+				if (q == NULL) {
+					const unsigned long long b = board_get_hash_code(&p.board) & (dest->n - 1);
+					PositionArray *a = dest->array + b;
+					position_merge(&merged, &p);
+					if (!position_array_add(a, &merged, dest->epoch)) { position_free(&p); error("cannot add a position"); goto merge_end; }
+					a->positions[a->n - 1].todo = MERGE_MARK;
+					++dest->n_nodes; ++dest->stats.n_nodes; ++n_added;
+				} else if (q->todo != MERGE_MARK) { // remember the source leaf (see book_link_parallel)
+					if (use_hints && p.leaf.move != NOMOVE && (p.leaf.move != q->leaf.move || p.n_link != q->n_link)) {
+						const unsigned long long b = board_get_hash_code(&q->board) & (dest->n - 1);
+						if (!merge_hint_add((b << 32) | (unsigned long long) (q - dest->array[b].positions), &p.leaf, p.level)) { merge_hint_free(); use_hints = false; }
+					}
+				} else {
+					position_free(&p);
+					error("duplicated position in %s", file);
+					goto merge_end;
+				}
+			}
+			position_free(&p);
+		}
+		if (!pass && (ferror(f) || !book_stream_at_end(&stream))) {
+			error("Invalid opening book size or position count in %s", file);
+			goto merge_end;
+		}
+	}
+	ok = true;
+	if (merge_hint_n) qsort(merge_hint, merge_hint_n, sizeof *merge_hint, merge_hint_cmp);
+
+merge_end:
+	book_stream_close(&stream);
+	fclose(f);
+	if (!ok) merge_hint_free();
+	if (!ok && n_added) { // remove what was added: the destination is left unchanged
+		PositionArray *a;
+		for (a = dest->array; a < dest->array + dest->n; ++a)
+		for (i = 0; i < a->n; ++i) if (a->positions[i].todo == MERGE_MARK) { book_remove(dest, a->positions + i); --i; }
+	}
+	if (ok) dest->need_saving = dest->need_saving || n_added > 0;
+	bprint("Merging book %s...%d positions added\n", file, n_added);
+	return ok;
+}
+
 /**
  * @brief Negamax a book.
  *
@@ -1765,7 +2490,7 @@ void book_negamax(Book *book)
 	if (root) {
 		bprint("Negamaxing book...");
 		book_clean(book);
-		position_negamax(root, book);
+		book_negamax_position(root, book);
 		bprint("done\n");
 	}
 }
@@ -1803,7 +2528,7 @@ void book_fix(Book *book)
 	Position *p;
 	int i = 0;
 
-	bprint("Fixing book...\r"); 
+	bprint("Fixing book...\r");
 	foreach_position(p, a, book) {
 		if (!position_is_ok(p)) {
 			position_fix(p, book);
@@ -1934,15 +2659,27 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 {
 	PositionArray *a;
 	Position *p;
-	int i = 0, k;
+	int i = 0, j, k;
 	unsigned long long t = real_clock();
 
 	bprint("%s...\r", action);
-	
-	for (a = book->array; a < book->array + book->n; ++a)
-	for (k = 0; k < a->n; ++k) { // do not use foreach_positions here! a->positions may change!
-		p = a->positions + k;
-		if (p->todo) {
+
+	// Visit the todo positions in bucket order: either from the list recorded
+	// while marking them, or by scanning the whole book.
+	if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+	a = book->array; k = 0;
+	for (j = 0; ; ++j) {
+		if (book->todo_list.valid) {
+			unsigned long long item;
+			if (j == book->todo_list.n) break;
+			item = book->todo_list.item[j];
+			p = book->array[item >> 32].positions + (int) (item & 0xffffffffu); // do not keep p across expansions: a->positions may change!
+		} else {
+			while (a < book->array + book->n && k == a->n) { ++a; k = 0; }
+			if (a == book->array + book->n) break;
+			p = a->positions + k++;
+		}
+		if (position_is_todo(p, book)) {
 			position_expand(p, book);
 			bprint("%s...%d/%d done: %d positions, %d links\r", action, ++i, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
 			if (book->search->options.verbosity >= 2) putchar('\n'); else putchar('\r');
@@ -1994,13 +2731,14 @@ void book_play(Book *book)
 		book->stats.n_nodes = book->stats.n_links = book->stats.n_todo = 0;
 		foreach_position(p, a, book) {
 			if (p->n_link == 0 && board_count_empties(&p->board) >= book->options.n_empties && !board_is_game_over(&p->board)) {
-				p->todo = true; ++book->stats.n_todo;
+				position_set_todo(p, book); ++book->stats.n_todo;
 			} else {
-				p->todo = false;
+				p->todo = 0;
 			}
 			if (book->stats.n_todo && book->stats.n_todo % BOOK_INFO_RESOLUTION == 0) bprint("Book play...%d todo\r", book->stats.n_todo);
 		}
 		bprint("Book play...%d todo\n", book->stats.n_todo);
+		book->todo_list.valid = false; // todo flags were set by a full scan
 
 		book_expand(book, "Book play", file);
 
@@ -2052,6 +2790,341 @@ void book_fill(Book *book, const int depth)
 	bprint("Book fill... finished\n");
 }
 
+/*
+ * Parallel selection of the positions to expand (book deviate, deviate2, deviate3).
+ *
+ * The per-position visit state is kept in deviate2_loss as (epoch << 24 | value),
+ * so that no full scan is needed to reset it (see book_clean):
+ * - deviate2/3: value is the smallest accumulated loss (see book_deviate_total_by_loss).
+ * - deviate: value is the ply parity of the visit (see book_deviate_by_depth).
+ * Positions to expand are collected per thread, then appended to the todo list.
+ */
+#if defined(_MSC_VER)
+static inline bool atomic_cas_int(int *p, const int from, const int to)
+{
+	return _InterlockedCompareExchange((volatile long*) p, (long) to, (long) from) == (long) from;
+}
+static inline int atomic_load_int(const int *p) { const int v = *(volatile const int*) p; _ReadWriteBarrier(); return v; }
+#else
+static inline bool atomic_cas_int(int *p, int from, const int to) { return __atomic_compare_exchange_n(p, &from, to, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE); }
+static inline int atomic_load_int(const int *p) { return __atomic_load_n(p, __ATOMIC_ACQUIRE); }
+#endif
+
+typedef struct DeviateWorker {
+	Book *book;
+	int id;
+	int mode;                  /**< 0: deviate, 2: deviate2, 3: deviate3 */
+	int a, b, lower, upper;    /**< deviate: player & opponent deviations, window. deviate2/3: move & total loss */
+	unsigned long long *item;  /**< todo positions (bucket << 32 | index) */
+	int n, size, n_todo;
+	bool oom;
+	volatile bool *conflict;
+	Thread thread;
+} DeviateWorker;
+
+static void deviate_worker_todo(DeviateWorker *w, Position *p)
+{
+	Book *book = w->book;
+	unsigned char t = atomic_load_uchar(&p->todo);
+	if (t == book->epoch || !atomic_cas_uchar(&p->todo, t, book->epoch)) return; // already marked
+	++w->n_todo;
+	if (w->n == w->size) {
+		const int size = w->size + w->size / 2 + 1024;
+		unsigned long long *item = (unsigned long long*) realloc(w->item, size * sizeof *item);
+		if (item == NULL) { w->oom = true; return; }
+		w->item = item; w->size = size;
+	}
+	{
+		const unsigned long long i = board_get_hash_code(&p->board) & (book->n - 1);
+		w->item[w->n++] = (i << 32) | (unsigned long long) (p - book->array[i].positions);
+	}
+}
+
+/*
+ * deviate2/3 selection by increasing accumulated loss.
+ *
+ * Positions are processed level by level (level = accumulated loss), so each
+ * position is walked once, with its smallest loss, instead of being re-walked
+ * every time a path with a smaller loss is found. The todo set is the same as
+ * the one of the recursive walk (the todo test only depends on the smallest
+ * loss). Each level is processed by options.n_task threads.
+ */
+typedef struct PositionList {
+	Position **item;
+	long long n, size;
+} PositionList;
+
+static bool position_list_push(PositionList *l, Position *p)
+{
+	if (l->n == l->size) {
+		const long long size = l->size + l->size / 2 + 1024;
+		Position **item = (Position**) realloc(l->item, size * sizeof *item);
+		if (item == NULL) return false;
+		l->item = item; l->size = size;
+	}
+	l->item[l->n++] = p;
+	return true;
+}
+
+typedef struct LossWorker {
+	DeviateWorker w;           /**< todo list, counters, parameters */
+	PositionList *next;        /**< positions reached with a larger loss, per level (total_loss + 1 lists) */
+	PositionList same;         /**< positions reached with the same loss */
+	Position **cur;            /**< positions to process */
+	long long first, last;
+	int level;
+} LossWorker;
+
+/** @return true if the position can be walked (same tests as position_deviate_total). */
+static inline bool deviate_total_walkable(const Book *book, const Position *p)
+{
+	return board_count_empties(&p->board) >= book->options.n_empties && !board_is_game_over(&p->board);
+}
+
+/** @return true if loss is the new smallest loss of the position. */
+static inline bool deviate_total_relax(Book *book, Position *p, const int loss)
+{
+	const int mark = (book->epoch << 24) | loss;
+	int old;
+	do {
+		old = atomic_load_int(&p->deviate2_loss);
+		if ((old >> 24) == book->epoch && (old & 0xffffff) <= loss) return false;
+	} while (!atomic_cas_int(&p->deviate2_loss, old, mark));
+	return true;
+}
+
+static void* loss_worker_run(void *v)
+{
+	LossWorker *lw = (LossWorker*) v;
+	DeviateWorker *w = &lw->w;
+	Book *book = w->book;
+	const int move_loss = w->a, total_loss = w->b, loss = lw->level;
+	long long k;
+	Board target;
+
+	for (k = lw->first; k < lw->last; ++k) {
+		Position *position = lw->cur[k];
+		const int n_empties = board_count_empties(&position->board);
+		const Link *l;
+		int move_error;
+
+		if (atomic_load_int(&position->deviate2_loss) != ((book->epoch << 24) | loss)) continue; // reached later with a smaller loss
+
+		foreach_link(l, position) {
+			move_error = position->score.value - l->score;
+			if (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss) {
+				Position *child;
+				board_next(&position->board, l->move, &target);
+				child = book_probe(book, &target);
+				if (child && deviate_total_walkable(book, child) && deviate_total_relax(book, child, loss + move_error)) {
+					if (!position_list_push(move_error ? lw->next + loss + move_error : &lw->same, child)) w->oom = true;
+				}
+			}
+		}
+
+		if (w->mode == 2 && LEVEL[position->level][n_empties].depth == n_empties
+			&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) continue;
+
+		move_error = position->score.value - position->leaf.score;
+		if (position->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss) {
+			deviate_worker_todo(w, position);
+		}
+	}
+	return NULL;
+}
+
+static bool book_deviate_total_by_loss(Book *book, Position *root, const int mode, const int move_loss, const int total_loss)
+{
+	LossWorker lw[MAX_THREADS];
+	PositionList *level, cur = {0};
+	int i, j, L, n = options.n_task;
+	bool ok = true;
+
+	if (n > MAX_THREADS) n = MAX_THREADS;
+	if (n < 1) n = 1;
+	if (!book->todo_list.valid) return false;
+	level = (PositionList*) calloc(total_loss + 1, sizeof *level);
+	if (level == NULL) return false;
+	for (i = 0; i < n; ++i) {
+		memset(lw + i, 0, sizeof lw[i]);
+		lw[i].w.book = book; lw[i].w.id = i; lw[i].w.mode = mode; lw[i].w.a = move_loss; lw[i].w.b = total_loss;
+		lw[i].next = (PositionList*) calloc(total_loss + 1, sizeof (PositionList));
+		if (lw[i].next == NULL) ok = false;
+	}
+
+	if (ok && deviate_total_walkable(book, root) && deviate_total_relax(book, root, 0)) ok = position_list_push(level + 0, root);
+
+	for (L = 0; ok && L <= total_loss; ++L) {
+		// take the level list; positions reached with the same loss are processed in extra rounds
+		cur = level[L]; memset(level + L, 0, sizeof level[L]);
+		while (ok && cur.n > 0) {
+			const int m = (cur.n < 4096) ? 1 : n; // small levels are not worth threads
+			for (i = 0; i < m; ++i) {
+				lw[i].cur = cur.item; lw[i].level = L;
+				lw[i].first = cur.n * i / m; lw[i].last = cur.n * (i + 1) / m;
+				lw[i].same.n = 0;
+			}
+			for (i = 1; i < m; ++i) thread_create(&lw[i].w.thread, loss_worker_run, lw + i);
+			loss_worker_run(lw);
+			for (i = 1; i < m; ++i) thread_join(lw[i].w.thread);
+			cur.n = 0;
+			for (i = 0; i < m && ok; ++i) {
+				if (lw[i].w.oom) ok = false;
+				for (j = 0; j < lw[i].same.n && ok; ++j) ok = position_list_push(&cur, lw[i].same.item[j]);
+			}
+		}
+		free(cur.item); cur.item = NULL; cur.size = 0;
+		// move the positions reached with larger losses to the global levels
+		for (i = 0; i < n && ok; ++i) {
+			for (j = L + 1; j <= total_loss && j <= L + move_loss; ++j) {
+				long long k;
+				for (k = 0; k < lw[i].next[j].n && ok; ++k) ok = position_list_push(level + j, lw[i].next[j].item[k]);
+				lw[i].next[j].n = 0;
+			}
+		}
+	}
+
+	if (ok) {
+		for (i = 0; i < n && ok; ++i) {
+			book->stats.n_todo += lw[i].w.n_todo;
+			for (j = 0; j < lw[i].w.n; ++j) {
+				if (book->todo_list.n == book->todo_list.size) {
+					const int size = book->todo_list.size + book->todo_list.size / 2 + 1024;
+					unsigned long long *item = (unsigned long long*) realloc(book->todo_list.item, size * sizeof *item);
+					if (item == NULL) { book->todo_list.valid = false; break; }
+					book->todo_list.item = item; book->todo_list.size = size;
+				}
+				book->todo_list.item[book->todo_list.n++] = lw[i].w.item[j];
+			}
+		}
+	}
+
+	for (i = 0; i < n; ++i) {
+		if (lw[i].next) { for (j = 0; j <= total_loss; ++j) free(lw[i].next[j].item); free(lw[i].next); }
+		free(lw[i].same.item); free(lw[i].w.item);
+	}
+	for (L = 0; L <= total_loss; ++L) free(level[L].item);
+	free(level);
+	return ok;
+}
+
+/*
+ * deviate selection ply by ply (breadth first), each ply with options.n_task threads.
+ * Deviations and window only depend on the ply parity, so the visited set is the
+ * one of the recursive walk unless a position is reached with both parities
+ * (then the caller redoes the recursive walk).
+ */
+static void* depth_worker_run(void *v)
+{
+	LossWorker *lw = (LossWorker*) v;
+	DeviateWorker *w = &lw->w;
+	Book *book = w->book;
+	const int parity = lw->level & 1;
+	const int player_deviation = parity ? w->b : w->a, opponent_deviation = parity ? w->a : w->b;
+	const int lower = parity ? -w->upper : w->lower, upper = parity ? -w->lower : w->upper;
+	const int mark = (book->epoch << 24) | parity, child_mark = (book->epoch << 24) | (parity ^ 1);
+	long long k;
+	Board target;
+
+	for (k = lw->first; k < lw->last && !*w->conflict; ++k) {
+		Position *position = lw->cur[k];
+		const Link *l;
+		int old;
+
+		if (!(lower <= position->score.value && position->score.value <= upper && board_count_empties(&position->board) >= book->options.n_empties && !board_is_game_over(&position->board))) continue;
+		old = atomic_load_int(&position->deviate2_loss);
+		if ((old >> 24) == book->epoch || !atomic_cas_int(&position->deviate2_loss, old, mark)) {
+			if (atomic_load_int(&position->deviate2_loss) != mark) *w->conflict = true;
+			continue;
+		}
+		foreach_link(l, position) {
+			if (position->score.value - l->score <= player_deviation && lower <= l->score && l->score <= upper) {
+				Position *child;
+				board_next(&position->board, l->move, &target);
+				child = book_probe(book, &target);
+				if (child && atomic_load_int(&child->deviate2_loss) != child_mark && !position_list_push(&lw->same, child)) w->oom = true;
+			}
+		}
+		if (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper) {
+			deviate_worker_todo(w, position);
+		}
+	}
+	return NULL;
+}
+
+static bool book_deviate_by_depth(Book *book, Position *root, const int player_deviation, const int opponent_deviation, const int lower, const int upper)
+{
+	LossWorker lw[MAX_THREADS];
+	PositionList cur = {0}, next = {0};
+	volatile bool conflict = false;
+	int i, depth, n = options.n_task;
+	long long j;
+	bool ok = true;
+
+	if (n > MAX_THREADS) n = MAX_THREADS;
+	if (n < 1) n = 1;
+	if (!book->todo_list.valid) return false;
+	for (i = 0; i < n; ++i) {
+		memset(lw + i, 0, sizeof lw[i]);
+		lw[i].w.book = book; lw[i].w.id = i; lw[i].w.conflict = &conflict;
+		lw[i].w.a = player_deviation; lw[i].w.b = opponent_deviation; lw[i].w.lower = lower; lw[i].w.upper = upper;
+	}
+	ok = position_list_push(&cur, root);
+	for (depth = 0; ok && !conflict && cur.n > 0; ++depth) {
+		const int m = (cur.n < 4096) ? 1 : n;
+		for (i = 0; i < m; ++i) {
+			lw[i].cur = cur.item; lw[i].level = depth;
+			lw[i].first = cur.n * i / m; lw[i].last = cur.n * (i + 1) / m;
+			lw[i].same.n = 0;
+		}
+		for (i = 1; i < m; ++i) thread_create(&lw[i].w.thread, depth_worker_run, lw + i);
+		depth_worker_run(lw);
+		for (i = 1; i < m; ++i) thread_join(lw[i].w.thread);
+		next.n = 0;
+		for (i = 0; i < m && ok; ++i) {
+			if (lw[i].w.oom) ok = false;
+			for (j = 0; j < lw[i].same.n && ok; ++j) ok = position_list_push(&next, lw[i].same.item[j]);
+		}
+		{ PositionList t = cur; cur = next; next = t; }
+	}
+	if (conflict || !ok) {
+		ok = false;
+	} else {
+		for (i = 0; i < n && ok; ++i) {
+			book->stats.n_todo += lw[i].w.n_todo;
+			for (j = 0; j < lw[i].w.n; ++j) {
+				if (book->todo_list.n == book->todo_list.size) {
+					const int size = book->todo_list.size + book->todo_list.size / 2 + 1024;
+					unsigned long long *item = (unsigned long long*) realloc(book->todo_list.item, size * sizeof *item);
+					if (item == NULL) { book->todo_list.valid = false; break; }
+					book->todo_list.item = item; book->todo_list.size = size;
+				}
+				book->todo_list.item[book->todo_list.n++] = lw[i].w.item[j];
+			}
+		}
+	}
+	for (i = 0; i < n; ++i) { free(lw[i].same.item); free(lw[i].w.item); }
+	free(cur.item); free(next.item);
+	return ok;
+}
+
+/** walk wrappers: parallel when possible, else the original sequential walk (after a new book_clean) */
+static void book_select_deviate(Book *book, Position *root, const int player_deviation, const int opponent_deviation, const int lower, const int upper)
+{
+	if (!book_deviate_by_depth(book, root, player_deviation, opponent_deviation, lower, upper)) {
+		book_clean(book);
+		position_deviate(root, book, player_deviation, opponent_deviation, lower, upper);
+	}
+}
+
+static void book_select_deviate_total(Book *book, Position *root, const int move_loss, const int total_loss, const bool skip_solved)
+{
+	if (!book_deviate_total_by_loss(book, root, skip_solved ? 2 : 3, move_loss, total_loss)) {
+		book_clean(book);
+		position_deviate_total(root, book, move_loss, total_loss, 0, skip_solved);
+	}
+}
+
 /**
  * @brief Deviate a book.
  *
@@ -2071,14 +3144,14 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 
 		file_add_ext(options.book_file, ".dev", file);
 		book_clean(book);
-		position_negamax(root, book);
+		book_negamax_position(root, book);
 
 		do {
 			score = root->score.value;
 
 			bprint("Book deviate %d %d:\n", relative_error, absolute_error);
 			book_clean(book);
-			position_deviate(root, book, relative_error, 0, score - absolute_error, score + absolute_error);
+			book_select_deviate(book, root, relative_error, 0, score - absolute_error, score + absolute_error);
 			bprint("Book deviate %d todo\n", book->stats.n_todo);
 
 			book_expand(book, "Book deviate", file);
@@ -2088,7 +3161,7 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 			root = book_probe(book, board);
 			bprint("Book deviate %d %d:\n", relative_error, absolute_error);
 			book_clean(book);
-			position_deviate(root, book, 0, relative_error, score - absolute_error, score + absolute_error);
+			book_select_deviate(book, root, 0, relative_error, score - absolute_error, score + absolute_error);
 			bprint("Book deviate %d todo\n", book->stats.n_todo);
 
 			book_expand(book, "Book deviate", file);
@@ -2096,7 +3169,7 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 
 			root = book_probe(book, board);
 			book_clean(book);
-			position_negamax(root, book);
+			book_negamax_position(root, book);
 			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
 		} while (n_diffs);
 		bprint("Book deviate %d %d...finished\n", relative_error, absolute_error);
@@ -2121,12 +3194,12 @@ void book_deviate2(Book *book, Board *board, const int move_loss, const int tota
 
 		file_add_ext(options.book_file, ".dev2", file);
 		book_clean(book);
-		position_negamax(root, book);
+		book_negamax_position(root, book);
 
 		do {
 			bprint("Book deviate2 %d %d:\n", move_loss, total_loss);
 			book_clean(book);
-			position_deviate2(root, book, move_loss, total_loss, 0);
+			book_select_deviate_total(book, root, move_loss, total_loss, true);
 			bprint("Book deviate2 %d todo\n", book->stats.n_todo);
 
 			book_expand(book, "Book deviate2", file);
@@ -2134,7 +3207,7 @@ void book_deviate2(Book *book, Board *board, const int move_loss, const int tota
 
 			root = book_probe(book, board);
 			book_clean(book);
-			position_negamax(root, book);
+			book_negamax_position(root, book);
 			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
 		} while (n_diffs);
 		bprint("Book deviate2 %d %d...finished\n", move_loss, total_loss);
@@ -2151,12 +3224,12 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 
 		file_add_ext(options.book_file, ".dev3", file);
 		book_clean(book);
-		position_negamax(root, book);
+		book_negamax_position(root, book);
 
 		do {
 			bprint("Book deviate3 %d %d:\n", move_loss, total_loss);
 			book_clean(book);
-			position_deviate3(root, book, move_loss, total_loss, 0);
+			book_select_deviate_total(book, root, move_loss, total_loss, false);
 			bprint("Book deviate3 %d todo\n", book->stats.n_todo);
 
 			book_expand(book, "Book deviate3", file);
@@ -2164,7 +3237,7 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 
 			root = book_probe(book, board);
 			book_clean(book);
-			position_negamax(root, book);
+			book_negamax_position(root, book);
 			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
 		} while (n_diffs);
 		bprint("Book deviate3 %d %d...finished\n", move_loss, total_loss);
@@ -2197,7 +3270,7 @@ void book_prune(Book *book)
 		position_prune(root, book, 0, 2*SCORE_INF, -SCORE_INF, SCORE_INF);
 		bprint("Book prune %d... done\n", book->stats.n_todo);
 		for (a = book->array; a < book->array + book->n; ++a)
-		for (i = 0; i < a->n; ++i) if (!a->positions[i].done) {book_remove(book, a->positions + i); --i;}
+		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
 		foreach_position(p, a, book) position_remove_links(p, book);
 		bprint("done\n");
 	}
@@ -2226,7 +3299,7 @@ void book_subtree(Book *book, const Board *board)
 		position_print(root, &root->board, stdout);
 		bprint("Book subtree %d... done\n", book->stats.n_todo);
 		for (a = book->array; a < book->array + book->n; ++a)
-		for (i = 0; i < a->n; ++i) if (!a->positions[i].done) {book_remove(book, a->positions + i); --i;}
+		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
 		foreach_position(p, a, book) position_remove_links(p, book);
 		bprint("done\n");
 	}
