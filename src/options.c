@@ -86,6 +86,7 @@ Options options = {
 	1, // save after every productive deviate round by default
 	true, // save the merged book after book merge
 	false, // hash table size set by hash-table-size (auto: from the thread count and the memory size)
+	1, // book positions expanded at the same time
 };
 
 /**
@@ -127,6 +128,7 @@ void options_usage(void)
 		"  -book-save-interval <minutes> minutes between timed book saves (0 disables them).\n"
 		"  -book-deviate-save-rounds <n> save deviate progress every n rounds; 0 means completion only.\n"
 		"  -book-merge-auto-save <on/off> save the book to <book-file>.mrg after book merge.\n"
+		"  -book-expand-tasks <n>        expand n book positions at the same time (n-tasks / n threads each).\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
@@ -232,6 +234,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "repeat") == 0) parse_int(value, &options.repeat);
 		else if (strcmp(option, "book-save-interval") == 0) options.book_save_interval = string_to_int(value, options.book_save_interval);
 		else if (strcmp(option, "book-deviate-save-rounds") == 0) options.book_deviate_save_rounds = string_to_int(value, options.book_deviate_save_rounds);
+		else if (strcmp(option, "book-expand-tasks") == 0) options.book_expand_tasks = string_to_int(value, options.book_expand_tasks);
 		else if (strcmp(option, "book-merge-auto-save") == 0) parse_boolean(value, &options.book_merge_auto_save);
 
 		else read = 0;
@@ -306,7 +309,7 @@ void options_parse(const char *file)
  * @param n_task Number of search threads.
  * @return hash table size (in number of bits).
  */
-static int hash_table_size_auto(const int n_task)
+int hash_table_size_auto(const int n_task)
 {
 	const unsigned long long memory = get_physical_memory();
 	int size = 21, n;
@@ -337,6 +340,7 @@ void options_bound(void)
 		BOUND(options.hash_table_size, 10, 30, "hash-table-size");	// 51KB to 53GB
 	}
 
+	BOUND(options.book_expand_tasks, 1, options.n_task, "book-expand-tasks");
 	BOUND(options.verbosity, 0, 4, "verbosity");
 	BOUND(options.noise, 0, 60, "noise");
 	BOUND(options.width, 3, 250, "width");

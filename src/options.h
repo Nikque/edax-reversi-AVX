@@ -89,6 +89,7 @@ typedef struct {
 	int book_deviate_save_rounds;          /**< productive deviate rounds between saves; 0 means completion only */
 	bool book_merge_auto_save;            /**< save the book to "<book-file>.mrg" after each successful book merge */
 	bool hash_table_auto;                 /**< choose hash_table_size from the thread count and the memory size */
+	int book_expand_tasks;                /**< book positions expanded at the same time (each search uses n_task / book_expand_tasks threads) */
 
 	// TODO: add more options?
 } Options;
@@ -99,6 +100,7 @@ void options_usage(void);
 int options_read(const char*, const char*);
 void options_parse(const char*);
 void options_bound(void);
+int hash_table_size_auto(const int);
 void options_free(void);
 void options_dump(FILE *f);
 

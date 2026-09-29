@@ -347,14 +347,25 @@ void search_global_init(void)
 
 void search_resize_hashtable(Search *search)
 {
-	if (search->options.hash_size != options.hash_table_size) {
-		const int hash_size = 1u << options.hash_table_size;
+	search_set_hash_size(search, options.hash_table_size);
+}
+
+/**
+ * @brief Set the size of the hash tables of a search.
+ *
+ * @param search Search.
+ * @param bits Size of the main table (in number of bits); pv & shallow tables are 16 times smaller.
+ */
+void search_set_hash_size(Search *search, const int bits)
+{
+	if (search->options.hash_size != bits) {
+		const int hash_size = 1u << bits;
 		const int pv_shallow_size = hash_size > 16 ? hash_size >> 4 : 1;
 
 		hash_init(&search->hash_table, hash_size);
 		hash_init(&search->pv_table, pv_shallow_size);
 		hash_init(&search->shallow_table, pv_shallow_size);
-		search->options.hash_size = options.hash_table_size;
+		search->options.hash_size = bits;
 	}
 }
 

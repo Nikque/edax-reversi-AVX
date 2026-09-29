@@ -796,17 +796,33 @@ static void position_sort(Position *position)
  * @param position Position to search.
  * @param book Opening book.
  */
+static int position_search_with(Position *position, Search *search);
+
 static void position_search(Position *position, Book *book)
 {
-	Search *search = book->search;
+	const int r = position_search_with(position, book->search);
+
+	if (r & 1) ++book->stats.n_links;
+	if (r) book->need_saving = true;
+}
+
+/**
+ * @brief Evaluate a position with a given search (no book access).
+ *
+ * @param position Position to search.
+ * @param search Search to use.
+ * @return 1 if the leaf became a link, | 2 if a search was done.
+ */
+static int position_search_with(Position *position, Search *search)
+{
 	Link *l;
 	const int n_moves = get_mobility(position->board.player, position->board.opponent);
 	long long time;
 	bool time_per_move;
+	int r = 0;
 
 	if (position->leaf.move != NOMOVE && position_add_link(position, &position->leaf)) {
-		book->need_saving = true;
-		++book->stats.n_links;
+		r = 1;
 	}
 
 	if (position->n_link < n_moves || (position->n_link == 0 && n_moves == 0 && position->score.value == -SCORE_INF)) {
@@ -838,8 +854,9 @@ static void position_search(Position *position, Book *book)
 		if (position->leaf.score > position->score.value) {
 			position->score.value = position->leaf.score;
 		}
-		book->need_saving = true;
+		r |= 2;
 	}
+	return r;
 }
 
 /**
@@ -2840,6 +2857,196 @@ void book_correct_solved(Book *book)
 	bprint("Correcting solved positions...%d done (%d error found)\n", i, n_error);
 }
 
+/** state shared by the threads of a concurrent book_expand */
+typedef struct ExpandShared {
+	Book *book;
+	Lock lock;                  /**< guards the book, the counters and the output */
+	long long next;             /**< next todo_list item to take */
+	int n_done;                 /**< expanded positions (progress) */
+	const char *action, *tmp_file;
+	unsigned long long t;       /**< time of the last timed save */
+	bool stop;
+} ExpandShared;
+
+/** one thread of a concurrent book_expand, with its own search (and hash tables) */
+typedef struct ExpandWorker {
+	ExpandShared *shared;
+	Search *search;
+	Thread thread;
+} ExpandWorker;
+
+/**
+ * @brief Copy a position with its own copy of the links.
+ *
+ * @param dest Copy (to release with position_free()).
+ * @param src Position.
+ * @return false if the links cannot be allocated.
+ */
+static bool position_copy(Position *dest, const Position *src)
+{
+	*dest = *src;
+	if (src->n_link > POSITION_INLINE_LINKS) {
+		dest->links.array = (Link*) malloc(src->n_link * sizeof (Link));
+		if (dest->links.array == NULL) { dest->n_link = 0; return false; }
+		memcpy(dest->links.array, src->links.array, src->n_link * sizeof (Link));
+	}
+	return true;
+}
+
+/**
+ * @brief Expand todo positions in a thread.
+ *
+ * The book is only read (links of the new position) and written (parent update,
+ * new position) under the shared lock; the two searches of an expansion run
+ * outside of it with the thread's own search. The parent is updated with the same
+ * steps as position_expand() (it is not changed by the other expansions).
+ *
+ * @param v Worker.
+ * @return NULL.
+ */
+static void* book_expand_worker(void *v)
+{
+	ExpandWorker *w = (ExpandWorker*) v;
+	ExpandShared *s = w->shared;
+	Book *book = s->book;
+
+	for (;;) {
+		Position parent, child, *q = NULL;
+		Link leaf;
+		int r;
+
+		lock(s);
+		while (!s->stop && s->next < book->todo_list.n) {
+			const unsigned long long item = book->todo_list.item[s->next++];
+			Position *p = book->array[item >> 32].positions + (int) (item & 0xffffffffu);
+			if (!position_is_todo(p, book)) continue;
+			if (p->leaf.move != NOMOVE) { q = p; break; }
+			bprint("%s...%d/%lld done: %lld positions, %lld links\r", s->action, ++s->n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+		}
+		if (q == NULL) { unlock(s); break; }
+		if (!position_copy(&parent, q)) { error("cannot copy a position"); book->failed = s->stop = true; unlock(s); break; }
+		position_init(&child);
+		board_next(&parent.board, parent.leaf.move, &child.board);
+		child.level = parent.level;
+		position_link(&child, book);
+		unlock(s);
+
+		search_cleanup(w->search);
+		position_search_with(&child, w->search);
+		parent.leaf.score = -child.score.value;
+		leaf = parent.leaf;
+		r = position_search_with(&parent, w->search);
+
+		lock(s);
+		q = book_probe(book, &parent.board); // the parent may have moved: probe it again
+		if (q) {
+			q->leaf = leaf;
+			if (position_add_link(q, &q->leaf)) ++book->stats.n_links;
+			if (r & 2) {
+				q->leaf = parent.leaf;
+				if (q->leaf.score > q->score.value) q->score.value = q->leaf.score;
+			}
+		}
+		book->need_saving = true;
+		position_free(&parent);
+		position_unique(&child);
+		if (book_add(book, &child) <= 0) position_free(&child); // already in the book, or not added
+		if (book->failed) s->stop = true; // a position could not be added: stop learning
+		bprint("%s...%d/%lld done: %lld positions, %lld links\r", s->action, ++s->n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+		if (book_save_interval_elapsed((long long) s->t)) {
+			book_save(book, s->tmp_file); // timed progress save (the other threads wait for the lock)
+			s->t = real_clock();
+		}
+		unlock(s);
+	}
+	return NULL;
+}
+
+/**
+ * @brief Expand the todo positions on several threads (book-expand-tasks > 1).
+ *
+ * @param book opening book.
+ * @param action String with a description of current action.
+ * @param tmp_file Temporary file name.
+ * @param n_workers Number of positions expanded at the same time.
+ */
+/** searches of the concurrent expansion, kept from one book_expand to the next of a learning command */
+static struct {
+	Search **search;
+	int n, n_tasks, hash_bits;
+} expand_pool;
+
+/**
+ * @brief Release the searches of the concurrent expansion (at the end of a learning command).
+ */
+static void book_expand_release(void)
+{
+	int i;
+	for (i = 0; i < expand_pool.n; ++i) {
+		search_free(expand_pool.search[i]);
+		mm_free(expand_pool.search[i]);
+	}
+	free(expand_pool.search);
+	expand_pool.search = NULL;
+	expand_pool.n = 0;
+}
+
+/**
+ * @brief Get the searches of the concurrent expansion.
+ *
+ * @param n Number of searches.
+ * @param n_tasks Threads of each search.
+ * @param hash_bits Hash table size of each search.
+ * @return the searches, NULL if they cannot be allocated.
+ */
+static Search** book_expand_searches(const int n, const int n_tasks, const int hash_bits)
+{
+	if (expand_pool.n && (expand_pool.n_tasks != n_tasks || expand_pool.hash_bits != hash_bits)) book_expand_release();
+	if (expand_pool.n < n) {
+		Search **s = (Search**) realloc(expand_pool.search, n * sizeof *s);
+		if (s == NULL) return NULL;
+		expand_pool.search = s;
+		for (; expand_pool.n < n; ++expand_pool.n) {
+			Search *search = (Search*) mm_malloc(sizeof (Search));
+			if (search == NULL) return NULL;
+			search_init(search);
+			search_set_task_number(search, n_tasks);
+			search_set_hash_size(search, hash_bits);
+			expand_pool.search[expand_pool.n] = search;
+		}
+		expand_pool.n_tasks = n_tasks;
+		expand_pool.hash_bits = hash_bits;
+	}
+	return expand_pool.search;
+}
+
+static void book_expand_concurrent(Book *book, const char *action, const char *tmp_file, const int n_workers)
+{
+	ExpandShared shared;
+	ExpandWorker *w = (ExpandWorker*) calloc(n_workers, sizeof *w);
+	const int n_tasks = MAX(1, options.n_task / options.book_expand_tasks);
+	Search **search = book_expand_searches(n_workers, n_tasks, options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size);
+	int i;
+
+	if (w == NULL || search == NULL) { error("cannot allocate the expansion threads"); free(w); book->failed = true; return; }
+	shared.book = book; shared.next = 0; shared.n_done = 0; shared.action = action; shared.tmp_file = tmp_file;
+	shared.t = real_clock(); shared.stop = false;
+	lock_init(&shared);
+
+	for (i = 0; i < n_workers; ++i) {
+		w[i].shared = &shared;
+		w[i].search = search[i];
+		w[i].search->options.verbosity = book->search->options.verbosity;
+		w[i].search->options.header = book->search->options.header;
+		w[i].search->options.separator = book->search->options.separator;
+	}
+	for (i = 0; i < n_workers; ++i) thread_create(&w[i].thread, book_expand_worker, w + i);
+	for (i = 0; i < n_workers; ++i) thread_join(w[i].thread);
+	lock_free(&shared);
+	free(w);
+	bprint("%s...%d/%lld done: %lld positions, %lld links\n", action, shared.n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+}
+
 /**
  * @brief Expand a book.
  *
@@ -2857,6 +3064,12 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 	unsigned long long t = real_clock();
 
 	bprint("%s...\r", action);
+
+	if (options.book_expand_tasks > 1 && book->todo_list.valid && book->todo_list.n > 1) {
+		qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+		book_expand_concurrent(book, action, tmp_file, (int) MIN(options.book_expand_tasks, book->todo_list.n));
+		return;
+	}
 
 	// Visit the todo positions in bucket order: either from the list recorded
 	// while marking them, or by scanning the whole book.
@@ -2944,6 +3157,7 @@ void book_play(Book *book)
 		}
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	bprint("Book play... finished\n");
+	book_expand_release();
 }
 
 /**
@@ -3375,6 +3589,7 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book deviate %d %d...finished\n", relative_error, absolute_error);
 	}
+	book_expand_release();
 }
 
 /**
@@ -3413,6 +3628,7 @@ void book_deviate2(Book *book, Board *board, const int move_loss, const int tota
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book deviate2 %d %d...finished\n", move_loss, total_loss);
 	}
+	book_expand_release();
 }
 
 void book_deviate3(Book *book, Board *board, const int move_loss, const int total_loss)
@@ -3443,6 +3659,7 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book deviate3 %d %d...finished\n", move_loss, total_loss);
 	}
+	book_expand_release();
 }
 
 /**
@@ -3544,6 +3761,7 @@ void book_enhance(Book *book, Board *board, const int midgame_error, const int e
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book enhance %d %d...finished\n", midgame_error, endcut_error);
 	}
+	book_expand_release();
 }
 
 /**
