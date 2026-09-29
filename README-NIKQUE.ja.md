@@ -8,6 +8,21 @@
 
 探索とbookの学習を高速化し、bookに登録できる局面数の上限を約43億に引き上げ、1件の不具合を修正しました。同じオプションなら探索結果は変わりません（1スレッドで、最善手・評価値・読み筋・ノード数が v4.5.5-nikque.3 と一致します）。`bin/config.ini` の2つの新しい設定は、使ったときに探索が変わります。`hash-table-size = auto`（同梱の `config.ini` で使用）と `book-expand-tasks`（既定は1で従来どおり）です。bookのファイル形式は変わっていません。
 
+### 改善のまとめ
+
+| | v4.5.5-nikque.3 | v4.5.5-nikque.4 |
+|---|---|---|
+| 32スレッドのbook学習、6.57億局面の実book（`book deviate3 2 5`、1万件の展開） | 832秒 / 805秒 | `book-expand-tasks = 16` で174秒（4.7倍速）。既定は1 |
+| level 18・1スレッドのbook学習、大きいハッシュ表（`-h 26`） | 180秒 | 108秒 |
+| 同上、既定のハッシュ表（`-h 21`） | 100秒 | 97秒 |
+| 探索、中盤30局面・level 21・1スレッド（x86-64-v4版） | 1 | 1.07〜1.13倍速 |
+| bookに登録できる局面数の上限 | 2,147,483,647 | 4,294,967,295 |
+| bookのメモリ（6.57億局面） | 35.6GiB | 35.6GiB（変わらず） |
+| 同梱の `config.ini` での探索用ハッシュ表 | 57MB（`-h 21`） | スレッド数から選択（`hash-table-size = auto`）：1〜3スレッドで57MB、16〜63スレッドで226MB |
+| `book-expand-tasks = n` で増えるメモリ | - | ハッシュ表 n 組（`auto` なら1局面あたり1〜3スレッドで各57MB） |
+
+`book-expand-tasks` と `hash-table-size` の選び方は、下の「設定（config.ini）」を参照してください。
+
 ### 探索の高速化（結果は同じ）
 
 - ハッシュ表の消去：bookの学習では局面を探索するたびに、探索用の3つのハッシュ表をすべて書き換えていました（既定の大きさで57MB、`-h 26` なら1.8GB）。古い項目は表の日付で「空」とみなし、空の項目とまったく同じに扱うようにしました。メモリの消去は数十回に1回だけです。level 18・1スレッドの学習：`-h 21` 99.7秒→97.3秒、`-h 24` 121.9秒→107.6秒、`-h 26` 180.4秒→108.1秒（保存したbookは同じ）。
@@ -29,6 +44,16 @@
 | 16（各2スレッド） | 173.8秒 |
 
 3つのbookの局面とLinkの手は同じでした。Leafまたは評価値が違った局面は、1どうしの2回で258、16と1の各回で484と493でした。評価値の差はすべて1か2です。複数スレッドの探索は実行ごとに結果が揺れ、2スレッドの探索と32スレッドの探索では揺れ方も違います。また n が2以上では、同じ周の別の展開が同時に加えた局面（2つの局面が同じ子局面に行き着く場合など）を、新しい局面は参照しません。同時に展開する探索はそれぞれハッシュ表を持ちます（`hash-table-size = auto` ならそのスレッド数に合わせた大きさで、2スレッドなら各57MB）。
+
+**`book-expand-tasks` を2以上にする前に：**
+
+- **できるbookは、1局面ずつ展開した場合と同じではありません。** 上の試験では展開された局面とLinkの手は同じでしたが、一部のLeaf（まだLinkのない最善手）と評価値が1か2違いました。違いの件数は、32スレッドで1局面ずつ展開した2回どうしの約2倍です。
+- **同時に展開している局面どうしは、お互いを参照しません。** 同じ周の2つの局面が同じ新しい局面に行き着く場合や、新しい局面が同じ周の別の新しい局面の子局面になる場合、その時点ではLinkが張られません（1局面ずつ展開すれば張られます）。後の周で張られることがあります。
+- **効果は1周あたりの展開対象の数で変わります。** 各局面の探索は `n-tasks / n` 個のスレッドしか使いません。展開対象が n より少ない周では同時に動く探索も減り、1件だけの周は1局面ずつ展開します。
+- **levelが高いほど、n は小さめにしてください。** 計測したのは level 18 だけで、1局面あたり2スレッド（32スレッドなら n = 16）が最も速くなりました。深い探索ほど1つの探索でスレッドを使えるので、高いlevelでは同時に展開する数を少なめ（32スレッドなら n = 4 や 8 など）から始め、速さを比べてください。
+- **メモリ：** n 個の探索はそれぞれハッシュ表を持ちます（`hash-table-size = auto` ならそのスレッド数に合わせた大きさ、数値で指定した場合はその n 倍）。
+- 途中保存（`book-save-interval`）は、書き込み中の局面が終わるのを待ってから行います。ほかの探索はそのまま続きます。
+- `book-expand-tasks` は `n-tasks` を超えられません。学習中にEdaxで対局や解析もするときは、`n-tasks`（と `book-expand-tasks`）を減らしてください。
 
 ### ハッシュ表の大きさの設定
 
@@ -199,6 +224,71 @@ book保存時は、一時ファイルへの書き込みをディスクに確定�
 | PGNとGGF | 密なFEN・最大長GGFフィールド用の領域確保、PGNのFENタグと時刻タグの往復、PGN読込を最大60着手に制限。 |
 | コマンドと通信 | パーサーの出力先サイズと短いファイル名の処理、GTP `reg_genmove` の結果返却、`time_left` の色検証と応答IDの初期化、NBoardの数値型に合った表示。 |
 
+## 設定（config.ini）
+
+Edaxは次の順に設定を読み、後のものが前のものより優先されます。
+
+1. 作業フォルダの `edax.ini`（あれば）
+2. 実行ファイルと同じフォルダの `config.ini`（配布物では `bin/config.ini`）
+3. コマンドラインのオプション
+
+ファイルの各行は `名前 = 値` の形で、`#` で始まる行はコメントです。コマンドラインのオプションは、先頭の `-` を除いた長い名前で、どれでもこのファイルに書けます（`-n 16` なら `n-tasks = 16`、`-l 18` なら `level = 18`、`book-file = data/book.dat` など）。Edaxのプロンプトで `名前 値`（例：`book-expand-tasks 16`、`n-tasks 16`）と入力すると、次の探索や学習コマンドから設定が変わります。ただし `hash-table-size` は起動時の値だけが有効です。
+
+### 同梱の config.ini の設定
+
+| 設定 | 同梱の値 | 意味 |
+|---|---|---|
+| `book-save-interval` | `360` | 学習中にbookを時間で途中保存する間隔（分）。`0` なら時間では保存しません。 |
+| `book-deviate-save-rounds` | `1` | `book deviate`・`deviate2`・`deviate3` で、局面が増えた周をこの数だけ終えるごとに保存します（`0` は学習の終了時だけ）。 |
+| `book-merge-auto-save` | `on` | `book merge` が成功するたびに、bookを `<bookファイル名>.mrg` に保存します。 |
+| `hash-table-size` | `auto` | 探索用ハッシュ表の大きさ（下記）。 |
+| `book-expand-tasks` | `1` | 学習コマンドで同時に展開する局面の数（下記）。 |
+
+そのほかによく使う設定：`n-tasks`（探索のスレッド数。既定は全論理CPU）、`level`（対局の探索レベル）、`book-file` と `eval-file`（ファイルの場所）。
+
+### hash-table-size
+
+探索は、探索済みの結果を3つのハッシュ表に記録します。`hash-table-size = n` で主表は2^n項目（1項目24バイト）、小さい2つの表は各2^(n-4)項目になり、合計は約27×2^nバイトです。
+
+| n | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 30 |
+|---|---|---|---|---|---|---|---|---|---|
+| メモリ | 57MB | 113MB | 226MB | 453MB | 906MB | 1.8GB | 3.6GB | 7.2GB | 29GB |
+
+指定できる値は10〜30です（32ビット版は10〜25）。`auto` は、探索のスレッドが1〜3なら21、4〜15なら22、16〜63なら23を選びます。上限は25で、メモリの1/32までです。`config.ini` がない場合の既定は21です。
+
+- bookの学習と対局には `auto` をおすすめします。32スレッドの level 18 と level 24 の試験では、23が21よりわずかに速く、それより大きくしても速くなりませんでした。
+- 長い探索（深い解析、空きマスの多い終盤の完全読み）では、大きい表が役立つことがあります。v4.5.5-nikque.4 からは、bookの局面を探索するたびに表を書き換えなくなったので、大きい表でbookの学習が遅くなることもなくなりました。
+- 表の大きさが変わると、探索結果もわずかに変わります。結果を正確に再現したいときは、同じ数値（と同じ `n-tasks`）を指定してください。
+- `book-expand-tasks = n` では、n 個の探索がそれぞれ表を持ちます。`auto` ならそれぞれの探索のスレッド数に合わせた大きさ、数値ならどの探索もその大きさです。
+
+### book-expand-tasks
+
+`book-expand-tasks = 1`（同梱の値、既定値）では、学習コマンド（`book deviate`・`deviate2`・`deviate3`・`enhance`・`play`）は、選んだ局面を1つずつ、`n-tasks` の全スレッドで探索して展開します。以前とまったく同じ動作です。`book-expand-tasks = n` では n 局面を同時に展開し、それぞれ `n-tasks / n` 個のスレッドを使います。
+
+低いlevelの探索は多くのスレッドを使いきれません。level 18 では、32スレッドでも1スレッドの2.5倍の速さでした。複数の局面を同時に展開すると、残りのスレッドも働きます。32スレッド・level 18 の実bookでは、`book-expand-tasks = 16` で学習が4.7倍速くなりました。できるbookは1の場合と同じにはならないので、使う前に上の「複数の局面を同時に展開する学習」の注意を読んでください。
+
+最初に試す値の目安（お使いのbookとlevelで速さを確かめてください）：
+
+| 用途 | `n-tasks` | `book-expand-tasks` | `hash-table-size` |
+|---|---|---|---|
+| 対局・解析、または以前と同じ動作で学習したい場合 | 全CPU（既定） | 1 | auto |
+| 論理CPU 32のPCで、level 18 以下のbook学習 | 32 | 16（各2スレッド） | auto |
+| 論理CPU 32のPCで、より高いlevelのbook学習 | 32 | 4〜8 | auto |
+| ほかの作業をしながらbook学習 | CPUの半分程度 | `n-tasks` の半分以下 | auto |
+
+32スレッドのPCで level 18 のbookを学習する `config.ini` の例：
+
+```
+book-save-interval = 360
+book-deviate-save-rounds = 1
+book-merge-auto-save = on
+n-tasks = 32
+hash-table-size = auto
+book-expand-tasks = 16
+```
+
+bookのメモリはこれらの設定によらず、1局面あたりLinkを含めて約58バイトです（6.57億局面で35.6GiB）。これにハッシュ表の分（上の例では16×57MB＝約0.9GB）が加わります。
+
 ## ビルドと利用
 
 Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5)からそのまま取り出した評価データ `bin/data/eval.dat`（SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`）、初期book `bin/data/book.dat`、問題集を同梱します。既定の `data/eval.dat` を参照できるよう、実行ファイルは `bin/` から起動するか、`-eval-file` でファイルを指定してください。配布ZIPには次の実行ファイルが入っています。
@@ -213,7 +303,7 @@ Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuha
 | macOS Intel x86-64 | `mEdax-x64-modern` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 
-`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save`、`hash-table-size`、`book-expand-tasks` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。配布するWindows版（ARM64を除く）は PGO のターゲット（`vc-pgo-x64-v4`・`vc-pgo-x64-v3`・`vc-pgo-x64`、x86のコマンドプロンプトで `vc-pgo-x86-sse`・`vc-pgo-x86`）でビルドします。v4.5.5-nikque.4 の実行ファイルは、Windows版を Visual Studio 2022（MSVC 19.44）、Linux版を Ubuntu 22.04（WSL）の gcc 11.4、Android版を NDK r27d でビルドし、macOS版は release-binaries ワークフローでビルドしました。32ビットLinux版（`lEdax-x86`）は、bookの並列処理に必要なアトミック命令のため libatomic を静的にリンクしています（i486以降のCPUが必要です）。
+`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini`（上の「設定（config.ini）」を参照）は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save`、`hash-table-size`、`book-expand-tasks` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。配布するWindows版（ARM64を除く）は PGO のターゲット（`vc-pgo-x64-v4`・`vc-pgo-x64-v3`・`vc-pgo-x64`、x86のコマンドプロンプトで `vc-pgo-x86-sse`・`vc-pgo-x86`）でビルドします。v4.5.5-nikque.4 の実行ファイルは、Windows版を Visual Studio 2022（MSVC 19.44）、Linux版を Ubuntu 22.04（WSL）の gcc 11.4、Android版を NDK r27d でビルドし、macOS版は release-binaries ワークフローでビルドしました。32ビットLinux版（`lEdax-x86`）は、bookの並列処理に必要なアトミック命令のため libatomic を静的にリンクしています（i486以降のCPUが必要です）。
 
 元配布物の旧32ビットmacOS用 `mEdax-x86` は除外しました。現在のXcode SDKにはi386用のリンクライブラリがなく修正版をビルドできません。元の実行ファイルをそのまま同梱しても、今回の修正は反映されません。
 

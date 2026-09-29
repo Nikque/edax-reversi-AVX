@@ -8,6 +8,21 @@ This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5c
 
 This release makes the search and book learning faster, lets a book hold up to 4.29 billion positions, and fixes one bug. With the same options the search results are unchanged: best moves, scores, principal variations and node counts match v4.5.5-nikque.3 in single-thread runs. Two new settings of `bin/config.ini` change the search when they are used: `hash-table-size = auto` (used by the bundled `config.ini`) and `book-expand-tasks` (1 by default, the original behavior). The book file format is unchanged.
 
+### Summary
+
+| | v4.5.5-nikque.3 | v4.5.5-nikque.4 |
+|---|---|---|
+| Book learning on 32 threads, real 657M-position book (`book deviate3 2 5`, 10,000 expansions) | 832 s / 805 s | 174 s with `book-expand-tasks = 16` (4.7 times faster), 1 by default |
+| Book learning at level 18 on one thread with a large hash table (`-h 26`) | 180 s | 108 s |
+| Same with the default hash table (`-h 21`) | 100 s | 97 s |
+| Search, 30 midgame positions at level 21, one thread (x86-64-v4) | 1 | 1.07 to 1.13 times faster |
+| Maximum number of positions in a book | 2,147,483,647 | 4,294,967,295 |
+| Book memory (657M positions) | 35.6 GiB | 35.6 GiB (unchanged) |
+| Search hash tables with the bundled `config.ini` | 57 MB (`-h 21`) | chosen from the threads (`hash-table-size = auto`): 57 MB for 1-3 threads, 226 MB for 16-63 threads |
+| Extra memory of `book-expand-tasks = n` | - | n hash tables (with `auto`, 57 MB each for 1-3 threads per position) |
+
+See "Settings (config.ini)" below for how to choose `book-expand-tasks` and `hash-table-size`.
+
 ### Search speed-ups (same results)
 
 - Hash table cleanup: before each position searched by book learning, the three search hash tables were entirely rewritten (57 MB with the default size, 1.8 GB with `-h 26`). Now the old entries are only marked as empty through the date of the table and handled exactly as empty entries; the memory is wiped once every few dozen cleanups. Book learning at level 18 on one thread: `-h 21` 99.7 s → 97.3 s, `-h 24` 121.9 s → 107.6 s, `-h 26` 180.4 s → 108.1 s, with the same saved book.
@@ -29,6 +44,16 @@ Real book of 656.9 million positions, `book deviate3 2 5` stopped after its firs
 | 16 (2 threads each) | 173.8 s |
 
 The three books had the same positions and the same link moves. Leaves or scores differed in 258 positions between the two runs with 1, and in 484 and 493 positions between the run with 16 and each run with 1; every score difference was 1 or 2. Searches on several threads differ from run to run, and a search on 2 threads does not vary like one on 32 threads. Also, with n > 1 a new position does not see a position that another expansion of the same round adds at the same time (for example when two positions lead to the same child). Each expanding search has its own hash tables: with `hash-table-size = auto` they are sized for its threads (57 MB each for 2 threads).
+
+**Before using `book-expand-tasks` above 1:**
+
+- **The resulting book differs from a one-by-one run.** The expanded positions and the link moves were the same in the test above, but some Leaves (the best moves not yet linked) and scores differ, by 1 or 2 points, about twice as often as between two one-by-one runs on 32 threads.
+- **Positions expanded at the same time do not see each other.** When two positions of the same round lead to the same new position, or when a new position is a child of another new position of the round, the link is not made at that moment (a one-by-one run would make it). It can be made in a later round.
+- **It pays when a round has many positions to expand.** Each position still uses `n-tasks / n` threads for its searches. A round with fewer positions than n uses fewer searches, and a round with one position uses the one-by-one expansion. On a small book whose rounds have only a few positions, the gain is small.
+- **Choose a smaller n at higher levels.** Only level 18 was measured, where 2 threads per position (n = 16 with 32 threads) was fastest. A deeper search uses its threads better, so at higher levels start with fewer positions at the same time (for example n = 4 or 8 with 32 threads) and compare the speed.
+- **Memory:** each of the n searches has its own hash tables (with `hash-table-size = auto`, sized for its threads; with a fixed `hash-table-size`, n times that size).
+- Timed saves (`book-save-interval`) wait until the positions being written are finished; the other searches continue.
+- `book-expand-tasks` cannot exceed `n-tasks`. Lower `n-tasks` (and `book-expand-tasks`) if you play or analyze with Edax while a book is learning.
 
 ### Hash table size setting
 
@@ -199,6 +224,71 @@ Up to v4.5.5-nikque.2 this fork corrected 18 bugs, including the original `book 
 | PGN and GGF | Reserve enough room for dense FEN and maximal GGF fields; recognize the PGN FEN tag and round-trip its time tag; limit PGN import to 60 placements. |
 | Commands and protocols | Respect parser destination sizes and short filenames; return the actual GTP `reg_genmove` result; validate GTP `time_left` colors and reset response IDs per command; format NBoard counts and seconds with matching types. |
 
+## Settings (config.ini)
+
+Edax reads its settings in this order, each one overriding the previous:
+
+1. `edax.ini` in the current folder, if present;
+2. `config.ini` in the folder of the executable (`bin/config.ini` of the release);
+3. the command-line options.
+
+Each line of these files is `name = value`; lines starting with `#` are comments. Every command-line option can be written there with its long name without the leading `-` (for example `n-tasks = 16` for `-n 16`, `level = 18` for `-l 18`, `book-file = data/book.dat`). At the Edax prompt, typing `name value` (for example `book-expand-tasks 16` or `n-tasks 16`) changes a setting for the next searches and learning commands; `hash-table-size` only takes effect at startup.
+
+### Settings of the bundled config.ini
+
+| Setting | Bundled value | Meaning |
+|---|---|---|
+| `book-save-interval` | `360` | Minutes between timed saves of the book during learning (`0`: no timed save). |
+| `book-deviate-save-rounds` | `1` | Save after this many productive rounds of `book deviate`, `deviate2`, `deviate3` (`0`: only when learning ends). |
+| `book-merge-auto-save` | `on` | Save the merged book to `<book file>.mrg` after each successful `book merge`. |
+| `hash-table-size` | `auto` | Size of the search hash tables (below). |
+| `book-expand-tasks` | `1` | Number of book positions expanded at the same time by the learning commands (below). |
+
+Other useful settings: `n-tasks` (threads of the search, all logical CPUs by default), `level` (search level of the games), `book-file` and `eval-file` (paths).
+
+### hash-table-size
+
+The search keeps what it has already searched in three hash tables. `hash-table-size = n` gives the main table 2^n entries (24 bytes each), and two smaller tables 2^(n-4) entries each, about 27 x 2^n bytes in total:
+
+| n | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 30 |
+|---|---|---|---|---|---|---|---|---|---|
+| Memory | 57 MB | 113 MB | 226 MB | 453 MB | 906 MB | 1.8 GB | 3.6 GB | 7.2 GB | 29 GB |
+
+Values from 10 to 30 are accepted (10 to 25 for the 32-bit executables). `auto` chooses 21 for 1 to 3 search threads, 22 for 4 to 15 and 23 for 16 to 63, at most 25 and at most 1/32 of the memory. Without `config.ini` the default is 21.
+
+- `auto` is the recommended value for book learning and games. In tests with 32 threads at levels 18 and 24, 23 was a little faster than 21, and larger tables were not faster.
+- Larger tables can help long searches (deep analysis, endgame solving with many empty squares). They no longer slow book learning down: since v4.5.5-nikque.4 the tables are not rewritten before each searched book position.
+- The table size changes search results slightly. To reproduce a result exactly, use the same number (and the same `n-tasks`).
+- With `book-expand-tasks = n`, each of the n searches has its own tables: with `auto` they are sized for the threads of each search, with a number each search uses that size.
+
+### book-expand-tasks
+
+With `book-expand-tasks = 1` (bundled value and default), the learning commands (`book deviate`, `deviate2`, `deviate3`, `enhance`, `play`) expand the selected positions one by one, each search using all `n-tasks` threads, exactly as before. With `book-expand-tasks = n`, n positions are expanded at the same time, each with `n-tasks / n` threads.
+
+A search at a low level cannot use many threads: at level 18, 32 threads were only 2.5 times faster than one thread. Expanding several positions at the same time uses the other threads. With 32 threads at level 18, `book-expand-tasks = 16` made learning on the real book 4.7 times faster. Read the notes in "Book learning on several positions at the same time" above before using it: the resulting book is not the same as with 1.
+
+Suggested starting values (measure with your own books and levels):
+
+| Use | `n-tasks` | `book-expand-tasks` | `hash-table-size` |
+|---|---|---|---|
+| Games and analysis, or learning that must reproduce the previous behavior | all CPUs (default) | 1 | auto |
+| Book learning at level 18 or lower with 32 logical CPUs | 32 | 16 (2 threads each) | auto |
+| Book learning at higher levels with 32 logical CPUs | 32 | 4 to 8 | auto |
+| Book learning while using the PC for other work | about half of the CPUs | half of `n-tasks` or less | auto |
+
+Example `config.ini` for book learning at level 18 on a 32-thread PC:
+
+```
+book-save-interval = 360
+book-deviate-save-rounds = 1
+book-merge-auto-save = on
+n-tasks = 32
+hash-table-size = auto
+book-expand-tasks = 16
+```
+
+The book memory does not depend on these settings (about 58 bytes per position with its links, 35.6 GiB for 657 million positions); add the hash tables (for example 16 x 57 MB = 0.9 GB above).
+
 ## Build and use
 
 The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5) (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`). It also includes the upstream initial `bin/data/book.dat` and problem files. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
@@ -213,7 +303,7 @@ The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied 
 | macOS Intel x86-64 | `mEdax-x64-modern` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 
-The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration; set paths, `book-save-interval`, `book-deviate-save-rounds`, `book-merge-auto-save`, `hash-table-size`, and `book-expand-tasks` for your environment. To rebuild a Windows executable, open a Visual Studio 2022 Developer Command Prompt, change to `src`, and run a target such as `nmake -f NMakefile vc-x64-v4` (`build-win-v4.cmd` also builds the v4 executable). The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP. The release Windows executables use the profile-guided targets (`vc-pgo-x64-v4`, `vc-pgo-x64-v3`, `vc-pgo-x64`, and `vc-pgo-x86-sse` and `vc-pgo-x86` from an x86 prompt) except ARM64. The v4.5.5-nikque.4 executables were built with Visual Studio 2022 (MSVC 19.44) for Windows, gcc 11.4 on Ubuntu 22.04 (WSL) for Linux and NDK r27d for Android; the macOS executable was built by the release-binaries workflow. The 32-bit Linux build (`lEdax-x86`) links libatomic statically for the atomic operations of the parallel book code, so it needs an i486 or later CPU.
+The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration (see "Settings (config.ini)" above); set paths, `book-save-interval`, `book-deviate-save-rounds`, `book-merge-auto-save`, `hash-table-size`, and `book-expand-tasks` for your environment. To rebuild a Windows executable, open a Visual Studio 2022 Developer Command Prompt, change to `src`, and run a target such as `nmake -f NMakefile vc-x64-v4` (`build-win-v4.cmd` also builds the v4 executable). The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP. The release Windows executables use the profile-guided targets (`vc-pgo-x64-v4`, `vc-pgo-x64-v3`, `vc-pgo-x64`, and `vc-pgo-x86-sse` and `vc-pgo-x86` from an x86 prompt) except ARM64. The v4.5.5-nikque.4 executables were built with Visual Studio 2022 (MSVC 19.44) for Windows, gcc 11.4 on Ubuntu 22.04 (WSL) for Linux and NDK r27d for Android; the macOS executable was built by the release-binaries workflow. The 32-bit Linux build (`lEdax-x86`) links libatomic statically for the atomic operations of the parallel book code, so it needs an i486 or later CPU.
 
 The upstream 32-bit macOS `mEdax-x86` is deliberately omitted. Current Xcode SDKs lack the i386 libraries needed to link a corrected binary; including the upstream executable would leave this fork's fixes absent from that file.
 
