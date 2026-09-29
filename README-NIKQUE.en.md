@@ -4,6 +4,88 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS x64, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.5
+
+This release makes Edax use its clock properly in timed games, which makes it stronger as a playing program, and reduces the book memory by about 14%. **Fixed-level searches (book learning, `-solve`, games at a given level) give the same results**: best moves, scores, principal variations and node counts match v4.5.5-nikque.4 in single-thread runs. The book file format and the saved book contents are unchanged (the only exception is the `book enhance` note in "Book memory" below). The evaluation data `eval.dat` is unchanged.
+
+There are two new settings: `book-expand-tasks = auto` (used by the bundled `config.ini`) and the experimental `probcut-model = refit` (the default remains `standard`).
+
+### Summary
+
+| | v4.5.5-nikque.4 | v4.5.5-nikque.5 |
+|---|---|---|
+| Timed games, 16 s per game, 1 thread | uses about half of its clock | uses its clock; +52 Elo |
+| Same, 64 s per game | uses less than 20% of its clock | +88 Elo |
+| Same, 4 s per game | - | +5 Elo (time shared from the measured search speed) |
+| Book memory (656.9 million positions) | 35.55 GiB (56 bytes per position) | 30.64 GiB (48 bytes per position) |
+| Temporary memory while `book deviate`/`deviate2`/`deviate3` select positions | - | 1 byte per position + 4 bytes per bucket (about 0.9 GB for 656.9 million positions) |
+| `book-expand-tasks` of the bundled `config.ini` | `1` | `auto` (16 positions at a time at level 18 or below with 32 threads) |
+
+Elo differences come from matches between two versions under the same conditions, from balanced start positions with colors swapped (see "How strength was measured" below).
+
+### Clock use in games
+
+- **No level cap in timed games.** With `-t` (time per game) or `-move-time` (time per move), Edax used to stop searching at the default level 21: it used about half of a 16 s clock and less than 20% of a 64 s clock. Without an explicit level, the cap is now 60 and Edax searches until its time is used. An explicit level (`-l`, `level`, xboard `sd`, NBoard `depth`) remains the cap, as before. GTP already used 60.
+- **Time shared from the measured search speed.** Edax estimated how many empty squares it can solve with a fixed assumption of 10 million nodes per second (`-speed`). It now measures its speed after each search and uses twice that value. An explicit `-speed n` is used as before (`-speed auto` restores the measured speed).
+
+Fixed-level searches (book learning, `-solve`, games at a given level) are not affected by either change.
+
+1 thread, 2204 games (1102 start positions, both colors), node-count clock (`-nps 20000000`, see below):
+
+| Change | 4 s per game | 16 s per game | 64 s per game |
+|---|---|---|---|
+| No level cap | +1.3 [−9.0, +11.5] | +52.3 [+42.3, +62.3] | +87.5 [+60.7, +115.4] (300 games) |
+| Time shared from the measured speed (x2) | +5.7 [+2.1, +9.2]; other start positions +4.6 [+1.1, +8.2] | (`-speed 4e7`) +1.7 [+0.5, +2.9] | - |
+
+[ ] is the 95% confidence interval. In real time (16 s per game, 1 thread, 600 games, each game pinned to one physical core), both changes together gave +90.0 [+70.7, +109.8] (average time per move 0.25 s -> 0.56 s).
+
+### Book memory (same file, same contents)
+
+A position in memory now takes 48 bytes instead of 56. With the real book of 656.9 million positions, the memory after loading went from 35.55 GiB to 30.64 GiB (−4.91 GiB, −13.8%). The file format is unchanged: books can be exchanged with previous versions in both directions.
+
+- **The deviate2 working value is no longer a field of every position.** `book deviate2`/`deviate3` (and the parallel `book deviate`) kept their visit marks (smallest accumulated loss, etc.) in 4 bytes of every position. The marks are only used while positions are selected, so each selection now allocates a table of 1 byte per position and frees it at the end (about 0.9 GB for 656.9 million positions, during the selection only).
+- **Scores (value, lower, upper) take 1 byte each** in memory; the file still stores 2 bytes each.
+- **The done and todo marks share 1 byte.** The learning epoch now has 5 bits instead of 7, so the full reset of the marks happens once every 31 epochs instead of 127 (a few seconds for 656.9 million positions; a learning round uses several epochs).
+
+**Notes:**
+
+- **`book enhance` with errors above 63 may give different results.** Score bounds (score ± error) that leave the 1-byte range (±127) are saturated to ±127. Errors of 63 or less are not affected. In a test (`book enhance 64 64` and `100 100` on a level 4 book) the books were the same as before (the range is only exceeded when a large error is added to a large score). When a book with out-of-range bounds (made with such errors by a previous version) is loaded, these bounds are saturated to ±127.
+- The total loss of `book deviate2`/`deviate3` (second argument) is limited to 254; a larger value is reduced to 254 with a warning.
+- With the real book, the position selection of `book deviate3 2 5` (first round, 12,308,548 positions) took 15.5 s instead of 12.6 s (allocation of the marks and a hash computation per position). The same positions were selected.
+
+Checks: in the book regression tests (every book command with 1 and 8 threads; negamax, subtree and prune of a 6.49-million-position book; merge), every saved book matched v4.5.5-nikque.4 byte for byte (except the `book enhance 64 64` test from `book new 0 3`, whose result changes from run to run even with the same version). With the 6.49-million-position book, the peak memory went from 1.214 GiB to 1.066 GiB.
+
+### book-expand-tasks = auto
+
+`book-expand-tasks = auto` (the value of the bundled `config.ini`; `-book-expand-tasks auto` on the command line) chooses the number of positions expanded at the same time from the book level: each search uses 2 threads at level 18 or below, 4 up to level 24 and 8 above, and `n-tasks` divided by that number of positions are expanded at the same time (16 positions with 32 threads at level 18). Without `config.ini`, the default remains 1. Only level 18 was measured (2 threads per search was the fastest). The book is not the same as with one-by-one expansion: read the notes of "Book learning on several positions at the same time" in v4.5.5-nikque.4 below.
+
+### Experimental setting: probcut-model = refit
+
+This is a refit of the error model of the search pruning (ProbCut: a shallow search predicts the result of a deep one, and moves that are unlikely to matter are cut). The default remains `standard`; `refit` is for tests.
+
+- Fit: exact fixed-depth scores (no pruning) at depths 0 to 16 (20 for 304 of them) of 1200 positions with 24 to 52 empty squares, taken from learning lines. The difference between the shallow and the deep search hardly depends on the depths and decreases with the number of empty squares (about 2.4 discs at 24 empties, 2.0 at 36, 1.4 at 48). The standard model grows with the depth. `refit` uses the fitted model with the t values of the selectivity levels (73% to 99%) scaled by 1.3.
+- Level 18 against level 18 (2204 games): +3.5 [−4.4, +11.3], and +16.5 [+8.3, +24.7] from other start positions, in 0.92 times the time. Level 21: +2.2 (0.84 times the time); level 24: +10.0 (0.86 times the time).
+- Score accuracy (mean absolute error of the level 18 score against level 26, 1200 positions):
+
+| Empty squares | standard: error / nodes | refit: error / nodes |
+|---|---|---|
+| 24-29 | 2.106 / 2.25 G | 2.186 / 1.66 G |
+| 30-35 | 1.986 / 0.65 G | 1.983 / 0.66 G |
+| 36-43 | 0.884 / 1.07 G | 0.859 / 1.25 G |
+| 44-52 | 0.632 / 0.37 G | 0.576 / 0.51 G |
+
+In the opening and middle game (36 empties or more) it searches more and scores are a little more accurate; near the endgame (24-29 empties) it searches less and scores are a little less accurate. Used for book learning, it learns the opening and middle game more slowly and gives a different book than `standard`. Search results change: check carefully before mixing it with `standard` books.
+
+### How strength was measured, and changes not taken
+
+Two versions played two games (colors swapped) from each of 1102 balanced start positions (random 8-move openings scored within ±3 at level 18; 1087 10-move openings were also used) over the NBoard protocol. Elo and its 95% confidence interval were computed on the pairs of games. Timed comparisons used `-nps`, which counts the search clock in nodes: results do not depend on the CPU load or on the speed of each core, and a match is exactly reproducible (with `-nps`, the game clock is now also charged in nodes).
+
+Changes that improved neither strength nor speed (1 thread), and were not taken:
+
+- Search constants that only change node counts: `LASTFLIP_HIGHCUT`/`LASTFLIP_LOWCUT`, `ETC_MIN_DEPTH` 4 and 6, `DEPTH_MIDGAME_TO_ENDGAME` 13 and 17, move sorting depths (`inc-*-sort-depth`): speed differences within the measurement noise (±3%) or slower.
+- ProbCut strength (t) and shallow depth (`probcut-d`): the defaults were close to the best (a lower t was much weaker, a higher one no better).
+- Move sorting in depth-2 searches: 5.5% fewer nodes, but 8-13% slower.
+
 ## Changes in v4.5.5-nikque.4
 
 This release makes the search and book learning faster, lets a book hold up to 4.29 billion positions, and fixes one bug. With the same options the search results are unchanged: best moves, scores, principal variations and node counts match v4.5.5-nikque.3 in single-thread runs. Two new settings of `bin/config.ini` change the search when they are used: `hash-table-size = auto` (used by the bundled `config.ini`) and `book-expand-tasks` (1 by default, the original behavior). The book file format is unchanged.
@@ -242,9 +324,10 @@ Each line of these files is `name = value`; lines starting with `#` are comments
 | `book-deviate-save-rounds` | `1` | Save after this many productive rounds of `book deviate`, `deviate2`, `deviate3` (`0`: only when learning ends). |
 | `book-merge-auto-save` | `on` | Save the merged book to `<book file>.mrg` after each successful `book merge`. |
 | `hash-table-size` | `auto` | Size of the search hash tables (below). |
-| `book-expand-tasks` | `1` | Number of book positions expanded at the same time by the learning commands (below). |
+| `book-expand-tasks` | `auto` | Number of book positions expanded at the same time by the learning commands (below). |
+| `probcut-model` | `standard` | Error model of the search pruning (ProbCut); `refit` is experimental (see v4.5.5-nikque.5 above). |
 
-Other useful settings: `n-tasks` (threads of the search, all logical CPUs by default), `level` (search level of the games), `book-file` and `eval-file` (paths).
+Other useful settings: `n-tasks` (threads of the search, all logical CPUs by default), `level` (search level of the games; in timed games, an explicit level caps the search), `book-file` and `eval-file` (paths).
 
 ### hash-table-size
 
@@ -263,7 +346,9 @@ Values from 10 to 30 are accepted (10 to 25 for the 32-bit executables). `auto` 
 
 ### book-expand-tasks
 
-With `book-expand-tasks = 1` (bundled value and default), the learning commands (`book deviate`, `deviate2`, `deviate3`, `enhance`, `play`) expand the selected positions one by one, each search using all `n-tasks` threads, exactly as before. With `book-expand-tasks = n`, n positions are expanded at the same time, each with `n-tasks / n` threads.
+With `book-expand-tasks = 1` (the default without `config.ini`), the learning commands (`book deviate`, `deviate2`, `deviate3`, `enhance`, `play`) expand the selected positions one by one, each search using all `n-tasks` threads, exactly as before. With `book-expand-tasks = n`, n positions are expanded at the same time, each with `n-tasks / n` threads.
+
+`book-expand-tasks = auto` (bundled value) chooses n from the book level (each search uses 2 threads at level 18 or below, 4 up to level 24 and 8 above; n is `n-tasks` divided by that number).
 
 A search at a low level cannot use many threads: at level 18, 32 threads were only 2.5 times faster than one thread. Expanding several positions at the same time uses the other threads. With 32 threads at level 18, `book-expand-tasks = 16` made learning on the real book 4.7 times faster. Read the notes in "Book learning on several positions at the same time" above before using it: the resulting book is not the same as with 1.
 
@@ -272,8 +357,8 @@ Suggested starting values (measure with your own books and levels):
 | Use | `n-tasks` | `book-expand-tasks` | `hash-table-size` |
 |---|---|---|---|
 | Games and analysis, or learning that must reproduce the previous behavior | all CPUs (default) | 1 | auto |
-| Book learning at level 18 or lower with 32 logical CPUs | 32 | 16 (2 threads each) | auto |
-| Book learning at higher levels with 32 logical CPUs | 32 | 4 to 8 | auto |
+| Book learning at level 18 or lower with 32 logical CPUs | 32 | auto (= 16, 2 threads each) | auto |
+| Book learning at higher levels with 32 logical CPUs | 32 | auto (8 up to level 24, 4 above), or 4 to 8 after comparing speeds | auto |
 | Book learning while using the PC for other work | about half of the CPUs | half of `n-tasks` or less | auto |
 
 Example `config.ini` for book learning at level 18 on a 32-thread PC:
@@ -284,10 +369,10 @@ book-deviate-save-rounds = 1
 book-merge-auto-save = on
 n-tasks = 32
 hash-table-size = auto
-book-expand-tasks = 16
+book-expand-tasks = auto
 ```
 
-The book memory does not depend on these settings (about 58 bytes per position with its links, 35.6 GiB for 657 million positions); add the hash tables (for example 16 x 57 MB = 0.9 GB above).
+The book memory does not depend on these settings (about 50 bytes per position with its links, 30.6 GiB for 657 million positions; about 58 bytes and 35.6 GiB up to v4.5.5-nikque.4); add the hash tables (for example 16 x 57 MB = 0.9 GB above), and 1 byte per position while `book deviate`/`deviate2`/`deviate3` select positions.
 
 ## Build and use
 
@@ -307,4 +392,4 @@ The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an A
 
 The upstream 32-bit macOS `mEdax-x86` is deliberately omitted. Current Xcode SDKs lack the i386 libraries needed to link a corrected binary; including the upstream executable would leave this fork's fixes absent from that file.
 
-Work on this fork used **ChatGPT-6 Astra** and **ChatGPT-6 Sol**; the performance work and bug fixes of v4.5.5-nikque.3 and v4.5.5-nikque.4 used **Claude Opus 5.5** (Claude Code). Edax and its original authors retain their respective attribution. This fork is distributed under the original GPL-3.0 license; keep the source and license available when redistributing the executable.
+Work on this fork used **ChatGPT-6 Astra** and **ChatGPT-6 Sol**; the performance work and bug fixes of v4.5.5-nikque.3 to v4.5.5-nikque.5 used **Claude Opus 5.5** (Claude Code). Edax and its original authors retain their respective attribution. This fork is distributed under the original GPL-3.0 license; keep the source and license available when redistributing the executable.

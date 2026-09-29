@@ -2,6 +2,28 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.5
+
+Better clock use in games and less book memory (48 bytes per position instead of 56). Fixed-level search results (book learning, `-solve`, games at a given level) are unchanged (single-thread best moves, scores, principal variations and node counts checked against v4.5.5-nikque.4). The book file format and the saved contents are unchanged (except, possibly, `book enhance` with errors above 63). `eval.dat` is unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for measurements.
+
+Games with a time control:
+
+- Without an explicit level, timed games (`-t`, `-move-time`, xboard time controls) cap the search at level 60 instead of the default 21. Edax used half of its clock or less (16 s per game, 1 thread: +90 Elo, 600 real-time games).
+- The time is shared from the measured search speed (twice the measured value). An explicit `-speed n` is used as before (`-speed auto`: measured).
+
+Book memory (657 million positions: 35.55 GiB to 30.64 GiB):
+
+- The deviate2 working value (4 bytes per position) is no longer part of each position: the position selection of `book deviate`, `deviate2` and `deviate3` uses a table of 1 byte per position while it runs.
+- Scores (value, lower, upper) take 1 byte each in memory (2 bytes each in the file, as before). With `book enhance` errors above 63, out-of-range bounds are saturated to ±127.
+- The done and todo marks share one byte (5-bit learning epoch; the marks of every position are reset once every 31 epochs).
+- The total loss of `book deviate2`/`deviate3` is limited to 254.
+
+New settings:
+
+- `book-expand-tasks = auto` (used by the bundled `config.ini`): the number of positions expanded at the same time comes from the book level (each search uses 2 threads at level 18 or below, 4 up to level 24, 8 above). Without `config.ini` the default is still 1.
+- `probcut-model = refit` (experimental; default `standard`): a ProbCut error model refit on measurements. It changes the search results.
+- With `-nps`, the game clock is also charged in nodes (reproducible match comparisons).
+
 ## v4.5.5-nikque.4
 
 Search and book learning speed, books of up to 4,294,967,295 positions and 1 bug fix. The book file format is unchanged. With the same options the search results are unchanged (single-thread best moves, scores, principal variations and node counts checked against v4.5.5-nikque.3); the new `hash-table-size = auto` of the bundled `config.ini` changes the hash table size, and `book-expand-tasks` above 1 changes the learning order. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for measurements and output checks.

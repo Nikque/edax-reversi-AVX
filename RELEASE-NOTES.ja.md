@@ -2,6 +2,28 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-nikque.5
+
+対局での持ち時間の使い方の改善と、bookのメモリ削減（1局面56バイト→48バイト）。固定levelの探索結果（bookの学習、`-solve`、level指定の対局）は変わりません（1スレッドで、最善手・評価値・読み筋・ノード数を v4.5.5-nikque.4 と比較）。bookのファイル形式と保存される内容も変わりません（誤差が63を超える `book enhance` で変わることがあるのを除く）。`eval.dat` は変わっていません。計測結果は[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+
+対局（持ち時間制）：
+
+- levelを指定しない持ち時間制の対局（`-t`、`-move-time`、xboard の時間設定）では、読みの上限を既定のlevel 21ではなく60にしました。以前は持ち時間の半分以下しか使っていませんでした（1局16秒・1スレッド：+90 Elo、実時間600局）。
+- 持ち時間の配分は、実測した探索速度（の2倍）で見積もります。`-speed n` を指定すれば従来どおりです（`-speed auto` で自動）。
+
+bookのメモリ（6億5700万局面：35.55GiB→30.64GiB）：
+
+- deviate2 の作業用の値（1局面4バイト）を局面から外し、`book deviate`・`deviate2`・`deviate3` の局面選択の間だけ、1局面1バイトの表を使います。
+- 評価値（value・lower・upper）をメモリ上では各1バイトにしました（ファイルは従来どおり各2バイト）。`book enhance` の誤差が63を超えると、範囲外の上限・下限は±127に丸められます。
+- done と todo の印を1バイトにまとめました（学習の周回番号は5ビット、全局面の印の消去は31周回に1回）。
+- `book deviate2`・`deviate3` の累積損失の上限は254です。
+
+新しい設定：
+
+- `book-expand-tasks = auto`（同梱の `config.ini` で使用）：bookのlevelから、同時に展開する局面の数を決めます（1局面の探索に level 18 以下は2スレッド、24以下は4、それより上は8）。`config.ini` がない場合の既定は1のままです。
+- `probcut-model = refit`（実験用。既定は `standard`）：実測で当てはめ直した ProbCut の誤差モデル。探索結果が変わります。
+- `-nps` 指定時は、1局の残り時間もノード数で減らします（対局の再現可能な比較のため）。
+
 ## v4.5.5-nikque.4
 
 探索とbookの学習の高速化、4,294,967,295局面までのbook、1件の不具合修正。bookのファイル形式は変わっていません。同じオプションなら探索結果は変わりません（1スレッドで、最善手・評価値・読み筋・ノード数を v4.5.5-nikque.3 と比較）。同梱の `config.ini` の新しい設定 `hash-table-size = auto` はハッシュ表の大きさを、2以上の `book-expand-tasks` は学習の順序を変えます。計測結果と出力の比較は、[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
