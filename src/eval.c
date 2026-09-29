@@ -954,3 +954,27 @@ double eval_sigma(const int n_empty, const int depth, const int probcut_depth)
 
 	return sigma;
 }
+
+/**
+ * @brief Compute the error-type of a shallow search, as used by probcut.
+ *
+ * Refit (v4.5.5-nikque.5) on the exact fixed-depth scores (no selectivity) of 1200 positions
+ * with 24 to 52 empty squares, taken from learning lines: the error of the probcut search
+ * (score at depth probcut_depth vs. score at depth) hardly depends on the depths (checked up to
+ * depth 20) and decreases with the number of empty squares: about 2.4 discs at 24 empties,
+ * 2.0 at 36 and 1.4 at 48. The older eval_sigma() grows with the depth.
+ * It is used with the t values of the selectivity table scaled by 1.3.
+ *
+ * @param n_empty Number of empty squares on the board.
+ * @param depth Depth used in alphabeta.
+ * @param probcut_depth A shallow depth used in probcut algorithm.
+ */
+double probcut_sigma(const int n_empty, const int depth, const int probcut_depth)
+{
+	double sigma;
+
+	sigma = -0.01068643 * n_empty + 0.03835657 * depth - 0.07515706 * probcut_depth;
+	sigma = -1.15396452 * sigma * sigma + 2.98473985 * sigma + 3.26812153;
+
+	return sigma;
+}

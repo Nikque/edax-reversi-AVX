@@ -53,6 +53,8 @@ typedef struct Book {
 		long long n, size;
 		bool valid;               /**< false: book_expand must scan the whole book */
 	} todo_list;
+	unsigned char *visit;        /**< visit marks of a deviate walk (one byte per position), NULL outside a walk */
+	unsigned int *visit_first;   /**< first visit mark of each bucket */
 	Random random;
 	Search *search;
 } Book;

@@ -87,6 +87,9 @@ Options options = {
 	true, // save the merged book after book merge
 	false, // hash table size set by hash-table-size (auto: from the thread count and the memory size)
 	1, // book positions expanded at the same time
+	false, // speed given by the user (else measured)
+	false, // level given by the user (else no level cap with a time control)
+	0, // probcut model: standard
 };
 
 /**
@@ -116,7 +119,10 @@ void options_usage(void)
 		"  -l|level <n>                  search using limited depth.\n"
 		"  -t|game-time <n>              search using limited time per game.\n"
 		"  -move-time <n>                search using limited time per move.\n"
+		"                                (with a time, -l caps the level; without -l, no cap)\n"
+		"  -speed <n|auto>               search speed (nodes/s) used to share the time; auto: measured.\n"
 		"  -ponder <on/off>              search during opponent time.\n"
+		"  -probcut-model <standard|refit> probcut error model (refit: experimental, see README).\n"
 		"  -eval-file                    read eval weight from this file.\n"
 		"  -book-file                    load opening book from this file.\n"
 		"  -book-usage <on/off>          play from the opening book.\n"
@@ -128,7 +134,7 @@ void options_usage(void)
 		"  -book-save-interval <minutes> minutes between timed book saves (0 disables them).\n"
 		"  -book-deviate-save-rounds <n> save deviate progress every n rounds; 0 means completion only.\n"
 		"  -book-merge-auto-save <on/off> save the book to <book-file>.mrg after book merge.\n"
-		"  -book-expand-tasks <n>        expand n book positions at the same time (n-tasks / n threads each).\n"
+		"  -book-expand-tasks <n|auto>   expand n book positions at the same time (n-tasks / n threads each).\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
@@ -173,6 +179,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "n") == 0 || strcmp(option, "n-tasks") == 0) options.n_task = string_to_int(value, options.n_task);
 		else if (strcmp(option, "l") == 0 || strcmp(option, "level") == 0) {
 			options.level = string_to_int(value, options.level);
+			options.level_set = true;
 			options.play_type = EDAX_FIXED_LEVEL;
 		} else if (strcmp(option, "d") == 0 || strcmp(option, "depth") == 0) {
 			options.depth = string_to_int(value, options.depth);
@@ -191,7 +198,10 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "all-best") == 0) parse_boolean(value, &options.all_best);
 
 		else if (strcmp(option, "o") == 0 || strcmp(option, "option-file") == 0) options_parse(value);
-		else if (strcmp(option, "speed") == 0) options.speed = string_to_real(value, options.speed);
+		else if (strcmp(option, "speed") == 0) {
+			options.speed_set = (strcmp(value, "auto") != 0);
+			if (options.speed_set) options.speed = string_to_real(value, options.speed);
+		}
 		else if (strcmp(option, "nps") == 0) options.nps = 0.001 * string_to_real(value, options.nps);
 		else if (strcmp(option, "ponder") == 0) parse_boolean(value, &options.can_ponder);
 		else if (strcmp(option, "mode") == 0) parse_int(value, &options.mode);
@@ -207,6 +217,11 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "ggs-open") == 0) parse_boolean(value, &options.ggs_open);
 
 		else if (strcmp(option, "probcut-d") == 0) parse_real(value, &options.probcut_d);
+		else if (strcmp(option, "probcut-model") == 0) {
+			if (strcmp(value, "standard") == 0) options.probcut_model = 0;
+			else if (strcmp(value, "refit") == 0) options.probcut_model = 1;
+			else warn("probcut-model: unknown value \"%s\" (standard or refit)\n", value);
+		}
 
 		else if (strcmp(option, "pv-debug") == 0) parse_boolean(value, &options.pv_debug);
 		else if (strcmp(option, "pv-check") == 0) parse_boolean(value, &options.pv_check);
@@ -234,7 +249,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "repeat") == 0) parse_int(value, &options.repeat);
 		else if (strcmp(option, "book-save-interval") == 0) options.book_save_interval = string_to_int(value, options.book_save_interval);
 		else if (strcmp(option, "book-deviate-save-rounds") == 0) options.book_deviate_save_rounds = string_to_int(value, options.book_deviate_save_rounds);
-		else if (strcmp(option, "book-expand-tasks") == 0) options.book_expand_tasks = string_to_int(value, options.book_expand_tasks);
+		else if (strcmp(option, "book-expand-tasks") == 0) options.book_expand_tasks = (strcmp(value, "auto") == 0) ? 0 : string_to_int(value, options.book_expand_tasks);
 		else if (strcmp(option, "book-merge-auto-save") == 0) parse_boolean(value, &options.book_merge_auto_save);
 
 		else read = 0;
@@ -340,7 +355,7 @@ void options_bound(void)
 		BOUND(options.hash_table_size, 10, 30, "hash-table-size");	// 51KB to 53GB
 	}
 
-	BOUND(options.book_expand_tasks, 1, options.n_task, "book-expand-tasks");
+	if (options.book_expand_tasks != 0) BOUND(options.book_expand_tasks, 1, options.n_task, "book-expand-tasks");	// 0 = auto
 	BOUND(options.verbosity, 0, 4, "verbosity");
 	BOUND(options.noise, 0, 60, "noise");
 	BOUND(options.width, 3, 250, "width");

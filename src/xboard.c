@@ -606,6 +606,7 @@ void ui_loop_xboard(UI *ui)
 			} else if (strcmp(cmd, "sd") == 0) {
 				options.level = string_to_int(param, 60);
 				BOUND(options.level, 0, 60, "level");
+				options.level_set = true;
 				log_print(xboard_log, "edax setup> fixed level = %d\n", options.level);
 
 			// nps

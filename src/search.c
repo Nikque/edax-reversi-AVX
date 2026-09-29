@@ -111,6 +111,9 @@ const Selectivity selectivity_table [] = {
 	{999, 5,100}, // no selectivity
 };
 
+/** t values of selectivity_table scaled by 1.3, used with probcut_sigma() (probcut-model = refit, see eval.c) */
+const double probcut_refit_t[] = { 1.43, 1.95, 2.6, 3.38, 4.29, 999 };
+
 /** threshold values to try stability cutoff during NWS search */
 // TODO: better values may exist.
 const signed char NWS_STABILITY_THRESHOLD[] = { // 99 = unused value...
@@ -664,11 +667,50 @@ void search_set_ponder_level(Search *search, const int level, const int n_emptie
  * @param n_tasks Number of parallel tasks.
  * @return Reachable depth.
  */
+#ifndef SPEED_AUTO_K
+#define SPEED_AUTO_K 2.0
+#endif
+
+/** measured search speed (nodes per second, one thread equivalent); 0 until a search long enough has been done */
+static double measured_speed = 0.0;
+
+/**
+ * @brief Update the measured search speed after a search.
+ *
+ * Used by the time management when the speed option is not given (see solvable_depth).
+ *
+ * @param search Search.
+ */
+void search_update_speed(Search *search)
+{
+	const long long t = search_time(search);
+	const unsigned long long n = search_count_nodes(search);
+	const int n_tasks = search_count_tasks(search);
+
+	if (t >= 100 && n > 0) {
+		double s = 1000.0 * n / t / ((SMP_W + SMP_C) / (SMP_W / n_tasks + SMP_C));
+		measured_speed = (measured_speed > 0.0) ? 0.75 * measured_speed + 0.25 * s : s;
+	}
+}
+
+/**
+ * @brief Search speed used by the time management.
+ *
+ * The user given speed option, or else a multiple of the measured speed (default speed until a
+ * search has been measured).
+ * @return Search speed (one thread) in N/s.
+ */
+static double search_speed(void)
+{
+	if (!options.speed_set && measured_speed > 0.0) return SPEED_AUTO_K * measured_speed;
+	return options.speed;
+}
+
 int solvable_depth(const long long limit, int n_tasks)
 {
 	int d;
 	long long t;
-	double speed = 0.001 * (options.speed * (SMP_W + SMP_C) / (SMP_W / n_tasks + SMP_C));
+	double speed = 0.001 * (search_speed() * (SMP_W + SMP_C) / (SMP_W / n_tasks + SMP_C));
 
 	for (t = 0.0, d = 15; d <= 60 && t <= limit; ++d) {
 		t += pow(BRANCHING_FACTOR, d) / speed;

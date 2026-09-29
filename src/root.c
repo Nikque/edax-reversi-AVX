@@ -851,6 +851,7 @@ void* search_run(void *v)
 
 	// finalizations
 	search->result->n_nodes = search_count_nodes(search);
+	search_update_speed(search);
 	if (search->options.verbosity) {
 		if (search->options.verbosity == 1 || options.noise > search->result->depth) search->observer(search->result);
 		if (search->stop == STOP_TIMEOUT) {info("[Search out of time]\n");}

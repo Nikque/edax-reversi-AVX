@@ -350,7 +350,7 @@ static bool search_probcut(Search *search, const int alpha, const int depth, Nod
 		int eval_score, eval_beta, eval_alpha;
 		int score;
 		const int beta = alpha + 1;
-		double t = selectivity_table[search->selectivity].t;
+		const double t = options.probcut_model ? probcut_refit_t[search->selectivity] : selectivity_table[search->selectivity].t;
 		const int saved_selectivity = search->selectivity;
 		const NodeType node_type = search->node_type[search->height];
 
@@ -360,7 +360,8 @@ static bool search_probcut(Search *search, const int alpha, const int depth, Nod
 		probcut_depth = 2 * floor(options.probcut_d * depth) + (depth & 1);
 		if (probcut_depth == 0) probcut_depth = depth - 2; 
 		assert(probcut_depth > 1 && probcut_depth <= depth - 2 && (probcut_depth & 1) == (depth & 1));
-		probcut_error = t * eval_sigma(search->eval.n_empties, depth, probcut_depth) + RCD;
+		if (options.probcut_model) probcut_error = t * probcut_sigma(search->eval.n_empties, depth, probcut_depth) + RCD;	// refit (experimental)
+		else probcut_error = t * eval_sigma(search->eval.n_empties, depth, probcut_depth) + RCD;
 
 		// compute evaluation error (i.e. error at depth 0) averaged for both depths
 		eval_score = search_eval_0(search);

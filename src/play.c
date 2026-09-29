@@ -243,6 +243,18 @@ bool play_must_pass(Play *play)
 #endif
 
 /**
+ * @brief Search level used to play a move.
+ *
+ * With a time control, the level is only a cap on the search: unless a level was given
+ * explicitly, do not stop at the default level (21), and use the available time.
+ * @return level.
+ */
+static int play_level(void)
+{
+	return (options.play_type != EDAX_FIXED_LEVEL && !options.level_set) ? 60 : options.level;
+}
+
+/**
  * @brief Start thinking.
  * @param play Play.
  * @param update Flag to tell if edax should update or no its game.
@@ -355,7 +367,7 @@ void play_go(Play *play, const bool update)
 			if (search->options.separator) puts(search->options.separator);
 		}
 		search_set_board(search, &play->board, play->player);
-		search_set_level(search, options.level, search->eval.n_empties);
+		search_set_level(search, play_level(), search->eval.n_empties);
 		if (options.play_type == EDAX_TIME_PER_MOVE) search_set_move_time(search, options.time);
 		else search_set_game_time(search, play->time[play->player].left);
 
@@ -384,6 +396,7 @@ void play_go(Play *play, const bool update)
 	t_cpu += cpu_clock() + 1;
 	info("[cpu usage: %.2f%%]\n", 100.0 * t_cpu / t_real);
 
+	if (options.nps > 0) t_real = play->result.time;	// virtual clock (node count / nps), as used by the search
 	if (options.play_type != EDAX_TIME_PER_MOVE) play->time[play->player].left -= t_real;
 
 	if (update) play_update(play, &move);
@@ -503,7 +516,7 @@ void* play_ponder_run(void *v)
 			board_update(&board, &move);
 				play->ponder.board = board;
 				search_set_board(search, &board, player ^ 1);
-				search_set_level(search, options.level, search->eval.n_empties);
+				search_set_level(search, play_level(), search->eval.n_empties);
 				search_run(search);
 				if (options.info && play->state == IS_PONDERING) {
 					printf("[ponder after %s id.%d: ", move_to_string(move.x, player, m), search->id);
@@ -514,7 +527,7 @@ void* play_ponder_run(void *v)
 		} else {
 			play->ponder.board = board;
 			search_set_board(search, &board, player);
-			search_set_ponder_level(search, options.level, search->eval.n_empties);
+			search_set_ponder_level(search, play_level(), search->eval.n_empties);
 			log_print(xboard_log, "edax (ponder)> start search\n");
 			search_run(search);
 			log_print(xboard_log, "edax (ponder)> search ended\n");

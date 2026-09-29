@@ -136,6 +136,7 @@ void ui_loop_nboard(UI *ui)
 
 		} else if (strcmp(cmd, "depth") == 0) {
 			options.level = string_to_int(param, 21);
+			options.level_set = true;
 			nboard_send("set myname Edax%d", options.level);
 
 		} else if (strcmp(cmd, "game") == 0) {

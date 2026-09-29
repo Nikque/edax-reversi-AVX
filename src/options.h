@@ -89,7 +89,10 @@ typedef struct {
 	int book_deviate_save_rounds;          /**< productive deviate rounds between saves; 0 means completion only */
 	bool book_merge_auto_save;            /**< save the book to "<book-file>.mrg" after each successful book merge */
 	bool hash_table_auto;                 /**< choose hash_table_size from the thread count and the memory size */
-	int book_expand_tasks;                /**< book positions expanded at the same time (each search uses n_task / book_expand_tasks threads) */
+	int book_expand_tasks;                /**< book positions expanded at the same time (each search uses n_task / book_expand_tasks threads); 0 = auto */
+	bool speed_set;
+	bool level_set;
+	int probcut_model;                    /**< probcut error model: 0 = standard, 1 = refit (experimental, see eval.c) */                       /**< level given by the user (with a time control, it caps the search level) */                       /**< speed given by the user; otherwise the time management uses the measured search speed */
 
 	// TODO: add more options?
 } Options;
