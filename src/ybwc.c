@@ -460,7 +460,8 @@ void* task_loop(void *param)
 	Task *task = (Task*) param;
 
 	lock(task);
-	task->loop = true;
+	// task->loop is set before the thread is created (task_stack_init), so that
+	// task_free() always stops and joins it, even before it has started.
 
 	while (task->loop) {
 		if (!task->run) {
@@ -549,8 +550,10 @@ void task_free(Task *task)
 {
 	assert(task->run == false);
 	if (task->loop) {
+		lock(task); // the thread holds the lock except while waiting: the signal cannot be lost
 		task->loop = false; // stop the main loop
 		condition_signal(task);
+		unlock(task);
 		thread_join(task->thread);
 	}
 	lock_free(task);
@@ -589,6 +592,7 @@ void task_stack_init(TaskStack *stack, const int n)
 		for (i = 0; i < stack->n; ++i) {
 			if (i) {
 				task_init(stack->task + i);
+				stack->task[i].loop = true;
 				thread_create(&stack->task[i].thread, task_loop, stack->task + i);
 				if (options.cpu_affinity) thread_set_cpu(stack->task[i].thread, i); /* CPU 0 to n - 1 */
 			}
