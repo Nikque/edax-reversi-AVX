@@ -36,21 +36,21 @@ typedef struct Book {
 		int verbosity;
 	} options;
 	struct {
-		int n_nodes;
-		int n_links;
-		int n_todo;
+		long long n_nodes;
+		long long n_links;
+		long long n_todo;
 	} stats;
 	struct PositionArray *array;
 	struct PositionStack* stack;
 	void *pool;                  /**< positions stored at load time (see book_load) */
 	int n;
-	int n_nodes;
+	unsigned int n_nodes;       /**< position count (saved as a 32-bit unsigned count) */
 	bool need_saving;
 	bool failed;                 /**< a position could not be added (out of memory): learning stops */
 	unsigned char epoch; /**< current done/todo epoch (see book_clean) */
 	struct {
 		unsigned long long *item; /**< (bucket << 32 | index) of positions marked todo since book_clean */
-		int n, size;
+		long long n, size;
 		bool valid;               /**< false: book_expand must scan the whole book */
 	} todo_list;
 	Random random;
