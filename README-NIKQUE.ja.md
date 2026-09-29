@@ -4,6 +4,57 @@
 
 この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS x64・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
 
+## v4.5.5-nikque.4 の変更点
+
+探索とbookの学習を高速化し、bookに登録できる局面数の上限を約43億に引き上げ、1件の不具合を修正しました。同じオプションなら探索結果は変わりません（1スレッドで、最善手・評価値・読み筋・ノード数が v4.5.5-nikque.3 と一致します）。`bin/config.ini` の2つの新しい設定は、使ったときに探索が変わります。`hash-table-size = auto`（同梱の `config.ini` で使用）と `book-expand-tasks`（既定は1で従来どおり）です。bookのファイル形式は変わっていません。
+
+### 探索の高速化（結果は同じ）
+
+- ハッシュ表の消去：bookの学習では局面を探索するたびに、探索用の3つのハッシュ表をすべて書き換えていました（既定の大きさで57MB、`-h 26` なら1.8GB）。古い項目は表の日付で「空」とみなし、空の項目とまったく同じに扱うようにしました。メモリの消去は数十回に1回だけです。level 18・1スレッドの学習：`-h 21` 99.7秒→97.3秒、`-h 24` 121.9秒→107.6秒、`-h 26` 180.4秒→108.1秒（保存したbookは同じ）。
+- Windows版：ハッシュ表・探索・並列タスクのロックは `CRITICAL_SECTION` でした。他のOSの pthread のロックと同じ性質の、スピンロックとSRWロックに変えました。
+- x86-64-v4版（AVX-512）：評価関数の46個の重みを16個ずつ3回で読みます。整数の足し算の順序が変わるだけなので、評価値は1ビットも変わりません。
+- Windows版（ARM64を除く）の実行ファイルは、PGO（実行の傾向を使ったコンパイラ最適化）でビルドします（`src/NMakefile` の `vc-pgo-*`）。
+
+1スレッド（Ryzen 9 9950X、x86-64-v4版）では、中盤30局面（level 21）が7〜13%速くなりました。終盤の完全読みは、このPCの計測のばらつき（約±5%）を超える差はありませんでした。
+
+### 複数の局面を同時に展開する学習（新しい設定）
+
+低いlevelの探索は、多くのスレッドを使いきれません。level 18 の89局面では、32スレッドでも1スレッドの2.5倍の速さでした（4スレッドで2.1倍）。`book-expand-tasks = n`（`config.ini`、またはコマンドラインの `-book-expand-tasks n`）を指定すると、`book deviate`・`deviate2`・`deviate3`・`enhance`・`play` は n 局面を同時に展開します。それぞれ `n-tasks / n` 個のスレッドと専用のハッシュ表を使います。既定の1は、従来どおり1局面ずつ展開します。
+
+実book（6億5688万局面）、`book deviate3 2 5` の最初の1万件の展開、32スレッド：
+
+| `book-expand-tasks` | 展開の時間 |
+|---|---|
+| 1（2回） | 831.9秒、804.9秒 |
+| 16（各2スレッド） | 173.8秒 |
+
+3つのbookの局面とLinkの手は同じでした。Leafまたは評価値が違った局面は、1どうしの2回で258、16と1の各回で484と493でした。評価値の差はすべて1か2です。複数スレッドの探索は実行ごとに結果が揺れ、2スレッドの探索と32スレッドの探索では揺れ方も違います。また n が2以上では、同じ周の別の展開が同時に加えた局面（2つの局面が同じ子局面に行き着く場合など）を、新しい局面は参照しません。同時に展開する探索はそれぞれハッシュ表を持ちます（`hash-table-size = auto` ならそのスレッド数に合わせた大きさで、2スレッドなら各57MB）。
+
+### ハッシュ表の大きさの設定
+
+`hash-table-size = auto`（同梱の `config.ini` で使用。コマンドラインでは `-h auto`）は、探索のスレッド数からハッシュ表の大きさを選びます。1〜3スレッドは21、4〜15は22、16〜63は23で、上限は25、メモリの1/32までです。数値を書くと従来どおり固定の大きさ（2^n項目、3つの表で約27×2^nバイト）です。`config.ini` がない場合の既定は21のままです。`-h` を変えたときと同じく、大きさが変わると探索結果もわずかに変わります。32スレッド・level 18 と level 24 の試験では、23が21よりわずかに速く、それより大きくしても速くなりませんでした。
+
+### 21億局面を超えるbook
+
+bookのヘッダーの局面数を符号なし32ビットとして読み書きするようにし、4,294,967,295局面まで登録できるようにしました（以前は2,147,483,647）。以前の上限以下のbookは、これまでとバイト単位で同じに保存されます（実bookで確認：読み込み29秒・メモリ35.6GiBは従来どおり、保存したファイルは日時以外一致）。2,147,483,647局面を超えるbookは、以前の版や上流のEdaxでは読めません（局面数を不正として拒否します）。43億局面では約240GBのメモリが必要です。
+
+### 同一性の確認
+
+v4.5.5-nikque.3 と同じ条件（`-h` を固定、`book-expand-tasks = 1`）で比較しました。
+
+- 1スレッドの `-solve`：fforum-20-39 と中盤30局面を Windows版（x86-64・v3・v4・x86・x86-sse）とLinux版（x86-64・v3・v4・x86）で、fforum-1-19 と fforum-40-59 を Windows v4版で実行。最善手・評価値・読み筋・ノード数は一致しました。
+- fforum-40-59 を32スレッドで各版2回：評価値は一致しました。最善手の違いは同点の手の間だけで、以前の版どうしの2回と同じ種類です。
+- bookの試験（全bookコマンドを1スレッドと8スレッドで、merge、649万局面のbook）：保存したbookは一致しました。ログの違いは既知のもの（同点のbookの手の乱数による選択、`.edx` の値、時間、エラーメッセージ中のソースの行番号）だけです。
+- 実book：読み込んで保存したファイルは、保存日時を除いて一致しました。
+
+ARM64のWindows版とAndroid版はビルドのみで、実行はしていません。
+
+### 不具合の修正
+
+| 項目 | 以前の動作 |
+|---|---|
+| 探索スレッドの停止 | 探索用のスレッドを作った直後に解放すると、停止の合図を取りこぼして永久に待つ、またはスレッドが走り出す前のタスクを解放することがありました。 |
+
 ## v4.5.5-nikque.3 の変更点
 
 大規模book（数億局面・数十GB）で `book deviate`・`book deviate2`・`book deviate3`・`book merge` を使うときの処理時間とメモリ使用量を改善し、11件の不具合を修正しました。また、`book merge` の後にbookを自動で保存する設定を追加しました。bookのファイル形式は変わっていません。以前のbookをそのまま読み書きできます。
@@ -162,8 +213,8 @@ Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuha
 | macOS Intel x86-64 | `mEdax-x64-modern` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 
-`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。v4.5.5-nikque.3 の実行ファイルは、Windows版を Visual Studio 2022（MSVC 19.44）、Linux版を Ubuntu 22.04（WSL）の gcc 11.4、Android版を NDK r27d でビルドし、macOS版は release-binaries ワークフローでビルドしました。32ビットLinux版（`lEdax-x86`）は、bookの並列処理に必要なアトミック命令のため libatomic を静的にリンクしています（i486以降のCPUが必要です）。
+`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini` は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save`、`hash-table-size`、`book-expand-tasks` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。配布するWindows版（ARM64を除く）は PGO のターゲット（`vc-pgo-x64-v4`・`vc-pgo-x64-v3`・`vc-pgo-x64`、x86のコマンドプロンプトで `vc-pgo-x86-sse`・`vc-pgo-x86`）でビルドします。v4.5.5-nikque.4 の実行ファイルは、Windows版を Visual Studio 2022（MSVC 19.44）、Linux版を Ubuntu 22.04（WSL）の gcc 11.4、Android版を NDK r27d でビルドし、macOS版は release-binaries ワークフローでビルドしました。32ビットLinux版（`lEdax-x86`）は、bookの並列処理に必要なアトミック命令のため libatomic を静的にリンクしています（i486以降のCPUが必要です）。
 
 元配布物の旧32ビットmacOS用 `mEdax-x86` は除外しました。現在のXcode SDKにはi386用のリンクライブラリがなく修正版をビルドできません。元の実行ファイルをそのまま同梱しても、今回の修正は反映されません。
 
-このforkの作業には **ChatGPT-6 Astra** と **ChatGPT-6 Sol** を使用し、v4.5.5-nikque.3 の性能改善と不具合修正には **Claude Opus 5.5**（Claude Code）を使用しました。Edaxと原著作者の表記を維持し、元のGPL-3.0ライセンスに基づいて配布します。実行ファイルを再配布する場合も、対応するソースとライセンスを入手可能にしてください。
+このforkの作業には **ChatGPT-6 Astra** と **ChatGPT-6 Sol** を使用し、v4.5.5-nikque.3 と v4.5.5-nikque.4 の性能改善と不具合修正には **Claude Opus 5.5**（Claude Code）を使用しました。Edaxと原著作者の表記を維持し、元のGPL-3.0ライセンスに基づいて配布します。実行ファイルを再配布する場合も、対応するソースとライセンスを入手可能にしてください。

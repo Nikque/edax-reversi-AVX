@@ -2,6 +2,30 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.4
+
+Search and book learning speed, books of up to 4,294,967,295 positions and 1 bug fix. The book file format is unchanged. With the same options the search results are unchanged (single-thread best moves, scores, principal variations and node counts checked against v4.5.5-nikque.3); the new `hash-table-size = auto` of the bundled `config.ini` changes the hash table size, and `book-expand-tasks` above 1 changes the learning order. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for measurements and output checks.
+
+Performance (same results):
+
+- `search_cleanup()` no longer rewrites the search hash tables before each position searched by book learning: entries older than the last cleanup are handled exactly as empty ones, and the memory is wiped only when the date range is used up (level 18, one thread: `-h 26` 180 s to 108 s, `-h 21` 100 s to 97 s).
+- Windows: the hash table, search and task locks are a spin lock and an SRW lock instead of `CRITICAL_SECTION` (like the pthread locks of the other systems).
+- x86-64-v4: the evaluation reads its 46 weights with three 16-lane AVX-512 gathers (integer sums, the same evaluation to the bit).
+- The Windows release executables except ARM64 are built with profile-guided optimization (`vc-pgo-*` targets in `src/NMakefile`).
+
+New settings:
+
+- `book-expand-tasks` (`config.ini`, or `-book-expand-tasks n`; default 1): `book deviate`, `deviate2`, `deviate3`, `enhance` and `play` expand n positions at the same time, each search with `n-tasks / n` threads and its own hash tables. On a 657-million-position book (deviate3, 10,000 expansions, 32 threads), 16 took 174 s instead of 832 s and 805 s, with the same positions and link moves and a few leaf and score differences of 1 or 2 points.
+- `hash-table-size = auto` (`config.ini`, or `-h auto`; used by the bundled `config.ini`): 21 for 1-3 search threads, 22 for 4-15, 23 for 16-63, at most 25 and at most 1/32 of the memory. Without `config.ini` the default is still 21.
+
+Change of ID 28: the position count of the book header is read and written as an unsigned 32-bit number, so a book can hold up to 4,294,967,295 positions (was 2,147,483,647). Smaller books are saved byte for byte as before; larger ones cannot be read by earlier versions.
+
+| ID | Corrected behavior |
+|---|---|
+| 30 | Search threads freed soon after being created are stopped reliably (the stop signal could be lost and Edax wait forever, or a task be freed before its thread started). |
+
+Builds: Windows with Visual Studio 2022 (MSVC 19.44), profile-guided except ARM64 (the x86 targets from an x86 prompt); Linux with gcc 11.4 on Ubuntu 22.04; Android with NDK r27d; macOS x64 with the release-binaries workflow.
+
 ## v4.5.5-nikque.3
 
 Book performance, 11 bug fixes and an automatic save after `book merge`. The book file format is unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for measurements and the output checks against v4.5.5-nikque.2.
