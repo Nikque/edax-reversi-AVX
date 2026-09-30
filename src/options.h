@@ -90,9 +90,10 @@ typedef struct {
 	bool book_merge_auto_save;            /**< save the book to "<book-file>.mrg" after each successful book merge */
 	bool hash_table_auto;                 /**< choose hash_table_size from the thread count and the memory size */
 	int book_expand_tasks;                /**< book positions expanded at the same time (each search uses n_task / book_expand_tasks threads); 0 = auto */
-	bool speed_set;
-	bool level_set;
-	int probcut_model;                    /**< probcut error model: 0 = standard, 1 = refit (experimental, see eval.c) */                       /**< level given by the user (with a time control, it caps the search level) */                       /**< speed given by the user; otherwise the time management uses the measured search speed */
+	bool speed_set;                       /**< speed given by the user; otherwise the time management uses the measured search speed */
+	bool level_set;                       /**< level given by the user (with a time control, it caps the search level) */
+	int probcut_model;                    /**< probcut error model: 0 = standard, 1 = refit (experimental, see eval.c) */
+	int book_depth;                       /**< book depth set at startup (book-depth); 0 = auto: keep the depth of the loaded book */
 
 	// TODO: add more options?
 } Options;
@@ -102,6 +103,7 @@ extern Options options;
 void options_usage(void);
 int options_read(const char*, const char*);
 void options_parse(const char*);
+void options_parse_defaults(const char*);
 void options_bound(void);
 int hash_table_size_auto(const int);
 void options_free(void);

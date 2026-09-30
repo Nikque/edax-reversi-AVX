@@ -89,6 +89,7 @@ void ui_init_nboard(UI *ui)
 		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
 		ui->book.need_saving = false; // keep the damaged input file untouched
 	}
+	book_set_startup_depth(&ui->book);
 	play->search.id = 1;
 	search_set_observer(&play->search, nboard_observer);
 	ui->mode = 3;

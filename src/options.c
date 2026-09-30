@@ -35,7 +35,7 @@ Options options = {
 	false, // debug cassio
 	true, // transgress cassio
 
-	21, // max level
+	18, // level
 	TIME_MAX, // infinite time
 	EDAX_FIXED_LEVEL, // play-type
 	true, // can ponder
@@ -90,6 +90,7 @@ Options options = {
 	false, // speed given by the user (else measured)
 	false, // level given by the user (else no level cap with a time control)
 	0, // probcut model: standard
+	0, // book depth: auto (the depth of the loaded book)
 };
 
 /**
@@ -108,7 +109,7 @@ void options_usage(void)
 		"  -noise <n>                    noise level (print search output from ply <n>).\n"
 		"  -width <n>                    line width.\n"
 		"  -h|hash-table-size <nbits>    hash table size (2^nbits entries), or auto.\n"
-		"  -n|n-tasks <n>                search in parallel using n tasks.\n"
+		"  -n|n-tasks <n|auto>           search in parallel using n tasks (auto: the number of logical CPUs).\n"
 		"  -cpu                          search using 1 cpu/thread.\n"
 #ifdef __APPLE__
 		"\nCassio protocol options:\n"
@@ -126,6 +127,7 @@ void options_usage(void)
 		"  -eval-file                    read eval weight from this file.\n"
 		"  -book-file                    load opening book from this file.\n"
 		"  -book-usage <on/off>          play from the opening book.\n"
+		"  -book-depth <n|auto>          depth of the opening book at startup (auto: the depth of the loaded book).\n"
 		"  -book-randomness <n>          play various but worse moves from the opening book.\n"
 		"  -auto-start <on/off>          automatically restart a new game.\n"
 		"  -auto-swap <on/off>           automatically Edax's color between games\n"
@@ -140,6 +142,9 @@ void options_usage(void)
 
 	exit(EXIT_SUCCESS);
 }
+
+/** true while reading a file of default settings (edax.ini, config.ini) */
+static bool reading_defaults = false;
 
 /**
  * @brief Read an option.
@@ -176,11 +181,13 @@ int options_read(const char *option, const char *value)
 			options.hash_table_auto = (strcmp(value, "auto") == 0);
 			if (!options.hash_table_auto) options.hash_table_size = string_to_int(value, options.hash_table_size);
 		}
-		else if (strcmp(option, "n") == 0 || strcmp(option, "n-tasks") == 0) options.n_task = string_to_int(value, options.n_task);
+		else if (strcmp(option, "n") == 0 || strcmp(option, "n-tasks") == 0) options.n_task = (strcmp(value, "auto") == 0) ? get_cpu_number() : string_to_int(value, options.n_task);
 		else if (strcmp(option, "l") == 0 || strcmp(option, "level") == 0) {
 			options.level = string_to_int(value, options.level);
-			options.level_set = true;
-			options.play_type = EDAX_FIXED_LEVEL;
+			if (!reading_defaults) {	// a level of edax.ini / config.ini is only the initial level
+				options.level_set = true;
+				options.play_type = EDAX_FIXED_LEVEL;
+			}
 		} else if (strcmp(option, "d") == 0 || strcmp(option, "depth") == 0) {
 			options.depth = string_to_int(value, options.depth);
 			options.play_type = EDAX_FIXED_LEVEL;
@@ -249,6 +256,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "repeat") == 0) parse_int(value, &options.repeat);
 		else if (strcmp(option, "book-save-interval") == 0) options.book_save_interval = string_to_int(value, options.book_save_interval);
 		else if (strcmp(option, "book-deviate-save-rounds") == 0) options.book_deviate_save_rounds = string_to_int(value, options.book_deviate_save_rounds);
+		else if (strcmp(option, "book-depth") == 0) options.book_depth = (strcmp(value, "auto") == 0) ? 0 : string_to_int(value, options.book_depth);
 		else if (strcmp(option, "book-expand-tasks") == 0) options.book_expand_tasks = (strcmp(value, "auto") == 0) ? 0 : string_to_int(value, options.book_expand_tasks);
 		else if (strcmp(option, "book-merge-auto-save") == 0) parse_boolean(value, &options.book_merge_auto_save);
 
@@ -264,29 +272,90 @@ int options_read(const char *option, const char *value)
 
 
 /**
- * @brief parse an option from a string
- *
- * A line of the form:  <code>"[set] option [=] value"</code>
- * is parse into two strings: <code>option</code> and <code>value</code>.
- * The "set" and "=" are optionnal.
- * This function assume all string sizes are sufficient.
- *
- * @param line The string to parse.
- * @param option A string to be filled with the option name.
- * @param value A string to be filled with the option value.
- * @param size option & value string capacity.
- * @return remaining of the string.
+ * @brief Trim the spaces at both ends of a string (in place).
+ * @param s String.
+ * @return The trimmed string.
  */
-static const char* option_parse(const char *line, char *option, char *value, int size)
+static char* settings_trim(char *s)
 {
-	line = parse_word(line, option, size);
-	if (strcmp(option, "set") == 0) line = parse_word(line, option, size);
-	line = parse_word(line, value, size);
-	if (strcmp(value, "=") == 0) line = parse_word(line, value, size);
+	char *e;
+	while (*s == ' ') ++s;
+	e = s + strlen(s);
+	while (e > s && e[-1] == ' ') --e;
+	*e = '\0';
+	return s;
+}
 
-	options_read(option, value);
+/**
+ * @brief Parse a line of a settings file and apply it.
+ *
+ * The syntax is tolerant, to make the files easy to edit by hand:
+ *  - "name = value", "name=value", "name value" and "set name value" are the same;
+ *  - tabs, full-width spaces and a full-width equal sign are accepted, and a UTF-8 BOM is skipped;
+ *  - names ignore the case, and spaces, '_' and '-' are the same ("book depth" = "book_depth" = "book-depth");
+ *  - the values on/off/true/false/yes/no/auto/standard/refit ignore the case;
+ *  - with '=', the value is the rest of the line (a file name may contain spaces);
+ *  - '#' starts a comment; an empty line is ignored; an unknown name is reported.
+ *
+ * @param line Line to parse (modified).
+ * @param file File name (for the messages).
+ * @param n_line Line number (for the messages).
+ */
+static void settings_parse_line(char *line, const char *file, int n_line)
+{
+	static const char *words[] = { "auto", "on", "off", "true", "false", "yes", "no", "standard", "refit", NULL };
+	char *s = line, *key, *value, *eq, *p, *q;
+	int i, j;
 
-	return line;
+	// normalize the characters: BOM, full-width space and equal sign, tabs, CR
+	if ((unsigned char) s[0] == 0xEF && (unsigned char) s[1] == 0xBB && (unsigned char) s[2] == 0xBF) s += 3;
+	for (i = j = 0; s[i]; ) {
+		const unsigned char c = (unsigned char) s[i];
+		if (c == 0xE3 && (unsigned char) s[i + 1] == 0x80 && (unsigned char) s[i + 2] == 0x80) { s[j++] = ' '; i += 3; }
+		else if (c == 0xEF && (unsigned char) s[i + 1] == 0xBC && (unsigned char) s[i + 2] == 0x9D) { s[j++] = '='; i += 3; }
+		else if (c == '\t' || c == '\r' || c == '\n' || c == '\v' || c == '\f') { s[j++] = ' '; ++i; }
+		else s[j++] = s[i++];
+	}
+	s[j] = '\0';
+	if ((p = strchr(s, '#')) != NULL) *p = '\0';	// comment
+	s = settings_trim(s);
+	if (*s == '\0' || *s == '%') return;
+
+	// split into name and value
+	if ((eq = strchr(s, '=')) != NULL) {
+		*eq = '\0';
+		key = settings_trim(s);
+		value = settings_trim(eq + 1);
+	} else if ((p = strrchr(s, ' ')) != NULL) {
+		*p = '\0';
+		key = settings_trim(s);
+		value = settings_trim(p + 1);
+	} else {
+		key = s;
+		value = s + strlen(s);
+	}
+
+	// name: lower case, spaces and '_' as '-', without a leading "set" or '-'
+	for (p = q = key; *p; ++p) {
+		char c = (char) tolower((unsigned char) *p);
+		if (c == ' ' || c == '_') c = '-';
+		if (c == '-' && (q == key || q[-1] == '-')) continue;
+		*q++ = c;
+	}
+	while (q > key && q[-1] == '-') --q;
+	*q = '\0';
+	if (strncmp(key, "set-", 4) == 0) key += 4;
+	if (*key == '\0') return;
+
+	// value: the words of the settings ignore the case
+	for (i = 0; words[i]; ++i) {
+		for (j = 0; words[i][j] && tolower((unsigned char) value[j]) == words[i][j]; ++j) ;
+		if (words[i][j] == '\0' && value[j] == '\0') { strcpy(value, words[i]); break; }
+	}
+
+	if (options_read(key, value) == 0) {
+		warn("%s:%d: unknown or incomplete setting \"%s\" ignored\n", file, n_line, key);
+	}
 }
 
 /**
@@ -296,21 +365,34 @@ static const char* option_parse(const char *line, char *option, char *value, int
  */
 void options_parse(const char *file)
 {
-	char *line, *option, *value;
+	char *line;
 	FILE *f = fopen(file, "r");
 
 	if (f != NULL) {
 
+		int n_line = 0;
 		while ((line = string_read_line(f)) != NULL) {
-			size_t n = strlen(line);
-			option = (char*) malloc(n + 1);
-			value = (char*) malloc(n + 1);
-			option_parse(line, option, value, n);
-			free(line); free(option); free(value);
+			settings_parse_line(line, file, ++n_line);
+			free(line);
 		}
 
 		fclose(f);
 	}
+}
+
+/**
+ * @brief parse default settings from a file (edax.ini, config.ini).
+ *
+ * Same as options_parse(), except that a level only sets the initial level: it does not
+ * count as a level given by the user (no level cap with a time control, see play_level()).
+ *
+ * @param file Option file name.
+ */
+void options_parse_defaults(const char *file)
+{
+	reading_defaults = true;
+	options_parse(file);
+	reading_defaults = false;
 }
 
 /**
@@ -356,6 +438,7 @@ void options_bound(void)
 	}
 
 	if (options.book_expand_tasks != 0) BOUND(options.book_expand_tasks, 1, options.n_task, "book-expand-tasks");	// 0 = auto
+	BOUND(options.book_depth, 0, 60, "book-depth");	// 0 = auto
 	BOUND(options.verbosity, 0, 4, "verbosity");
 	BOUND(options.noise, 0, 60, "noise");
 	BOUND(options.width, 3, 250, "width");
@@ -420,6 +503,8 @@ void options_dump(FILE *f)
 	fprintf(f, "\teval file: %s\n", options.eval_file);
 	fprintf(f, "\tbook file: %s\n", options.book_file);
 	fprintf(f, "\tbook allowed: %s\n", boolean_string[options.book_allowed]);
+	if (options.book_depth > 0) fprintf(f, "\tbook depth at startup: %d\n", options.book_depth);
+	else fprintf(f, "\tbook depth at startup: auto (the depth of the loaded book)\n");
 	fprintf(f, "\tbook randomness: %d\n", options.book_randomness);
 	fprintf(f, "\tbook timed-save interval: %d minutes\n", options.book_save_interval);
 	fprintf(f, "\tbook deviate-save interval: %d productive rounds (0 = completion only)\n", options.book_deviate_save_rounds);

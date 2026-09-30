@@ -101,9 +101,9 @@ int main(int argc, char **argv)
 	options.n_task = get_cpu_number();
 
 	// options from edax.ini
-	options_parse("edax.ini");
+	options_parse_defaults("edax.ini");
 	get_config_file_path(argv[0], config_file);
-	options_parse(config_file);
+	options_parse_defaults(config_file);
 
 	// allocate ui
 	ui = (UI*) mm_malloc(sizeof *ui);	// Eval in Search in Play in UI

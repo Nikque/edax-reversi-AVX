@@ -2079,6 +2079,20 @@ static long long book_file_remaining(FILE *f)
 #endif
 	return end - pos;
 }
+
+/**
+ * @brief Apply the book depth of the settings (book-depth) to the book loaded at startup.
+ *
+ * With book-depth = auto (0), the depth saved in the book file is kept. Otherwise the book
+ * depth is set as with the "book depth" command (and saved with the book).
+ *
+ * @param book Opening book.
+ */
+void book_set_startup_depth(Book *book)
+{
+	if (options.book_depth > 0) book->options.n_empties = 61 - options.book_depth;
+}
+
 /**
  * @brief Load the opening book.
  *
@@ -2426,6 +2440,8 @@ typedef struct BookTask {
 	bool oom;
 	void (*run)(struct BookTask*);
 	Thread thread;
+	volatile long long done;     /**< positions scanned so far (progress display only) */
+	volatile bool finished;      /**< the task is over (progress display only) */
 } BookTask;
 
 static void book_task_push(BookTask *task, const unsigned long long item)
@@ -2443,14 +2459,28 @@ static void* book_task_main(void *v)
 {
 	BookTask *task = (BookTask*) v;
 	task->run(task);
+	task->finished = true;
 	return NULL;
+}
+
+/** @return true (at most once per second) when a progress line is due. */
+static bool book_progress_due(long long *next)
+{
+	const long long t = real_clock();
+	if (t < *next) return false;
+	*next = t + 1000;
+	return true;
 }
 
 /**
  * @brief Run a function on every bucket range with options.n_task threads.
+ *
+ * With a progress label, all the ranges run in worker threads and this thread prints
+ * "<label>...<positions scanned>/<positions> positions checked" once per second.
+ *
  * @return number of tasks (task[0..n-1] hold the results, in bucket order).
  */
-static int book_parallel(Book *book, void (*run)(BookTask*), BookTask *task)
+static int book_parallel(Book *book, void (*run)(BookTask*), BookTask *task, const char *progress)
 {
 	int i, n = options.n_task;
 	if (n > MAX_THREADS) n = MAX_THREADS;
@@ -2461,10 +2491,25 @@ static int book_parallel(Book *book, void (*run)(BookTask*), BookTask *task)
 		task[i].last = (int) ((long long) book->n * (i + 1) / n);
 		task[i].item = NULL; task[i].n = task[i].size = 0; task[i].oom = false;
 		task[i].run = run;
+		task[i].done = 0; task[i].finished = false;
 	}
-	for (i = 1; i < n; ++i) thread_create(&task[i].thread, book_task_main, task + i);
-	run(task);
-	for (i = 1; i < n; ++i) thread_join(task[i].thread);
+	if (progress && book_verbose) {
+		long long next = real_clock() + 1000;
+		bool finished = false;
+		for (i = 0; i < n; ++i) thread_create(&task[i].thread, book_task_main, task + i);
+		while (!finished) {
+			long long done = 0;
+			relax(50);
+			finished = true;
+			for (i = 0; i < n; ++i) { done += task[i].done; if (!task[i].finished) finished = false; }
+			if (!finished && book_progress_due(&next)) bprint("%s...%lld/%u positions checked\r", progress, done, book->n_nodes);
+		}
+		for (i = 0; i < n; ++i) thread_join(task[i].thread);
+	} else {
+		for (i = 1; i < n; ++i) thread_create(&task[i].thread, book_task_main, task + i);
+		run(task);
+		for (i = 1; i < n; ++i) thread_join(task[i].thread);
+	}
 	return n;
 }
 
@@ -2514,6 +2559,7 @@ static void book_link_find(BookTask *task)
 			}
 			if (!found && p->leaf.move == NOMOVE) book_task_push(task, TASK_ITEM(b, k, TASK_NO_LINK));
 		}
+		task->done += a->n;
 	}
 }
 
@@ -2582,14 +2628,16 @@ void book_link_parallel(Book *book)
 {
 	BookTask task[MAX_THREADS];
 	int i, n;
-	long long j;
+	long long j, n_items = 0, i_item = 0, next = real_clock() + 1000;
 
 	bprint("Linking book...\r");
-	n = book_parallel(book, book_link_find, task);
+	n = book_parallel(book, book_link_find, task, "Linking book");
 	for (i = 0; i < n; ++i) if (task[i].oom) { book_tasks_free(task, n); error("cannot allocate link list; using sequential link\n"); book_link(book); return; }
 
+	for (i = 0; i < n; ++i) n_items += task[i].n;
 	for (i = 0; i < n; ++i) {
 		for (j = 0; j < task[i].n; ++j) {
+			if ((++i_item & 15) == 0 && book_progress_due(&next)) bprint("Linking book...%lld/%lld positions linked\r", i_item, n_items);
 			const unsigned long long item = task[i].item[j];
 			Position *p = book->array[TASK_BUCKET(item)].positions + TASK_INDEX(item);
 			const int x = TASK_MOVE(item);
@@ -2634,6 +2682,7 @@ static void book_fix_find(BookTask *task)
 			if (!position_is_ok(a->positions + k)) book_task_push(task, TASK_ITEM(b, k, 0));
 			else if (position_has_missing_link(a->positions + k, task->book)) book_task_push(task, TASK_ITEM(b, k, 1));
 		}
+		task->done += a->n;
 	}
 }
 
@@ -2641,13 +2690,15 @@ void book_fix_parallel(Book *book)
 {
 	BookTask task[MAX_THREADS];
 	int i, n, n_fix = 0, n_missing = 0;
-	long long j;
+	long long j, n_items = 0, next = real_clock() + 1000;
 
 	bprint("Fixing book...\r");
-	n = book_parallel(book, book_fix_find, task);
+	n = book_parallel(book, book_fix_find, task, "Fixing book");
 	for (i = 0; i < n; ++i) if (task[i].oom) { book_tasks_free(task, n); book_fix(book); return; }
+	for (i = 0; i < n; ++i) n_items += task[i].n;
 	for (i = 0; i < n; ++i) for (j = 0; j < task[i].n; ++j) {
 		Position *p = book->array[TASK_BUCKET(task[i].item[j])].positions + TASK_INDEX(task[i].item[j]);
+		if (((n_fix + 1) & 15) == 0 && book_progress_due(&next)) bprint("Fixing book...%d/%lld positions fixed\r", n_fix + 1, n_items);
 		if (TASK_MOVE(task[i].item[j]) == 0) position_fix(p, book);
 		else {
 			position_remove_links(p, book);
@@ -2673,7 +2724,7 @@ void book_sort_parallel(Book *book)
 {
 	BookTask task[MAX_THREADS];
 	bprint("Sorting book...");
-	book_tasks_free(task, book_parallel(book, book_sort_range, task));
+	book_tasks_free(task, book_parallel(book, book_sort_range, task, NULL));
 	bprint("done>\n");
 }
 
@@ -2698,7 +2749,7 @@ bool book_merge_file(Book *dest, const char *file)
 	unsigned int header_edax = 0, header_book = 0;
 	unsigned char header[10];
 	unsigned int i, expected = 0;	// the position count is saved as a 32-bit unsigned int
-	long long n_added = 0;
+	long long n_added = 0, next;
 	int pass, k;
 	bool ok = false, use_hints = true;
 
@@ -2724,7 +2775,9 @@ bool book_merge_file(Book *dest, const char *file)
 #endif
 		stream.n = stream.pos = 0;
 		bprint("%s book %s...\r", pass ? "Merging" : "Checking", file);
+		next = real_clock() + 1000;
 		for (i = 0; i < expected; ++i) {
+			if ((i & 0xffff) == 0 && i && book_progress_due(&next)) bprint("%s book %s...%u/%u positions\r", pass ? "Merging" : "Checking", file, i, expected);
 			if (!position_read(&p, &stream)) {
 				error("Truncated opening book %s at position %u/%u", file, i, expected);
 				goto merge_end;

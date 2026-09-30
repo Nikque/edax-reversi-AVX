@@ -15,7 +15,7 @@
 #define MAX_THREADS 64
 
 /** maximal number of moves */
-#define MAX_MOVE 33	// https://eukaryote.hateblo.jp/entry/2023/05/23/145945
+#define MAX_MOVE 34	// 33 in reachable positions (https://eukaryote.hateblo.jp/entry/2023/05/23/145945), 34 at most in any position (https://eukaryote.hateblo.jp/entry/2020/04/13/150458)
 
 /** size of the board */
 #define BOARD_SIZE 64
