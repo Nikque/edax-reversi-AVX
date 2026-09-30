@@ -4,6 +4,53 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS x64, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.6
+
+The startup values of the main settings can now be set in `config.ini`, the limit on the number of legal moves is raised to its theoretical maximum, and `book merge` shows its progress again. The evaluation data `eval.dat`, the book file format and the search results with the same options are unchanged.
+
+### Startup settings (new settings and defaults)
+
+`config.ini` (or the command line) sets these four startup values. The bundled `config.ini` uses the values below, which are also the defaults without `config.ini`.
+
+| Setting | Bundled value and default | Meaning |
+|---|---|---|
+| `level` | `18` | Search level (0 to 60). The `level` command changes it after startup. |
+| `n-tasks` (`n`) | `auto` | Number of search threads: 1 to the number of logical CPUs, or `auto` (the number of logical CPUs). |
+| `book-depth` | `auto` | Depth of the opening book (as with the `book depth` command). `auto` keeps the depth saved in the book file (`data/book.dat`); a number from 1 to 60 sets it at startup (it is saved with the book). |
+| `book-usage` | `on` | Play from the opening book (`on`/`off`). |
+
+- **The built-in default level is now 18 instead of 21.** Searches without `-l` (`-solve`, games) give different results from previous versions; with `-l` they are the same.
+- **A `level` written in `config.ini` (or in `edax.ini` of the current folder) only sets the startup level.** It does not cap the search in timed games (`-t`, `-move-time`); the "no level cap in timed games" change of v4.5.5-nikque.5 is kept. To cap the search, give the level with `-l` on the command line or `level` at the Edax prompt (a `level` in a settings file read with `-o` is still a cap, as before).
+- On the command line: `-n auto` and `-book-depth <n|auto>`.
+- The `options` command of the Edax prompt shows the values (with a new "book depth at startup" line); `book info` shows the book depth (`Depth`).
+
+### Easier config.ini syntax
+
+`config.ini` and `edax.ini` are now read more tolerantly, to make them easy to edit by hand:
+
+- `level = 18`, `level=18`, `level 18` and `set level 18` are the same. Spaces around `=`, tabs, full-width spaces and the full-width equal sign are accepted.
+- Names ignore the case, and spaces, `_` and `-` in names are the same (`book-depth`, `book_depth`, `book depth` and `Book Depth` are the same setting).
+- The values `on`/`off`/`auto`/`true`/`false`/`yes`/`no` ignore the case.
+- With `=`, the value is the rest of the line (a file name may contain spaces).
+- `#` starts a comment. A UTF-8 BOM and CRLF line ends are fine.
+- An unknown name (a typo, for example) is reported at startup with the file name and the line number (for example `WARNING: config.ini:7: unknown or incomplete setting "levle" ignored`). Out-of-range values are reported and bounded, as before.
+
+### Legal moves: limit 33 -> 34
+
+The maximum number of legal moves of a position (`MAX_MOVE`) is raised from 33 to 34. Positions reachable from the starting position have at most 33 legal moves ([eukaryote 2023](https://eukaryote.hateblo.jp/entry/2023/05/23/145945), [a note on the paper](https://othlog.hasera.net/20231112-2/)), but positions with 34 legal moves exist when unreachable positions are included, and none has 35 or more ([eukaryote 2020](https://eukaryote.hateblo.jp/entry/2020/04/13/150458)). Edax accepts any position with `-solve` or `setboard`, so the move list can no longer overflow on such a position.
+
+- The move list (`MoveList`) is a temporary variable of the search: it grows by 32 bytes (at most about 2 KB per thread). Book positions (48 bytes) and the hash tables do not contain it, so the book memory is unchanged. The moves are processed as a list of the actual legal moves, so there is no extra work.
+- In single-thread runs, the search results and node counts are identical to the previous version and the time difference stays within the measurement noise (level 18: x0.995, midgame: x1.008, endgame: x1.002).
+
+### Bug fix: progress of book merge and book fix
+
+Since the linking and fixing steps became parallel (v4.5.5-nikque.3), `book merge` showed "Linking book..." and "Fixing book..." without any progress until "done" (upstream printed it every 100,000 positions). The progress is now printed once per second; the book is unchanged.
+
+- Checking the positions (parallel): `Linking book...3654055/6491163 positions checked` (positions checked / all positions)
+- Adding links and searching leaves: `Linking book...16/17550 positions linked` (positions done / positions to process)
+- `book fix` (and the fix after a merge) shows `Fixing book...` the same way.
+- While `book merge` reads the file of a large book, `Checking book ...` and `Merging book ...` show the positions read (new: upstream showed nothing there).
+
 ## Changes in v4.5.5-nikque.5
 
 This release makes Edax use its clock properly in timed games, which makes it stronger as a playing program, and reduces the book memory by about 14%. **Fixed-level searches (book learning, `-solve`, games at a given level) give the same results**: best moves, scores, principal variations and node counts match v4.5.5-nikque.4 in single-thread runs. The book file format and the saved book contents are unchanged (the only exception is the `book enhance` note in "Book memory" below). The evaluation data `eval.dat` is unchanged.
@@ -314,12 +361,16 @@ Edax reads its settings in this order, each one overriding the previous:
 2. `config.ini` in the folder of the executable (`bin/config.ini` of the release);
 3. the command-line options.
 
-Each line of these files is `name = value`; lines starting with `#` are comments. Every command-line option can be written there with its long name without the leading `-` (for example `n-tasks = 16` for `-n 16`, `level = 18` for `-l 18`, `book-file = data/book.dat`). At the Edax prompt, typing `name value` (for example `book-expand-tasks 16` or `n-tasks 16`) changes a setting for the next searches and learning commands; `hash-table-size` only takes effect at startup.
+Each line of these files is `name = value`; `#` starts a comment (see "Easier config.ini syntax" in v4.5.5-nikque.6 for the accepted forms). Every command-line option can be written there with its long name without the leading `-` (for example `n-tasks = 16` for `-n 16`, `level = 18` for `-l 18`, `book-file = data/book.dat`). At the Edax prompt, typing `name value` (for example `book-expand-tasks 16` or `n-tasks 16`) changes a setting for the next searches and learning commands; `hash-table-size` only takes effect at startup.
 
 ### Settings of the bundled config.ini
 
 | Setting | Bundled value | Meaning |
 |---|---|---|
+| `level` | `18` | Startup search level. It does not cap timed games (see v4.5.5-nikque.6 above). |
+| `n-tasks` | `auto` | Number of search threads (`auto`: the number of logical CPUs). |
+| `book-depth` | `auto` | Book depth at startup (`auto`: the value of the book file). |
+| `book-usage` | `on` | Play from the opening book. |
 | `book-save-interval` | `360` | Minutes between timed saves of the book during learning (`0`: no timed save). |
 | `book-deviate-save-rounds` | `1` | Save after this many productive rounds of `book deviate`, `deviate2`, `deviate3` (`0`: only when learning ends). |
 | `book-merge-auto-save` | `on` | Save the merged book to `<book file>.mrg` after each successful `book merge`. |
@@ -327,7 +378,7 @@ Each line of these files is `name = value`; lines starting with `#` are comments
 | `book-expand-tasks` | `auto` | Number of book positions expanded at the same time by the learning commands (below). |
 | `probcut-model` | `standard` | Error model of the search pruning (ProbCut); `refit` is experimental (see v4.5.5-nikque.5 above). |
 
-Other useful settings: `n-tasks` (threads of the search, all logical CPUs by default), `level` (search level of the games; in timed games, an explicit level caps the search), `book-file` and `eval-file` (paths).
+Other useful settings: `book-file` and `eval-file` (paths). A level given with `-l` on the command line (or `level` at the prompt) caps the search in timed games.
 
 ### hash-table-size
 

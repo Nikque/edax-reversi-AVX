@@ -2,6 +2,31 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.6
+
+Startup settings, the limit on legal moves, and the progress display of book merge. `eval.dat`, the book file format and the search results with the same options are unchanged (single-thread search results and node counts checked against v4.5.5-nikque.5). See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+
+Startup settings (values of the bundled `config.ini`, also the defaults without `config.ini`):
+
+- `level = 18`: startup search level. **The built-in default level is now 18 instead of 21** (searches without `-l` give different results from previous versions). A `level` in `config.ini` or `edax.ini` only sets the startup level and does not cap timed games (use `-l` or the `level` command of the prompt for a cap).
+- `n-tasks = auto`: number of search threads (1 to the number of logical CPUs; `auto` is the number of logical CPUs). `-n auto` also works on the command line.
+- `book-depth = auto` (new setting): book depth at startup (as with the `book depth` command). `auto` keeps the depth of the book file; a number from 1 to 60 sets it. `-book-depth <n|auto>` on the command line.
+- `book-usage = on`: play from the opening book.
+
+Syntax of `config.ini` and `edax.ini`:
+
+- `name = value`, `name=value` and `name value` are all accepted, with tabs, full-width spaces and equal signs, and a UTF-8 BOM.
+- Names and values such as on/off/auto ignore the case; spaces, `_` and `-` in names are the same (`book depth` = `book-depth`). `#` starts a comment.
+- Unknown names are reported at startup with the file name and the line number.
+
+Bug fix:
+
+- Since v4.5.5-nikque.3, "Linking book..." and "Fixing book..." of `book merge` and `book fix` showed no progress. The progress (positions) is printed once per second again, also while `book merge` reads the file. The book is unchanged.
+
+Limit on legal moves:
+
+- The maximum number of legal moves of a position (`MAX_MOVE`) is now 34 instead of 33. Reachable positions have at most 33 legal moves, but positions entered with `-solve` or `setboard` can have 34 (never 35 or more). The move list only grows by 32 bytes; the book memory and the speed are unchanged.
+
 ## v4.5.5-nikque.5
 
 Better clock use in games and less book memory (48 bytes per position instead of 56). Fixed-level search results (book learning, `-solve`, games at a given level) are unchanged (single-thread best moves, scores, principal variations and node counts checked against v4.5.5-nikque.4). The book file format and the saved contents are unchanged (except, possibly, `book enhance` with errors above 63). `eval.dat` is unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for measurements.
