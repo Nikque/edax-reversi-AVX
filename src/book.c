@@ -2897,18 +2897,27 @@ void book_fix(Book *book)
 	PositionArray *a;
 	Position *p;
 	int i = 0, n_missing = 0;
+	unsigned int n_checked = 0;
+	long long next = real_clock() + 1000;
+	bool progress = false;
 
 	bprint("Fixing book...\r");
 	foreach_position(p, a, book) {
+		// most positions need no fix: show the checked positions (once per second)
+		if ((++n_checked & 0xfff) == 0 && book_progress_due(&next)) {
+			bprint("Fixing book...%u/%u positions checked\r", n_checked, book->n_nodes);
+			progress = true;
+		}
 		if (!position_is_ok(p)) {
 			position_fix(p, book);
-			if (++i % BOOK_INFO_RESOLUTION == 0) { bprint("fixing book...%d\r", i);  }
+			++i;
 		} else if (position_has_missing_link(p, book)) {
 			position_remove_links(p, book);
 			++n_missing;
-			if (++i % BOOK_INFO_RESOLUTION == 0) { bprint("fixing book...%d\r", i);  }
+			++i;
 		}
 	}
+	if (progress) clear_line();
 	if (n_missing) warn("links to missing positions removed from %d positions\n", n_missing);
 	bprint("Fixing book...%d done\n", i);
 }

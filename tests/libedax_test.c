@@ -170,6 +170,17 @@ int main(int argc, char **argv)
 	int i, n, sym;
 
 	setvbuf(stdout, NULL, _IONBF, 0);
+
+	// speed test: libedax_test <dll> bench <n problems> <n tasks> (as "edax -bench <n> -n <n tasks>")
+	if (argc > 4 && strcmp(argv[2], "bench") == 0) {
+		char *bench_args[] = {"", "-n-tasks", argv[4], "-book-file", "libtest-bench-book.dat"};
+		libedax_initialize(5, bench_args);
+		memset(&bench, 0, sizeof bench);
+		edax_bench(&bench.result, atoi(argv[3]));
+		printf("bench: %d positions, %llu nodes, %llu ms\n", bench.result.positions, bench.result.n_nodes, bench.result.T);
+		return 0;
+	}
+
 	deviate2 = optional(dll, "edax_book_deviate2");
 	deviate3 = optional(dll, "edax_book_deviate3");
 	original = !(deviate2 && deviate3);
