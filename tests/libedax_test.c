@@ -185,6 +185,14 @@ int main(int argc, char **argv)
 	deviate3 = optional(dll, "edax_book_deviate3");
 	original = !(deviate2 && deviate3);
 	printf("%s: %s\n", dll, original ? "original libedax" : "libedax of Edax 4.5.5");
+	if (!original) {
+		int (*cpu_level)(void) = (int (*)(void)) optional(dll, "libedax_cpu_level");
+		CHECK(cpu_level != NULL);
+		if (cpu_level) {
+			printf("cpu level: %d\n", cpu_level());
+			CHECK(cpu_level() >= 0 && cpu_level() <= 4);
+		}
+	}
 
 	section("layout of the structures");
 	CHECK_INT(sizeof (LibedaxBoard), 16);

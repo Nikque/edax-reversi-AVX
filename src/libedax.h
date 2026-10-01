@@ -271,6 +271,7 @@ LIBEDAX_API int edax_board_get_square_color(const LibedaxBoard*, const int);
  */
 LIBEDAX_API void edax_book_deviate2(int, int);
 LIBEDAX_API void edax_book_deviate3(int, int);
+LIBEDAX_API int libedax_cpu_level(void);
 
 /*
  * bit & board utilities (the original libedax exported them from Edax)

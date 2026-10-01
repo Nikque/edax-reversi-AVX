@@ -249,6 +249,16 @@ ifneq (,$(findstring x64,$(ARCH))$(findstring x32,$(ARCH)))
 	CFLAGS += -DHAS_CPU_64
 endif
 
+# library: the api functions must stay visible, and the code must be position independent
+LIB_CFLAGS = $(filter-out -fwhole-program -mdynamic-no-pic -fno-pie -no-pie,$(CFLAGS)) -DLIB_BUILD -fPIC -shared
+LIB_EXT = so
+ifeq ($(OS),windows)
+	LIB_EXT = dll
+endif
+ifeq ($(OS),osx)
+	LIB_EXT = dylib
+endif
+
 
 #SRC
 SRC= bit.c board.c move.c hash.c ybwc.c eval.c endgame.c midgame.c root.c search.c \
@@ -264,6 +274,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "   build*     Build optimized version"
+	@echo "   libbuild   Build the library (libedax)"
 	@echo "   pgo-build  Build PGO-optimized version"
 	@echo "   release    Cross compile for linux/windows/mac (from fedora only)"
 	@echo "   debug      Build debug version."
@@ -298,6 +309,13 @@ help:
 build:
 	@echo "building edax..."
 	$(CC) $(CFLAGS) $(LTOFLAG) all.c -s -o $(BIN)/$(EXE) $(LIBS)
+
+# Library (libedax): Edax as a shared library with the api of libedax.h, for the programs
+# written for libedax (libedax4dart, edax_runner). They load libedax.so (linux),
+# libedax.universal.dylib (osx) or libedax-x64.dll (windows): rename the built library.
+libbuild:
+	@echo "building libedax..."
+	$(CC) $(LIB_CFLAGS) $(LTOFLAG) all.c -s -o $(BIN)/libedax-$(ARCH).$(LIB_EXT) $(LIBS)
 
 source:
 	$(CC) $(CFLAGS) -S all.c

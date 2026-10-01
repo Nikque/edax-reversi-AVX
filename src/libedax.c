@@ -2285,14 +2285,102 @@ LIBEDAX_API int edax_board_get_square_color(const LibedaxBoard *board, const int
 }
 
 /*
+ * CPU
+ */
+#if defined(_M_X64) || defined(__x86_64__)
+	#if defined(_MSC_VER)
+		#include <intrin.h>
+		#include <immintrin.h>
+		static void lib_cpuid(const unsigned int leaf, unsigned int r[4])
+		{
+			int v[4];
+			__cpuidex(v, (int) leaf, 0);
+			r[0] = (unsigned int) v[0]; r[1] = (unsigned int) v[1]; r[2] = (unsigned int) v[2]; r[3] = (unsigned int) v[3];
+		}
+		static unsigned long long lib_xgetbv(void) { return _xgetbv(0); }
+	#else
+		#include <cpuid.h>
+		static void lib_cpuid(const unsigned int leaf, unsigned int r[4])
+		{
+			__cpuid_count(leaf, 0, r[0], r[1], r[2], r[3]);
+		}
+		static unsigned long long lib_xgetbv(void)
+		{
+			unsigned int a, d;
+			__asm__ ("xgetbv" : "=a" (a), "=d" (d) : "c" (0));
+			return ((unsigned long long) d << 32) | a;
+		}
+	#endif
+#endif
+
+/**
+ * @brief Level of the CPU, to choose the library built for it.
+ *
+ * The library is built for several levels of x86-64 CPUs (see the makefiles): a program can
+ * load the generic one, which runs on any of them, ask this level, and load the fastest
+ * library that the CPU can run. (This function only uses instructions of any x86-64 CPU.)
+ *
+ * @return 4: x86-64-v4 (AVX-512), 3: x86-64-v3 (AVX2), 2: x86-64-v2 (POPCNT), 1: x86-64,
+ *         0: not an x86-64 CPU.
+ */
+LIBEDAX_API int libedax_cpu_level(void)
+{
+#if defined(_M_X64) || defined(__x86_64__)
+	const unsigned int v2 = (1u << 0) | (1u << 9) | (1u << 13) | (1u << 19) | (1u << 20) | (1u << 23); // SSE3 SSSE3 CX16 SSE4.1 SSE4.2 POPCNT
+	const unsigned int v3 = (1u << 12) | (1u << 22) | (1u << 27) | (1u << 28) | (1u << 29); // FMA MOVBE OSXSAVE AVX F16C
+	const unsigned int v3_7 = (1u << 3) | (1u << 5) | (1u << 8); // BMI1 AVX2 BMI2
+	const unsigned int v4_7 = (1u << 16) | (1u << 17) | (1u << 28) | (1u << 30) | (1u << 31); // AVX512 F DQ CD BW VL
+	unsigned int r[4], max_leaf, ecx_1, ebx_7;
+	unsigned long long xcr0;
+
+	lib_cpuid(0, r);
+	max_leaf = r[0];
+	if (max_leaf < 7) return 1;
+	lib_cpuid(1, r);
+	ecx_1 = r[2];
+	if ((ecx_1 & v2) != v2) return 1;
+	if ((ecx_1 & v3) != v3) return 2;
+	lib_cpuid(7, r);
+	ebx_7 = r[1];
+	lib_cpuid(0x80000001u, r);
+	xcr0 = lib_xgetbv();
+	if ((ebx_7 & v3_7) != v3_7 || !(r[2] & (1u << 5)) || (xcr0 & 0x6) != 0x6) return 2; // LZCNT; the OS saves the ymm registers
+	if ((ebx_7 & v4_7) != v4_7 || (xcr0 & 0xe6) != 0xe6) return 3; // the OS saves the zmm registers
+	return 4;
+#else
+	return 0;
+#endif
+}
+
+/*
  * Bit & board utilities.
  *
  * The original libedax exported bit_count, first_bit, last_bit, get_moves and can_move from
  * Edax. Here most of them are macros or inlined functions, so they are exported from the
- * functions below, under their original names.
+ * functions below, under their original names. The bit functions do not use the tables of
+ * Edax: as with the original libedax, they can be called before the initialization.
  */
 #define LIB_STRING_(x) #x
 #define LIB_STRING(x) LIB_STRING_(x)
+
+static int lib_bit_count(unsigned long long b)
+{
+	b = b - ((b >> 1) & 0x5555555555555555ULL);
+	b = (b & 0x3333333333333333ULL) + ((b >> 2) & 0x3333333333333333ULL);
+	b = (b + (b >> 4)) & 0x0f0f0f0f0f0f0f0fULL;
+	return (int) ((b * 0x0101010101010101ULL) >> 56);
+}
+
+static int lib_first_bit(unsigned long long b)
+{
+	return lib_bit_count((b & (~b + 1)) - 1);
+}
+
+static int lib_last_bit(unsigned long long b)
+{
+	b |= b >> 1; b |= b >> 2; b |= b >> 4; b |= b >> 8; b |= b >> 16; b |= b >> 32;
+	return lib_bit_count(b) - 1;
+}
 
 #if defined(_MSC_VER)
 
@@ -2303,9 +2391,9 @@ LIBEDAX_API int edax_board_get_square_color(const LibedaxBoard *board, const int
 	#endif
 	#define LIB_UTILITY(type, name, args) LIB_EXPORT(name) type libedax_##name args
 
-	LIB_UTILITY(int, bit_count, (unsigned long long b)) { return bit_count(b); }
-	LIB_UTILITY(int, first_bit, (unsigned long long b)) { return first_bit(b); }
-	LIB_UTILITY(int, last_bit, (unsigned long long b)) { return last_bit(b); }
+	LIB_UTILITY(int, bit_count, (unsigned long long b)) { return lib_bit_count(b); }
+	LIB_UTILITY(int, first_bit, (unsigned long long b)) { return lib_first_bit(b); }
+	LIB_UTILITY(int, last_bit, (unsigned long long b)) { return lib_last_bit(b); }
 	LIB_UTILITY(unsigned long long, get_moves, (const unsigned long long P, const unsigned long long O)) { return get_moves(P, O); }
 	LIB_UTILITY(bool, can_move, (const unsigned long long P, const unsigned long long O)) { return can_move(P, O); }
 
@@ -2316,10 +2404,10 @@ LIBEDAX_API int edax_board_get_square_color(const LibedaxBoard *board, const int
 		LIBEDAX_API type libedax_##name args __asm__(LIB_STRING(__USER_LABEL_PREFIX__) #name); \
 		type libedax_##name args
 
-	LIB_UTILITY(int, bit_count, (unsigned long long b)) { return bit_count(b); }	// a macro or an inlined function
+	LIB_UTILITY(int, bit_count, (unsigned long long b)) { return lib_bit_count(b); }	// (a macro or an inlined function in Edax)
 	#ifdef first_bit
-	LIB_UTILITY(int, first_bit, (unsigned long long b)) { return first_bit(b); }
-	LIB_UTILITY(int, last_bit, (unsigned long long b)) { return last_bit(b); }
+	LIB_UTILITY(int, first_bit, (unsigned long long b)) { return lib_first_bit(b); }
+	LIB_UTILITY(int, last_bit, (unsigned long long b)) { return lib_last_bit(b); }
 	#endif
 	#ifdef get_moves
 	LIB_UTILITY(unsigned long long, get_moves, (const unsigned long long P, const unsigned long long O)) { return get_moves(P, O); }

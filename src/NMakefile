@@ -162,6 +162,29 @@ icc-pgo-x64-v3:
 	cd ..\src
 	icl $(VC_FLAGS) /GL /arch:AVX2 /D POPCOUNT /Qprof-use /Qip all.c ws2_32.lib /Fe..\bin\wEdax-x86-64-v3.exe /link /VERSION:4.5
 
+# Library (libedax): Edax as a dll with the api of src\libedax.h, for the programs written for
+# libedax (libedax4dart, edax_runner). These programs load libedax-x64.dll; edax_runner loads
+# libedax-x64-v3.dll or libedax-x64-v4.dll instead when the CPU supports it (libedax_cpu_level).
+# No profile-guided build: it was measured to bring nothing here.
+VC_LIB_FLAGS = $(VC_FLAGS) /GL /D HAS_CPU_64 /D LIB_BUILD /LD
+
+vc-lib-x64-v4:
+	if not exist ..\bin mkdir ..\bin
+	cl $(VC_LIB_FLAGS) /arch:AVX512 /vlen=256 /D POPCOUNT all.c ws2_32.lib /Fe..\bin\libedax-x64-v4.dll /link /VERSION:4.5 /IMPLIB:libedax-x64-v4.lib
+	del libedax-x64-v4.lib libedax-x64-v4.exp
+
+vc-lib-x64-v3:
+	if not exist ..\bin mkdir ..\bin
+	cl $(VC_LIB_FLAGS) /arch:AVX2 /D POPCOUNT all.c ws2_32.lib /Fe..\bin\libedax-x64-v3.dll /link /VERSION:4.5 /IMPLIB:libedax-x64-v3.lib
+	del libedax-x64-v3.lib libedax-x64-v3.exp
+
+vc-lib-x64:
+	if not exist ..\bin mkdir ..\bin
+	cl $(VC_LIB_FLAGS) all.c ws2_32.lib /Fe..\bin\libedax-x64.dll /link /VERSION:4.5 /IMPLIB:libedax-x64.lib
+	del libedax-x64.lib libedax-x64.exp
+
+vc-lib: vc-lib-x64 vc-lib-x64-v3 vc-lib-x64-v4
+
 clean:
 	del -f pgopti* *.dyn all.gc* *~ *.p* *.obj
 
