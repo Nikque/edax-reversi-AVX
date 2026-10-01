@@ -1035,6 +1035,32 @@ static void play_store_boards(Book *book, const Board *initial_board, Move *game
 	else book_add_board(book, &board);
 }
 
+/**
+ * @brief Boards of a game, in the order play_store_boards() adds them to the book.
+ *
+ * @param initial_board Initial board of the game.
+ * @param game Moves of the game.
+ * @param n_game Number of moves (80 at most).
+ * @param list Boards (out parameter: n_game + 1 boards at most).
+ * @return number of boards.
+ */
+static int play_store_board_list(const Board *initial_board, Move *game, const int n_game, Board *list)
+{
+	Board board;
+	int i, n = 0;
+
+	board = *initial_board;
+	for (i = 0; i < n_game && board_check_move(&board, game + i); ++i) {
+		board_update(&board, game + i);
+	}
+	for (--i; i >= 0; --i) {
+		list[n++] = board;
+		board_restore(&board, game + i);
+	}
+	list[n++] = board;
+	return n;
+}
+
 /** a game to play and to learn (see play_learn_games) */
 typedef struct LearnGame {
 	const char *moves;         /**< first moves of the game */
@@ -1048,6 +1074,7 @@ typedef struct LearnGame {
 typedef struct LearnShared {
 	Book *book;
 	LearnGame *game;
+	Board initial_board;
 	int n, next, n_done;
 	Lock lock;                 /**< guards next and n_done */
 } LearnShared;
@@ -1056,6 +1083,7 @@ typedef struct LearnShared {
 typedef struct LearnLane {
 	LearnShared *shared;
 	Search *search;
+	Search *job_search;        /**< search with one thread, for the positions of the played games */
 	Random random;             /**< to choose among the book moves */
 	Thread thread;
 	bool progress;             /**< this one shows the progress */
@@ -1113,8 +1141,15 @@ static void* learn_lane_run(void *v)
 
 		lock(s);
 		i = s->next < s->n ? s->next++ : -1;
+		n_done = s->n_done;
 		unlock(s);
-		if (i < 0) break;
+		if (i < 0) {
+			// no game left to play: search the positions of the played games, until every game is played
+			if (book_early_search(lane->job_search)) continue;
+			if (n_done == s->n) break;
+			relax(1);
+			continue;
+		}
 
 		g = s->game + i;
 		player = learn_game_start(g, &board);
@@ -1143,6 +1178,11 @@ static void* learn_lane_run(void *v)
 			board_update(&board, &move);
 			g->game[g->n_game++] = move;
 			player ^= 1;
+		}
+
+		if (g->legal) { // the positions of this game can be searched from now on
+			Board list[81];
+			book_early_boards(list, play_store_board_list(&s->initial_board, g->game, g->n_game, list));
 		}
 
 		lock(s);
@@ -1236,10 +1276,11 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 		LearnLane *lane = (LearnLane*) calloc(n_lanes, sizeof *lane);
 		const int n_tasks = MAX(1, book_store_thread_count() / n_lanes);
 		Search **search = book_store_searches(book, n_lanes, n_tasks);
+		Search **job_search = book_store_searches(book, n_lanes, 1);
 		LearnShared shared;
 		Board initial_board;
 
-		if (game == NULL || buffer == NULL || lane == NULL || search == NULL) {
+		if (game == NULL || buffer == NULL || lane == NULL || search == NULL || job_search == NULL) {
 			error("cannot allocate the games to learn");
 			free(game); free(buffer); free(lane);
 			if (status) for (i = 0; i < n; ++i) status[i] = 1;
@@ -1254,10 +1295,13 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			game[i].randomness = randomness ? randomness[i] : book_randomness;
 		}
 		shared.book = book; shared.game = game; shared.n = n; shared.next = shared.n_done = 0;
+		board_init(&shared.initial_board);
 		lock_init(&shared);
+		book_early_begin(book, n);
 		for (i = 0; i < n_lanes; ++i) {
 			lane[i].shared = &shared;
 			lane[i].search = search[i];
+			lane[i].job_search = job_search[i];
 			lane[i].progress = (i == 0);
 			random_seed(&lane[i].random, random_get(&book->random));
 		}
@@ -1276,6 +1320,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			for (i = 0; i < n; ++i) if (game[i].legal) play_store_boards(book, &initial_board, game[i].game, game[i].n_game, true);
 			book_plan_search(book);
 		}
+		book_early_end();
 		for (i = 0; i < n; ++i) {
 			if (game[i].legal) {
 				play_store_boards(book, &initial_board, game[i].game, game[i].n_game, false);
