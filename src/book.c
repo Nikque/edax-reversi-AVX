@@ -206,9 +206,10 @@ static int get_book_depth(const int depth)
  * Note: All positions should always be OK! A wrong position means a BUG!
  *
  * @param position Position.
+ * @param verbose Explain what is wrong (false: only check; used by the threads of book_fix).
  * @return true if ok, false if it needs fixing.
  */
-static bool position_is_ok(const Position *position)
+static bool position_check(const Position *position, const bool verbose)
 {
 	Board board;
 	Move move;
@@ -218,21 +219,21 @@ static bool position_is_ok(const Position *position)
 
 	// board is legal ?
 	if (position->board.player & position->board.opponent) {
-		warn("Board is illegal: Two discs on the same square?\n");
-		board_print(&position->board, BLACK, stderr);
+		if (verbose) warn("Board is illegal: Two discs on the same square?\n");
+		if (verbose) board_print(&position->board, BLACK, stderr);
 		return false;
 	}
 	if (((position->board.player | position->board.opponent) & 0x0000001818000000ULL) != 0x0000001818000000ULL) {
-		warn("Board is illegal: Empty center?\n");
-		board_print(&position->board, BLACK, stderr);
+		if (verbose) warn("Board is illegal: Empty center?\n");
+		if (verbose) board_print(&position->board, BLACK, stderr);
 		return false;
 	}
 
 	// is board unique
 	board_unique(&position->board, &board);
 	if (!board_equal(&position->board, &board)) {
-		warn("board is not unique\n");
-		position_print(position, &position->board, stdout);
+		if (verbose) warn("board is not unique\n");
+		if (verbose) position_print(position, &position->board, stdout);
 		return false;
 	}
 
@@ -242,16 +243,16 @@ static bool position_is_ok(const Position *position)
 			if (position->n_link > 1
 			 || can_move(board.player, board.opponent)
 			 || !can_move(board.opponent, board.player)) {
-				warn("passing move is wrong\n");
-				position_print(position, &position->board, stdout);
+				if (verbose) warn("passing move is wrong\n");
+				if (verbose) position_print(position, &position->board, stdout);
 				return false;
 			}
 		} else {
 			if (/*l->move < A1 ||*/ l->move > H8
 			 || board_is_occupied(&board, l->move)
 			 || board_get_move_flip(&board, l->move, &move) == 0) {
-				warn("link %s is wrong\n", move_to_string(l->move, WHITE, s));
-				position_print(position, &position->board, stdout);
+				if (verbose) warn("link %s is wrong\n", move_to_string(l->move, WHITE, s));
+				if (verbose) position_print(position, &position->board, stdout);
 				return false;
 			}
 		}
@@ -262,21 +263,21 @@ static bool position_is_ok(const Position *position)
 		if (position->n_link > 0
 		 || can_move(board.player, board.opponent)
 		 || !can_move(board.opponent, board.player)) {
-			warn("passing move is wrong\n");
-			position_print(position, &position->board, stdout);
+			if (verbose) warn("passing move is wrong\n");
+			if (verbose) position_print(position, &position->board, stdout);
 			return false;
 		}
 	} else if (l->move == NOMOVE) {
 		if (get_mobility(position->board.player, position->board.opponent) != position->n_link && !(position->n_link == 1 && position_links(position)[0].move == PASS)) {
-			warn("nomove is wrong\n");
-			position_print(position, &position->board, stdout);
+			if (verbose) warn("nomove is wrong\n");
+			if (verbose) position_print(position, &position->board, stdout);
 			return false;
 		}
 	} else if (/*l->move < A1 ||*/ l->move > H8
 		 || board_is_occupied(&board, l->move)
 		 || board_get_move_flip(&board, l->move, &move) == 0) {
-			warn("leaf %s is wrong\n", move_to_string(l->move, WHITE, s));
-			position_print(position, &position->board, stdout);
+			if (verbose) warn("leaf %s is wrong\n", move_to_string(l->move, WHITE, s));
+			if (verbose) position_print(position, &position->board, stdout);
 			return false;
 	}
 
@@ -285,18 +286,24 @@ static bool position_is_ok(const Position *position)
 	for (i = 0; i < position->n_link; ++i) {
 		for (j = i + 1; j < position->n_link; ++j) {
 			if (l[j].move == l[i].move) {
-				warn("doublon found in links\n");
-				position_print(position, &position->board, stdout);
+				if (verbose) warn("doublon found in links\n");
+				if (verbose) position_print(position, &position->board, stdout);
 				return false;
 			}
 		}
 		if (position->leaf.move == l[i].move) {
-			warn("doublon found in links/leaf\n");
-			position_print(position, &position->board, stdout);
+			if (verbose) warn("doublon found in links/leaf\n");
+			if (verbose) position_print(position, &position->board, stdout);
 			return false;
 		}
 	}
 	return true;
+}
+
+/** @brief Check if position is ok or need fixing, and explain what is wrong. */
+static bool position_is_ok(const Position *position)
+{
+	return position_check(position, true);
 }
 
 /**
@@ -2451,9 +2458,19 @@ void book_merge(Book *dest, const Book *src)
  * Each task gets a contiguous range of buckets; tasks only read the book
  * structure (no position is added or removed while they run).
  */
+#ifndef BOOK_TEST_TASKS
+#define book_n_task() options.n_task
+#else
+#define book_n_task() BOOK_TEST_TASKS /* test builds: threads of the book functions, whatever the search uses */
+#endif
+
+struct ChangedSet;
+
 typedef struct BookTask {
 	Book *book;
 	int first, last;           /**< bucket range [first, last) */
+	bool exact;                /**< book_link: also refresh the scores of the existing links */
+	const struct ChangedSet *changed; /**< book_link: positions whose score changed while linking */
 	unsigned long long *item;  /**< collected (bucket << 32 | index << 8 | move) items, in bucket order */
 	long long n, size;
 	bool oom;
@@ -2497,15 +2514,17 @@ static bool book_progress_due(long long *next)
  * With a progress label, all the ranges run in worker threads and this thread prints
  * "<label>...<positions scanned>/<positions> positions checked" once per second.
  *
+ * @param exact, changed Given to every task (see book_link_tasks; false and NULL otherwise).
  * @return number of tasks (task[0..n-1] hold the results, in bucket order).
  */
-static int book_parallel(Book *book, void (*run)(BookTask*), BookTask *task, const char *progress)
+static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task, const char *progress, const bool exact, const struct ChangedSet *changed)
 {
-	int i, n = options.n_task;
+	int i, n = book_n_task();
 	if (n > MAX_THREADS) n = MAX_THREADS;
 	if (n < 1) n = 1;
 	for (i = 0; i < n; ++i) {
 		task[i].book = book;
+		task[i].exact = exact; task[i].changed = changed;
 		task[i].first = (int) ((long long) book->n * i / n);
 		task[i].last = (int) ((long long) book->n * (i + 1) / n);
 		task[i].item = NULL; task[i].n = task[i].size = 0; task[i].oom = false;
@@ -2515,10 +2534,11 @@ static int book_parallel(Book *book, void (*run)(BookTask*), BookTask *task, con
 	if (progress && book_verbose) {
 		long long next = real_clock() + 1000;
 		bool finished = false;
+		int n_wait = 0;
 		for (i = 0; i < n; ++i) thread_create(&task[i].thread, book_task_main, task + i);
 		while (!finished) {
 			long long done = 0;
-			relax(50);
+			relax(++n_wait <= 20 ? 1 : 50); // the scan of a small book is over at once
 			finished = true;
 			for (i = 0; i < n; ++i) { done += task[i].done; if (!task[i].finished) finished = false; }
 			if (!finished && book_progress_due(&next)) bprint("%s...%lld/%u positions checked\r", progress, done, book->n_nodes);
@@ -2530,6 +2550,11 @@ static int book_parallel(Book *book, void (*run)(BookTask*), BookTask *task, con
 		for (i = 1; i < n; ++i) thread_join(task[i].thread);
 	}
 	return n;
+}
+
+static int book_parallel(Book *book, void (*run)(BookTask*), BookTask *task, const char *progress)
+{
+	return book_parallel_with(book, run, task, progress, false, NULL);
 }
 
 static void book_tasks_free(BookTask *task, const int n)
@@ -2551,7 +2576,102 @@ static bool position_has_link(const Position *position, const int x)
 	return false;
 }
 
-/** Phase 1 of book_link: find the missing links (read only). */
+/*
+ * Positions whose score changed while book_link added links (book_link with threads).
+ *
+ * The one by one book_link() gives to a link the score that its position has at that time:
+ * a position linked after one of these gets its new score, a position linked before it keeps
+ * the old one. The threads of the first phase read the old scores, so the links to these
+ * positions from the positions that come after them are set again in a last phase.
+ */
+typedef struct ChangedSet {
+	unsigned long long *list;  /**< bucket << 32 | index of the positions, in book order */
+	long long n;
+	unsigned long long *code;  /**< hash table: hash code of the board | 1 (0: free slot); NULL: not available */
+	unsigned long long *key;   /**< hash table: bucket << 32 | index */
+	unsigned long long mask;
+} ChangedSet;
+
+#define changed_set_slot(set, c) (((c) >> 24) & (set)->mask) /* the low bits of the code choose the bucket of the book */
+
+/** Build the hash table of the set (if it cannot be allocated, the list is searched instead). */
+static void changed_set_index(ChangedSet *set, const Book *book)
+{
+	unsigned long long size = 1024, j;
+	long long i;
+
+	while (size < (unsigned long long) set->n * 2) size <<= 1;
+	set->code = (unsigned long long*) calloc(size, sizeof *set->code);
+	set->key = (unsigned long long*) malloc(size * sizeof *set->key);
+	if (set->code == NULL || set->key == NULL) {
+		free(set->code); free(set->key);
+		set->code = set->key = NULL;
+		return;
+	}
+	set->mask = size - 1;
+	for (i = 0; i < set->n; ++i) {
+		const Position *p = book->array[set->list[i] >> 32].positions + (int) (set->list[i] & 0xffffffffu);
+		const unsigned long long code = board_get_hash_code(&p->board) | 1;
+		for (j = changed_set_slot(set, code); set->code[j]; j = (j + 1) & set->mask) ;
+		set->code[j] = code; set->key[j] = set->list[i];
+	}
+}
+
+static void changed_set_free(ChangedSet *set)
+{
+	free(set->code); free(set->key); free(set->list);
+}
+
+/** Last phase of book_link: set again the links to the positions whose score changed before their parent was linked. */
+static void book_link_refresh(BookTask *task)
+{
+	Book *book = task->book;
+	const ChangedSet *set = task->changed;
+	int b, k;
+	Board next, unique;
+	Link *l;
+
+	for (b = task->first; b < task->last; ++b) {
+		const PositionArray *a = book->array + b;
+		for (k = 0; k < a->n; ++k) {
+			Position *p = a->positions + k;
+			const unsigned long long key = ((unsigned long long) b << 32) | (unsigned long long) k;
+			foreach_link(l, p) {
+				board_next(&p->board, l->move, &next);
+				board_unique(&next, &unique);
+				if (set->code) {
+					const unsigned long long code = board_get_hash_code(&unique) | 1;
+					unsigned long long j;
+					for (j = changed_set_slot(set, code); set->code[j]; j = (j + 1) & set->mask) {
+						if (set->code[j] == code && set->key[j] < key) {
+							const Position *child = book->array[set->key[j] >> 32].positions + (int) (set->key[j] & 0xffffffffu);
+							if (board_equal(&child->board, &unique)) { l->score = -child->score.value; break; }
+						}
+					}
+				} else { // no hash table: look for the position in the book, then in the list
+					const unsigned long long i = board_get_hash_code(&unique) & (book->n - 1);
+					const Position *child = position_array_probe(book->array + i, &unique);
+					if (child) {
+						const unsigned long long child_key = (i << 32) | (unsigned long long) (child - book->array[i].positions);
+						long long lo = 0, hi = set->n - 1;
+						while (child_key < key && lo <= hi) {
+							const long long mid = (lo + hi) / 2;
+							if (set->list[mid] == child_key) { l->score = -child->score.value; break; }
+							if (set->list[mid] < child_key) lo = mid + 1; else hi = mid - 1;
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+/**
+ * Phase 1 of book_link: find the missing links.
+ * Read only, except the exact variant: as position_link() does, it gives to the existing links the
+ * score of their position (only this thread writes to the links of a position, and no thread reads
+ * the links of another position).
+ */
 static void book_link_find(BookTask *task)
 {
 	Book *book = task->book;
@@ -2561,10 +2681,33 @@ static void book_link_find(BookTask *task)
 	for (b = task->first; b < task->last; ++b) {
 		const PositionArray *a = book->array + b;
 		for (k = 0; k < a->n; ++k) {
-			const Position *p = a->positions + k;
+			Position *p = a->positions + k;
 			unsigned long long moves = board_get_moves(&p->board);
 			bool found = false;
-			if (moves) {
+			if (task->exact) {
+				const Position *child;
+				Link *l;
+				if (moves) {
+					foreach_bit(x, moves) {
+						board_next(&p->board, x, &next);
+						child = book_probe(book, &next);
+						if (child) {
+							foreach_link(l, p) if (l->move == x) break;
+							if (l < position_links(p) + p->n_link) l->score = -child->score.value;
+							else { book_task_push(task, TASK_ITEM(b, k, x)); found = true; }
+						}
+					}
+				} else if (can_move(p->board.opponent, p->board.player)) {
+					next.player = p->board.opponent;
+					next.opponent = p->board.player;
+					child = book_probe(book, &next);
+					if (child) {
+						foreach_link(l, p) if (l->move == PASS) break;
+						if (l < position_links(p) + p->n_link) l->score = -child->score.value;
+						else { book_task_push(task, TASK_ITEM(b, k, PASS)); found = true; }
+					}
+				}
+			} else if (moves) {
 				foreach_bit(x, moves) {
 					if (!position_has_link(p, x)) {
 						board_next(&p->board, x, &next);
@@ -2636,24 +2779,42 @@ static const MergeHint* merge_hint_find(const unsigned long long key)
 	return NULL;
 }
 
+static void book_link_one_by_one(Book*);
+
 /**
  * @brief Link a book using several threads.
  *
- * Same links and leaf searches as book_link(), in the same order. The only
- * difference: scores of links that already existed are not refreshed here
- * (book_negamax() recomputes them for every position reachable from the root).
+ * Same links and leaf searches as the one by one book_link(), in the same order.
+ * - exact (book_link): the book is the same as with the one by one book_link().
+ * - not exact (book merge, as from v4.5.5-nikque.3 to 6): scores of links that already existed are not
+ *   refreshed here (book_negamax() recomputes them for every position reachable from the root).
+ *
+ * @param book Opening book.
+ * @param exact Same result as the one by one book_link().
  */
-void book_link_parallel(Book *book)
+static void book_link_tasks(Book *book, const bool exact)
 {
 	BookTask task[MAX_THREADS];
-	int i, n;
+	ChangedSet changed = {0};
+	int i, n, value = 0;
 	long long j, n_items = 0, i_item = 0, next = real_clock() + 1000;
+	bool first = true, oom = false;
 
 	bprint("Linking book...\r");
-	n = book_parallel(book, book_link_find, task, "Linking book");
-	for (i = 0; i < n; ++i) if (task[i].oom) { book_tasks_free(task, n); error("cannot allocate link list; using sequential link\n"); book_link(book); return; }
+	n = book_parallel_with(book, book_link_find, task, "Linking book", exact, NULL);
+	for (i = 0; i < n; ++i) { n_items += task[i].n; oom = oom || task[i].oom; }
+	if (exact && !oom) {
+		changed.list = (unsigned long long*) malloc((n_items + 1) * sizeof *changed.list); // enough for every position of the items
+		oom = (changed.list == NULL);
+	}
+	if (oom) {
+		// nothing was done yet, but the scores of some existing links (exact), that the one by one link sets again
+		book_tasks_free(task, n);
+		error("cannot allocate link list; using sequential link\n");
+		book_link_one_by_one(book);
+		return;
+	}
 
-	for (i = 0; i < n; ++i) n_items += task[i].n;
 	for (i = 0; i < n; ++i) {
 		for (j = 0; j < task[i].n; ++j) {
 			if ((++i_item & 15) == 0 && book_progress_due(&next)) bprint("Linking book...%lld/%lld positions linked\r", i_item, n_items);
@@ -2661,6 +2822,8 @@ void book_link_parallel(Book *book)
 			Position *p = book->array[TASK_BUCKET(item)].positions + TASK_INDEX(item);
 			const int x = TASK_MOVE(item);
 			const bool last = (j + 1 == task[i].n || (task[i].item[j + 1] >> 8) != (item >> 8));
+			if (first) value = p->score.value; // score before the first item of this position
+			first = last;
 			if (x != TASK_NO_LINK) {
 				Board next;
 				Position *child;
@@ -2684,26 +2847,47 @@ void book_link_parallel(Book *book)
 					position_search(p, book);
 				}
 			}
+			if (last && exact && p->score.value != value) changed.list[changed.n++] = ((unsigned long long) TASK_BUCKET(item) << 32) | (unsigned long long) TASK_INDEX(item);
 		}
 	}
 	book_tasks_free(task, n);
 	merge_hint_free();
+	if (changed.n) {
+		changed_set_index(&changed, book);
+		book_tasks_free(task, book_parallel_with(book, book_link_refresh, task, NULL, true, &changed));
+	}
+	changed_set_free(&changed);
 	bprint("Linking book...%u done\n", book->n_nodes);
 }
 
-/** Phase 1 of book_fix: find wrong positions (read only). */
+/**
+ * @brief Link a book using several threads (book merge).
+ *
+ * @param book opening book.
+ */
+void book_link_parallel(Book *book)
+{
+	book_link_tasks(book, false);
+}
+
+/**
+ * Phase 1 of book_fix: find wrong positions (read only).
+ * exact (book_fix): only check; not exact (book merge): explain what is wrong with a position.
+ */
 static void book_fix_find(BookTask *task)
 {
 	int b, k;
 	for (b = task->first; b < task->last; ++b) {
 		const PositionArray *a = task->book->array + b;
 		for (k = 0; k < a->n; ++k) {
-			if (!position_is_ok(a->positions + k)) book_task_push(task, TASK_ITEM(b, k, 0));
+			if (!position_check(a->positions + k, !task->exact)) book_task_push(task, TASK_ITEM(b, k, 0));
 			else if (position_has_missing_link(a->positions + k, task->book)) book_task_push(task, TASK_ITEM(b, k, 1));
 		}
 		task->done += a->n;
 	}
 }
+
+static void book_fix_one_by_one(Book*, int, int, int*, int*);
 
 void book_fix_parallel(Book *book)
 {
@@ -2713,7 +2897,13 @@ void book_fix_parallel(Book *book)
 
 	bprint("Fixing book...\r");
 	n = book_parallel(book, book_fix_find, task, "Fixing book");
-	for (i = 0; i < n; ++i) if (task[i].oom) { book_tasks_free(task, n); book_fix(book); return; }
+	for (i = 0; i < n; ++i) if (task[i].oom) {
+		book_tasks_free(task, n);
+		book_fix_one_by_one(book, 0, 0, &n_fix, &n_missing);
+		if (n_missing) warn("links to missing positions removed from %d positions\n", n_missing);
+		bprint("Fixing book...%d done\n", n_fix);
+		return;
+	}
 	for (i = 0; i < n; ++i) n_items += task[i].n;
 	for (i = 0; i < n; ++i) for (j = 0; j < task[i].n; ++j) {
 		Position *p = book->array[TASK_BUCKET(task[i].item[j])].positions + TASK_INDEX(task[i].item[j]);
@@ -2869,6 +3059,18 @@ void book_negamax(Book *book)
  */
 void book_link(Book *book)
 {
+	// with several threads: the same book, found faster (the threads look for the missing links)
+	if (book_n_task() > 1) book_link_tasks(book, true);
+	else book_link_one_by_one(book);
+}
+
+/**
+ * @brief Link a book, a position after the other.
+ *
+ * @param book opening book.
+ */
+static void book_link_one_by_one(Book *book)
+{
 	PositionArray *a;
 	Position *p;
 	int i = 0;
@@ -2885,41 +3087,91 @@ void book_link(Book *book)
 }
 
 /**
+ * @brief Fix the positions of a book, a position after the other, from a position to the end.
+ *
+ * @param book opening book.
+ * @param b Bucket of the first position to check.
+ * @param k Index of the first position to check in its bucket.
+ * @param n_fix Number of fixed positions (updated).
+ * @param n_missing Number of positions with links to missing positions (updated).
+ */
+static void book_fix_one_by_one(Book *book, int b, int k, int *n_fix, int *n_missing)
+{
+	unsigned int n_checked = (unsigned int) k;
+	long long next = real_clock() + 1000;
+	bool progress = false;
+	int i;
+
+	for (i = 0; i < b; ++i) n_checked += (unsigned int) book->array[i].n;
+	for (; b < book->n; ++b, k = 0) {
+		PositionArray *a = book->array + b;
+		for (; k < a->n; ++k) {
+			Position *p = a->positions + k;
+			// most positions need no fix: show the checked positions (once per second)
+			if ((++n_checked & 0xfff) == 0 && book_progress_due(&next)) {
+				bprint("Fixing book...%u/%u positions checked\r", n_checked, book->n_nodes);
+				progress = true;
+			}
+			if (!position_is_ok(p)) {
+				position_fix(p, book);
+				++*n_fix;
+			} else if (position_has_missing_link(p, book)) {
+				position_remove_links(p, book);
+				++*n_missing;
+				++*n_fix;
+			}
+		}
+	}
+	if (progress) clear_line();
+}
+
+/**
  * @brief Fix a book.
  *
  * Wrong positions are recomputed; links to positions missing from the book
  * are removed (their best score may become the leaf, as book prune does).
  *
+ * With several threads, the threads check the positions, then the positions found are fixed in
+ * the order of the book: the result is the same as with one thread. Removing links does not
+ * change what the next positions link to, but recomputing a wrong position can (its board
+ * changes): from the first wrong position, the positions are checked again, one after the other.
+ *
  * @param book opening book.
  */
 void book_fix(Book *book)
 {
-	PositionArray *a;
-	Position *p;
-	int i = 0, n_missing = 0;
-	unsigned int n_checked = 0;
-	long long next = real_clock() + 1000;
-	bool progress = false;
+	int n_fix = 0, n_missing = 0;
 
 	bprint("Fixing book...\r");
-	foreach_position(p, a, book) {
-		// most positions need no fix: show the checked positions (once per second)
-		if ((++n_checked & 0xfff) == 0 && book_progress_due(&next)) {
-			bprint("Fixing book...%u/%u positions checked\r", n_checked, book->n_nodes);
-			progress = true;
+	if (book_n_task() > 1) {
+		BookTask task[MAX_THREADS];
+		const int n = book_parallel_with(book, book_fix_find, task, "Fixing book", true, NULL);
+		long long j;
+		int i;
+		bool oom = false;
+
+		for (i = 0; i < n; ++i) oom = oom || task[i].oom;
+		if (oom) {
+			book_fix_one_by_one(book, 0, 0, &n_fix, &n_missing);
+		} else {
+			if (book_verbose) clear_line();
+			for (i = 0; i < n; ++i) for (j = 0; j < task[i].n; ++j) {
+				const unsigned long long item = task[i].item[j];
+				if (TASK_MOVE(item) == 0) {
+					book_fix_one_by_one(book, TASK_BUCKET(item), TASK_INDEX(item), &n_fix, &n_missing);
+					i = n; break;
+				}
+				position_remove_links(book->array[TASK_BUCKET(item)].positions + TASK_INDEX(item), book);
+				++n_missing;
+				++n_fix;
+			}
 		}
-		if (!position_is_ok(p)) {
-			position_fix(p, book);
-			++i;
-		} else if (position_has_missing_link(p, book)) {
-			position_remove_links(p, book);
-			++n_missing;
-			++i;
-		}
+		book_tasks_free(task, n);
+	} else {
+		book_fix_one_by_one(book, 0, 0, &n_fix, &n_missing);
 	}
-	if (progress) clear_line();
 	if (n_missing) warn("links to missing positions removed from %d positions\n", n_missing);
-	bprint("Fixing book...%d done\n", i);
+	bprint("Fixing book...%d done\n", n_fix);
 }
 
 /**
@@ -3304,6 +3556,10 @@ void book_sort(Book *book)
 	PositionArray *a;
 	Position *p;
 
+	if (book_n_task() > 1) { // each position is sorted on its own: the result is the same
+		book_sort_parallel(book);
+		return;
+	}
 	bprint("Sorting book...");
 	foreach_position(p, a, book) {
 		position_sort(p);
