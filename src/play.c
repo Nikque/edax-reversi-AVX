@@ -1004,7 +1004,7 @@ void play_store(Play *play)
 	if (play->book->stats.n_nodes + play->book->stats.n_links) {
 		book_link(play->book);
 		book_negamax(play->book);
-		book_save(play->book, file);
+		book_save_progress(play->book, file);
 	}
 }
 

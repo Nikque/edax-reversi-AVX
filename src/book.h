@@ -77,6 +77,7 @@ void book_new(Book*, int, int);
 bool book_load(Book*, const char*);
 void book_set_startup_depth(Book*);
 bool book_save(Book*, const char*);
+bool book_save_progress(Book*, const char*);
 void book_import(Book*, const char*);
 void book_export(Book*, const char*);
 void book_merge(Book*, const Book*);

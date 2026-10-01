@@ -2405,6 +2405,25 @@ bool book_save(Book *book, const char *file)
 }
 
 /**
+ * @brief Save the book being learned to a side file (.store, .dev, .enh, ...).
+ *
+ * Unlike a save asked by the user (book_save), the book file itself is not up to date:
+ * if the book needed saving, it still does (it is saved to the book file on exit).
+ *
+ * @param book Opening book.
+ * @param file File name.
+ * @return true if the book was saved.
+ */
+bool book_save_progress(Book *book, const char *file)
+{
+	const bool need_saving = book->need_saving;
+	const bool ok = book_save(book, file);
+
+	book->need_saving = need_saving;
+	return ok;
+}
+
+/**
  * @brief Merge two opening books.
  *
  * It is needed to relink & negamax the destination book
@@ -2916,7 +2935,7 @@ static void book_deviate_save_progress(Book *book, const char *file, const long 
 	if (*rounds_since_save > 0
 	 && (n_diffs == 0 || (options.book_deviate_save_rounds > 0
 	     && *rounds_since_save >= options.book_deviate_save_rounds))) {
-		if (book_save(book, file)) *rounds_since_save = 0;
+		if (book_save_progress(book, file)) *rounds_since_save = 0;
 	}
 }
 
@@ -2948,7 +2967,7 @@ void book_deepen(Book *book)
 				bprint("Deepening book...%d\r", i); 
 			}
 			if (book_save_interval_elapsed((long long)t)) {
-				book_save(book, file); // timed progress save
+				book_save_progress(book, file); // timed progress save
 				t = real_clock();
 			}
 		}
@@ -2994,7 +3013,7 @@ void book_correct_solved(Book *book)
 				bprint("Correcting solved positions...%d (%d error found)\r", i, n_error); 
 			}
 			if (book_save_interval_elapsed((long long)t)) {
-				book_save(book, file); // timed progress save
+				book_save_progress(book, file); // timed progress save
 				t = real_clock();
 			}
 		}
@@ -3099,7 +3118,7 @@ static void* book_expand_worker(void *v)
 		if (book->failed) s->stop = true; // a position could not be added: stop learning
 		bprint("%s...%d/%lld done: %lld positions, %lld links\r", s->action, ++s->n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
 		if (book_save_interval_elapsed((long long) s->t)) {
-			book_save(book, s->tmp_file); // timed progress save (the other threads wait for the lock)
+			book_save_progress(book, s->tmp_file); // timed progress save (the other threads wait for the lock)
 			s->t = real_clock();
 		}
 		unlock(s);
@@ -3258,7 +3277,7 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 			if (book->search->options.verbosity >= 2) putchar('\n'); else putchar('\r');
 			
 			if (book_save_interval_elapsed((long long)t)) {
-				book_save(book, tmp_file); // timed progress save
+				book_save_progress(book, tmp_file); // timed progress save
 				t = real_clock();
 			}
 		}
@@ -3318,7 +3337,7 @@ void book_play(Book *book)
 		n_diffs = book->stats.n_nodes + book->stats.n_links;
 		if (n_diffs) {
 			book_negamax(book);
-			book_save(book, file);
+			book_save_progress(book, file);
 		}
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	bprint("Book play... finished\n");
@@ -3360,7 +3379,7 @@ void book_fill(Book *book, const int depth)
 		bprint("Book fill...%lld %lld done\n", book->stats.n_nodes, book->stats.n_links);
 		if (n_diffs) {
 			book_negamax(book);
-			book_save(book, file);
+			book_save_progress(book, file);
 		}
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	bprint("Book fill... finished\n");
@@ -3917,7 +3936,7 @@ void book_enhance(Book *book, Board *board, const int midgame_error, const int e
 			root = book_probe(book, board);
 			book_clean(book);
 			position_negamax(root, book);
-			if (n_diffs) book_save(book, file);
+			if (n_diffs) book_save_progress(book, file);
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book enhance %d %d...finished\n", midgame_error, endcut_error);
 	}
@@ -4168,7 +4187,7 @@ void book_add_game(Book *book, const Game *game)
 		board_restore(&board, stack + n_moves);
 	}
 
-	if (book->stats.n_nodes + book->stats.n_links > n_stats && book_get_age(book) > 3600) book_save(book, file);
+	if (book->stats.n_nodes + book->stats.n_links > n_stats && book_get_age(book) > 3600) book_save_progress(book, file);
 }
 
 /**
@@ -4201,7 +4220,7 @@ void book_add_base(Book *book, const Base *base)
 	bprint("Adding games...%d/%d done: %lld positions, %lld links\n", i, base->n_games, book->stats.n_nodes, book->stats.n_links);
 	bprint("%d games added to book\n", i);
 
-	book_save(book, file);
+	book_save_progress(book, file);
 }
 
 typedef struct BookCheckGame {
