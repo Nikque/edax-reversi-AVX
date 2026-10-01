@@ -31,6 +31,18 @@ BINARIES = (
     "bin/wEdax-x86-64-v4.exe",
 )
 
+# libedax (Edax as a library); the macOS library is not built yet
+LIBRARIES = (
+    "bin/libedax-arm64-v8a.so",
+    "bin/libedax-armeabi-v7a.so",
+    "bin/libedax-x86-64.so",
+    "bin/libedax-x86-64-v3.so",
+    "bin/libedax-x86-64-v4.so",
+    "bin/libedax-x64.dll",
+    "bin/libedax-x64-v3.dll",
+    "bin/libedax-x64-v4.dll",
+)
+
 OTHER_FILES = (
     "LICENSE",
     "README-NIKQUE.en.md",
@@ -60,12 +72,12 @@ def main() -> None:
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(output, "w") as archive:
-        for name in (*OTHER_FILES, *BINARIES):
+        for name in (*OTHER_FILES, *BINARIES, *LIBRARIES):
             path = ROOT / name
             data = path.read_bytes()
             info = ZipInfo(name, date_time=(2026, 9, 27, 0, 0, 0))
             info.create_system = 3
-            executable = name in BINARIES and not name.endswith(".exe")
+            executable = name in (*BINARIES, *LIBRARIES) and not name.endswith((".exe", ".dll"))
             info.external_attr = ((0o100755 if executable else 0o100644) << 16)
             info.compress_type = ZIP_DEFLATED
             archive.writestr(info, data, compress_type=ZIP_DEFLATED, compresslevel=9)
