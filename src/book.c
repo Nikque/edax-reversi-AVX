@@ -850,6 +850,29 @@ static void position_sort(Position *position)
  * @param position Position to search.
  * @param book Opening book.
  */
+#ifdef BOOK_TEST_NODES
+/* test builds: count the searches of the book functions and their nodes (printed after each negamax) */
+static long long book_test_nodes = 0, book_test_searches = 0, book_test_play_nodes = 0;
+void book_test_count_play(const unsigned long long n)
+{
+#if defined(_MSC_VER)
+	_InterlockedExchangeAdd64(&book_test_play_nodes, (long long) n);
+#else
+	__atomic_add_fetch(&book_test_play_nodes, (long long) n, __ATOMIC_RELAXED);
+#endif
+}
+static void book_test_count(const unsigned long long n)
+{
+#if defined(_MSC_VER)
+	_InterlockedExchangeAdd64(&book_test_nodes, (long long) n);
+	_InterlockedExchangeAdd64(&book_test_searches, 1);
+#else
+	__atomic_add_fetch(&book_test_nodes, (long long) n, __ATOMIC_RELAXED);
+	__atomic_add_fetch(&book_test_searches, 1, __ATOMIC_RELAXED);
+#endif
+}
+#endif
+
 static int position_search_with(Position *position, Search *search);
 static int position_search_planned(Position *position, Book *book);
 static struct BookPlan *book_plan = NULL; /**< searches done ahead of book_add_board() (book-store-tasks); NULL: none */
@@ -904,6 +927,9 @@ static int position_search_with(Position *position, Search *search)
 		search->options.time_per_move = true;
 
 		search_run(search);
+#ifdef BOOK_TEST_NODES
+		book_test_count(search_count_nodes(search)); // test builds: nodes of the book searches
+#endif
 
 		search->options.time = time;
 		search->options.time_per_move = time_per_move;
@@ -3074,6 +3100,10 @@ void book_negamax(Book *book)
 		book_negamax_position(root, book);
 		bprint("done\n");
 	}
+#ifdef BOOK_TEST_NODES
+	fprintf(stderr, "<play nodes: %lld>", book_test_play_nodes);
+	fprintf(stderr, "<book searches: %lld, nodes: %lld>\n", book_test_searches, book_test_nodes);
+#endif
 }
 
 /**
@@ -4490,28 +4520,42 @@ void book_store_release(void)
 
 /**
  * @brief Size of the hash tables of a search used to learn games.
+ *
+ * hash-table-size = n: this size. auto: the size for the threads of the search; and for a
+ * one-thread search, which starts with empty tables and is short at a low level, a smaller
+ * size: 19 bits (14 MB) up to level 18, 20 bits up to level 21. At level 18, the searches
+ * of 30 games visited 0.7% more nodes with 19 bits than with 21 bits (1.5% more with 18 bits).
+ *
+ * @param book Opening book.
  * @param n_tasks Threads of the search.
  * @return size (in number of bits).
  */
-static int book_store_hash_bits(const int n_tasks)
+static int book_store_hash_bits(const Book *book, const int n_tasks)
 {
+	const int level = MAX(book->options.level, options.level);
+	int bits;
+
 #ifdef BOOK_TEST_HASH_BITS
 	if (n_tasks == 1) return BOOK_TEST_HASH_BITS; // test builds: to choose the size
 #endif
-	return options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
+	if (!options.hash_table_auto) return options.hash_table_size;
+	bits = hash_table_size_auto(n_tasks);
+	if (n_tasks == 1 && level <= 21) bits = MIN(bits, level <= 18 ? 19 : 20);
+	return bits;
 }
 
 /**
  * @brief Get searches to play games at the same time (see play_learn_games).
  *
+ * @param book Opening book.
  * @param n Number of searches.
  * @param n_tasks Threads of each search.
  * @return the searches, NULL if they cannot be allocated.
  */
-Search** book_store_searches(const int n, const int n_tasks)
+Search** book_store_searches(const Book *book, const int n, const int n_tasks)
 {
 	// with one thread each, they are the searches of the positions
-	return store_pool_get(store_pool + (n_tasks > 1), n, n_tasks, book_store_hash_bits(n_tasks));
+	return store_pool_get(store_pool + (n_tasks > 1), n, n_tasks, book_store_hash_bits(book, n_tasks));
 }
 
 /**
@@ -4855,7 +4899,7 @@ void book_plan_search(Book *book)
 
 	if (plan == NULL || plan->failed || plan->n_job == 0) return;
 	n = MIN(book_store_thread_count(), plan->n_job);
-	search = store_pool_get(store_pool, n, 1, book_store_hash_bits(1));
+	search = store_pool_get(store_pool, n, 1, book_store_hash_bits(book, 1));
 	if (search == NULL) { error("cannot allocate the searches"); return; }
 
 	bprint("Searching positions...\r");
@@ -4869,7 +4913,6 @@ void book_plan_search(Book *book)
 	plan_worker_run(w);
 	for (i = 1; i < n; ++i) thread_join(w[i].thread);
 	bprint("Searching positions...%d done\n", plan->n_job);
-	(void) book;
 }
 
 /**

@@ -353,6 +353,10 @@ release:
 android:
 	ndk-build NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application.mk # NDK_DEBUG=1
 
+# Library (libedax) for Android: libs-lib/<abi>/libedax.so (arm64-v8a, armeabi-v7a)
+android-lib:
+	ndk-build NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib
+
 macuniversal:
 	$(MAKE) build ARCH=x86 OS=osx COMP=clang
 	$(MAKE) build ARCH=x64 OS=osx COMP=clang

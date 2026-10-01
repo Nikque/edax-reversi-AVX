@@ -1133,6 +1133,9 @@ static void* learn_lane_run(void *v)
 				else search_set_game_time(search, options.time);
 				search_time_init(search);
 				search_run(search);
+#ifdef BOOK_TEST_NODES
+				{ extern void book_test_count_play(const unsigned long long); book_test_count_play(search_count_nodes(search)); }
+#endif
 				if (!board_get_move_flip(&board, search->result->move, &move) && move.x != PASS) {
 					fatal_error("bad move found: %s\n", move_to_string(move.x, player, s_move));
 				}
@@ -1232,7 +1235,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 		char *buffer = (char*) malloc((size_t) n * 256);
 		LearnLane *lane = (LearnLane*) calloc(n_lanes, sizeof *lane);
 		const int n_tasks = MAX(1, book_store_thread_count() / n_lanes);
-		Search **search = book_store_searches(n_lanes, n_tasks);
+		Search **search = book_store_searches(book, n_lanes, n_tasks);
 		LearnShared shared;
 		Board initial_board;
 
