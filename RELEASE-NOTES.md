@@ -2,6 +2,22 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.7
+
+A library (libedax) and two book bug fixes. `eval.dat`, the book file format and the search results are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+
+libedax (Edax as a library for other programs):
+
+- The same 93 functions and the same data layout as libedax by lavox and sensuikan1973: programs written for libedax (libedax4dart, edax_runner, ...) work by replacing the library file.
+- `libedax-x64.dll` (any x86-64 CPU), `libedax-x64-v3.dll` (AVX2), `libedax-x64-v4.dll` (AVX-512); `libedax-x86-64.so`, ... on Linux. The macOS library is not built yet.
+- Settings are read from `edax.ini` and `config.ini` of the current folder, then from the arguments of the initialization.
+- New functions: `edax_book_deviate2`, `edax_book_deviate3`, `libedax_cpu_level`.
+- The edax program is not affected (an edax built from the sources with only libedax added is byte-identical to the one of v4.5.5-nikque.6). The library and the edax program search the same nodes at the same speed. Compared with the original libedax (Edax 4.4), a single-thread endgame search is 1.3 to 1.7 times faster, with about half the peak memory.
+
+Bug fixes:
+
+- When a learning command saved its progress to a side file (`.store`, `.dev`, ...), the book was marked as saved, so quitting without `book save` did not save `data/book.dat` (since v4.5.5-nikque.2). A progress save does not mark the book as saved anymore.
+- "Fixing book..." of `book fix` printed nothing until the end when no position needed a fix. The checked positions are now printed once per second. The book is unchanged.
 ## v4.5.5-nikque.6
 
 Startup settings, the limit on legal moves, and the progress display of book merge. `eval.dat`, the book file format and the search results with the same options are unchanged (single-thread search results and node counts checked against v4.5.5-nikque.5). See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.

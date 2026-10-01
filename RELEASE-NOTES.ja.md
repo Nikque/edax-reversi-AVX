@@ -2,6 +2,22 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-nikque.7
+
+ライブラリ版（libedax）の追加と、bookの不具合の修正2件。`eval.dat`、bookのファイル形式、探索結果は変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+
+libedax（Edaxをほかのプログラムから呼び出すライブラリ）：
+
+- lavox氏・sensuikan1973氏のlibedaxと同じ93個の関数と、同じデータの並びです。libedax用のプログラム（libedax4dart、edax_runner など）が、ライブラリのファイルを差し替えるだけで動きます。
+- `libedax-x64.dll`（x86-64 のどのCPUでも）、`libedax-x64-v3.dll`（AVX2）、`libedax-x64-v4.dll`（AVX-512）。Linux用は `libedax-x86-64.so` など。macOS用は未作成です。
+- 設定は、作業フォルダの `edax.ini`、`config.ini`、初期化の引数の順に読みます。
+- 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`、`libedax_cpu_level`。
+- edax 本体には影響しません（libedaxを追加しただけのソースからビルドした edax は、v4.5.5-nikque.6 のものとバイト単位で同じ）。ライブラリと edax 本体は、同じノード数・同じ速さです。元のlibedax（Edax 4.4）と比べて、1スレッドの終盤探索が 1.3〜1.7倍、最大メモリが約半分でした。
+
+不具合の修正：
+
+- 学習コマンドが途中経過を別のファイル（`.store`、`.dev` など）に保存すると「保存済み」の扱いになり、`book save` をせずに終了したときに `data/book.dat` へ保存されませんでした（v4.5.5-nikque.2 から）。途中経過の保存では「保存済み」にしないようにしました。
+- `book fix` の「Fixing book...」が、直す局面がないと終わるまで何も表示しませんでした。確認した局面数を1秒ごとに表示します。bookの内容は変わりません。
 ## v4.5.5-nikque.6
 
 起動時の設定、合法手の数の上限、book merge の途中経過の表示。`eval.dat`、bookのファイル形式、同じオプションでの探索結果は変わりません（1スレッドで、探索結果とノード数を v4.5.5-nikque.5 と比較）。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。

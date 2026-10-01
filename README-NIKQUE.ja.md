@@ -4,6 +4,51 @@
 
 この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS x64・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
 
+## v4.5.5-nikque.7 の変更点
+
+Edaxをほかのプログラムから呼び出せるライブラリ（libedax）を追加し、bookの不具合を2件直しました。評価データ `eval.dat`、bookのファイル形式、探索結果は変わりません。
+
+### libedax：Edaxをライブラリとして使う
+
+[lavox氏のlibedax](https://github.com/lavox/edax-reversi)（[sensuikan1973氏の版](https://github.com/sensuikan1973/edax-reversi)）と同じ93個の関数を、このEdaxで使えるようにしました。libedax用に書かれたプログラム（[libedax4dart](https://pub.dev/packages/libedax4dart)、[edax_runner](https://github.com/sensuikan1973/edax_runner) など）が、ライブラリのファイルを差し替えるだけで動きます。
+
+| ファイル | 対象のCPU |
+|---|---|
+| `libedax-x64.dll`（Linux：`libedax-x86-64.so`） | x86-64 のどのCPUでも動きます。libedax用のプログラムが読み込む名前です（Linuxでは `libedax.so` に名前を変えて置きます）。 |
+| `libedax-x64-v3.dll`（`libedax-x86-64-v3.so`） | AVX2 対応のCPU |
+| `libedax-x64-v4.dll`（`libedax-x86-64-v4.so`） | AVX-512 対応のCPU |
+
+- **関数と、呼び出し側とやり取りするデータの並びは元のlibedaxと同じです**（`src/libedax.h`）。Edax 4.5 で内部の構造が変わっているので、内部のデータをそのまま渡さず、元の並びのデータに詰め替えて渡します。
+- **設定**は、作業フォルダの `edax.ini`、`config.ini`、`libedax_initialize` の引数の順に読みます（後のものが優先）。書き方と項目は edax 本体と同じです。
+- 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`（`book deviate2`・`deviate3`）、`libedax_cpu_level`（CPUが動かせる版を返します。`libedax-x64.dll` に問い合わせてから、v3・v4 を読み込む使い方ができます）。
+- 元のlibedax（Edax 4.4）との違い：
+  - 既定のlevelは18です（元は21）。同じlevelでも、探索の評価値や手がEdax 4.4と違うことがあります。
+  - `edax_book_merge` は、この版の `book merge` と同じく、リンクの再構築・修正・negamaxまで行います（元は局面を足すだけ）。
+  - 最善進行の数（`edax_book_count_bestpath`・`edax_book_count_board_bestpath`）は、元のlibedaxではbookの全局面に常に記録欄を持たせていましたが、この版では数えるときだけ別に確保します（bookの局面は48バイトのままです）。数え方（下限の値）を変えたときと、bookを変更したときは、自動で数え直します。
+  - `Position` の `link`（手の配列）は、次に数局面を取得するまで有効です。`edax_bench` の結果の後ろにあったロックは使いません。
+  - 元のlibedaxでは異常終了した呼び方（初期化や終了の二重呼び出し、1手も打っていないときの `edax_get_last_move`、bookにない局面の `edax_book_show`、書き換えできない文字列を渡した `edax_get_bookmove_with_position_by_moves`）を、何もしない・空の結果を返す、に変えました。
+  - Windowsでは、ファイル名を UTF-8（だめなら ANSI）として読みます。
+- **edax 本体には影響しません。** libedaxのコードは、ライブラリをビルドするときだけ取り込まれます。libedaxを追加した時点のソースからビルドした edax は、v4.5.5-nikque.6 のソースからビルドしたものとバイト単位で同じでした（ビルド時刻とソースのフォルダ名の文字を除く）。
+- 速さとメモリ（1スレッド、`bench` の終盤20局面、Ryzen 9 9950X）：
+
+  | | 速さ | 最大メモリ |
+  |---|---|---|
+  | 元のlibedax（Edax 4.4、x86-64） | 53 百万ノード/秒 | 159 MB |
+  | `libedax-x64.dll` | 69 百万ノード/秒 | 82 MB |
+  | `libedax-x64-v3.dll` | 81 百万ノード/秒 | 82 MB |
+  | `libedax-x64-v4.dll` | 92 百万ノード/秒 | 82 MB |
+
+  ライブラリと edax 本体（同じCPU向け）は、ノード数が一致し、速さも同じでした。
+- 試験：`tests/libedax_test.c` が全関数を呼び出します（131項目。Windows 3種とLinux 3種で合格。元のlibedaxでも、対応する項目は同じ結果）。libedax4dart 7.67.0 のテスト29件のうち28件が合格し、残る1件は探索の評価値の比較です（既定のlevelの違いと、直前の探索の状態によるもの。同じlevelで単独に探索すると、元のlibedaxと同じ評価値になります）。Edax 4.4 のlibedaxが保存したbookを読めること、この版が保存したbookをEdax 4.4のlibedaxが読めること（27万局面のbookで全局面一致）も確かめました。
+- ビルド：Windowsは `nmake -f NMakefile vc-lib`（`vc-lib-x64`・`vc-lib-x64-v3`・`vc-lib-x64-v4`）、Linuxなどは `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`。試験は `tests\build-libedax-test.cmd`。macOS版は未作成です。
+
+### 不具合の修正：学習の後、終了時にbookが保存されないことがある
+
+v4.5.5-nikque.2 から、終了時のbookの保存は「最後に保存した後でbookが変わっているときだけ」にしています。ところが、学習コマンドが途中経過を別のファイルに保存したとき（`book store` の `.store`、`book deviate` の `.dev`・`.dev2`・`.dev3`、`book enhance` の `.enh`、`book play`、`book fill`、`book add` の `.gam`、`book deepen`、時間ごとの保存）にも「保存済み」になっていました。このため、たとえば `book store` の後に `book save` をせずに終了すると、学習した内容は `data/book.dat.store` にあるだけで、`data/book.dat` には保存されませんでした。途中経過の保存では「保存済み」にしないように直しました。`book save` で保存した場合と、何も変えていない場合は、従来どおり終了時に保存しません。
+
+### book fix の途中経過の表示
+
+`book fix`（`book import`・`correct`・`prune`・`subtree` でも使われます）の「Fixing book...」は、直す局面があったときしか途中経過を表示しなかったので、正常な大きなbookでは終わるまで何も表示されませんでした。確認した局面数を1秒ごとに表示します（例：`Fixing book...3137536/6491163 positions checked`）。bookの内容は変わりません。
 ## v4.5.5-nikque.6 の変更点
 
 起動時の設定を `config.ini` で決められるようにし、合法手の数の上限を理論上の最大まで広げ、`book merge` の途中経過の表示を直しました。評価データ `eval.dat`、bookのファイル形式、同じオプションでの探索結果は変わりません。

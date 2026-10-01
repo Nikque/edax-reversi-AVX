@@ -4,6 +4,51 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS x64, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.7
+
+Edax can now be used as a library by other programs (libedax), and two book bugs are fixed. The evaluation data `eval.dat`, the book file format and the search results are unchanged.
+
+### libedax: Edax as a library
+
+The 93 functions of [libedax by lavox](https://github.com/lavox/edax-reversi) ([as maintained by sensuikan1973](https://github.com/sensuikan1973/edax-reversi)) are now provided by this Edax. Programs written for libedax ([libedax4dart](https://pub.dev/packages/libedax4dart), [edax_runner](https://github.com/sensuikan1973/edax_runner), ...) work by replacing the library file.
+
+| File | CPU |
+|---|---|
+| `libedax-x64.dll` (Linux: `libedax-x86-64.so`) | Any x86-64 CPU. This is the name loaded by the programs written for libedax (on Linux, rename it to `libedax.so`). |
+| `libedax-x64-v3.dll` (`libedax-x86-64-v3.so`) | CPUs with AVX2 |
+| `libedax-x64-v4.dll` (`libedax-x86-64-v4.so`) | CPUs with AVX-512 |
+
+- **The functions and the layout of the data exchanged with the caller are those of the original libedax** (`src/libedax.h`). The structures of Edax changed in 4.5, so they are not passed as they are: the data are copied to structures with the original layout.
+- **Settings** are read from `edax.ini` and `config.ini` of the current folder, then from the arguments of `libedax_initialize` (the last one wins). The syntax and the settings are those of the edax program.
+- New functions: `edax_book_deviate2` and `edax_book_deviate3` (`book deviate2` and `deviate3`), and `libedax_cpu_level` (which build the CPU can run: a program can ask `libedax-x64.dll`, then load the v3 or v4 library).
+- Differences from the original libedax (Edax 4.4):
+  - The default level is 18 (it was 21). At the same level, the scores and moves of a search can differ from Edax 4.4.
+  - `edax_book_merge` does what `book merge` does in this version: it also rebuilds the links, fixes and negamaxes the book (the original only added the positions).
+  - The counts of the best paths (`edax_book_count_bestpath`, `edax_book_count_board_bestpath`) were kept in every position of the book by the original libedax; here they are kept beside the book, only while they are used (a book position still takes 48 bytes). They are counted again when the limits change or when the book changes.
+  - The `link` array of a `Position` stays valid until a few other positions are asked. The lock which followed the result of `edax_bench` is not used.
+  - Calls which crashed the original libedax (a second initialization or termination, `edax_get_last_move` before any move, `edax_book_show` on a position missing from the book, a read-only string given to `edax_get_bookmove_with_position_by_moves`) now do nothing or return an empty result.
+  - On Windows, file names are read as UTF-8 (then as ANSI).
+- **The edax program is not affected.** The code of libedax is only compiled when the library is built. An edax built from the sources with libedax added is byte-identical to one built from the v4.5.5-nikque.6 sources (except the build time and the name of the source folder).
+- Speed and memory (one thread, the 20 endgame positions of `bench`, Ryzen 9 9950X):
+
+  | | Speed | Peak memory |
+  |---|---|---|
+  | Original libedax (Edax 4.4, x86-64) | 53 million nodes/s | 159 MB |
+  | `libedax-x64.dll` | 69 million nodes/s | 82 MB |
+  | `libedax-x64-v3.dll` | 81 million nodes/s | 82 MB |
+  | `libedax-x64-v4.dll` | 92 million nodes/s | 82 MB |
+
+  The library and the edax program (for the same CPU) search the same number of nodes at the same speed.
+- Tests: `tests/libedax_test.c` calls every function (131 checks; passed by the 3 Windows and the 3 Linux libraries; the original libedax gives the same results on the checks it supports). 28 of the 29 tests of libedax4dart 7.67.0 pass; the other one compares a search score (it differs because of the default level and of the state left by the previous searches: a fresh search at the same level gives the same score as the original libedax). The books saved by the libedax of Edax 4.4 are read by this version, and the books saved by this version are read by the libedax of Edax 4.4 (all the positions of a 270,000-position book are the same).
+- Build: on Windows, `nmake -f NMakefile vc-lib` (`vc-lib-x64`, `vc-lib-x64-v3`, `vc-lib-x64-v4`); elsewhere, `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`. Test: `tests\build-libedax-test.cmd`. The macOS library is not built yet.
+
+### Bug fix: the book was sometimes not saved on exit after learning
+
+Since v4.5.5-nikque.2, the book is saved on exit only if it changed after the last save. But the saves of the progress of the learning commands to a side file (`.store` of `book store`, `.dev`, `.dev2`, `.dev3` of `book deviate`, `.enh` of `book enhance`, `book play`, `book fill`, `.gam` of `book add`, `book deepen`, and the timed saves) also counted as a save. So after `book store`, for example, quitting without `book save` left the learned positions in `data/book.dat.store` only: `data/book.dat` was not saved. A progress save does not count as a save anymore. After `book save`, or when nothing changed, the book is still not saved on exit, as before.
+
+### Progress of book fix
+
+"Fixing book..." of `book fix` (also used by `book import`, `correct`, `prune` and `subtree`) only showed its progress when positions were fixed, so nothing was printed until the end with a correct large book. The checked positions are now printed once per second (for example `Fixing book...3137536/6491163 positions checked`). The book is unchanged.
 ## Changes in v4.5.5-nikque.6
 
 The startup values of the main settings can now be set in `config.ini`, the limit on the number of legal moves is raised to its theoretical maximum, and `book merge` shows its progress again. The evaluation data `eval.dat`, the book file format and the search results with the same options are unchanged.
