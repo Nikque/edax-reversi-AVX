@@ -109,7 +109,8 @@ enum {
 	UI_GGS,
 	UI_GTP,
 	UI_NBOARD,
-	UI_XBOARD
+	UI_XBOARD,
+	UI_LIBEDAX
 };
 
 #endif
