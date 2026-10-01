@@ -207,6 +207,8 @@ LIBEDAX_API const char* edax_ouverture(void);
 
 /* opening book */
 LIBEDAX_API void edax_book_store(void);
+LIBEDAX_API int edax_book_store_tasks(void);              /* nikque: games that edax_book_store_games learns at the same time */
+LIBEDAX_API int edax_book_store_games(const char*, char*); /* nikque: play and store several games */
 LIBEDAX_API void edax_book_on(void);
 LIBEDAX_API void edax_book_off(void);
 LIBEDAX_API void edax_book_randomness(const int);

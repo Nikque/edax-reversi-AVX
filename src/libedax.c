@@ -1314,6 +1314,76 @@ LIBEDAX_API void edax_book_store(void)
 }
 
 /**
+ * @brief Number of games that edax_book_store_games() learns at the same time.
+ *
+ * @return the book-store-tasks setting (auto: the number of threads); 1: a game after the other.
+ */
+LIBEDAX_API int edax_book_store_tasks(void)
+{
+	if (g_ui == NULL) return 1;
+	return book_store_task_count();
+}
+
+/**
+ * @brief Play games and store them into the book.
+ *
+ * For each game: play its first moves from the initial position, let Edax play both sides to
+ * the end, then store the game into the book. It is what edax_init, edax_play, edax_go (until
+ * the game is over) and edax_book_store do for a game, without what they print.
+ * - With book-store-tasks = 1, the games are learned one after the other, exactly as these
+ *   functions do. The current game is the last game.
+ * - With book-store-tasks > 1 (or auto), as many games are played at the same time, each one
+ *   with n-tasks / book-store-tasks threads, with the book as it was before the call; then
+ *   the positions of all the games are searched at the same time and added to the book, which
+ *   is linked, negamaxed and saved (to <book-file>.store) once. The current game is not changed.
+ *
+ * @param games Games, one per line ('\n'): the first moves of the game ("f5d6c3"), or
+ * "<book randomness>,<moves>" ("2,f5d6c3"). Without randomness, the book-randomness setting is used.
+ * Empty lines, lines that start with '#' and lines with "//" are not games.
+ * @param status A character for each line (out parameter): '1' learned, '0' not learned (illegal move,
+ * or not a game), then a '\0'. A buffer of (number of lines + 1) characters, or NULL.
+ * @return number of learned games.
+ */
+LIBEDAX_API int edax_book_store_games(const char *games, char *status)
+{
+	Book *book;
+	char *text, *line, *next, **moves;
+	int *randomness, *result, *index;
+	int i, n = 0, n_lines = 1, n_learned = 0;
+
+	if (status) status[0] = '\0';
+	if (g_ui == NULL || games == NULL) return 0;
+
+	for (i = 0; games[i]; ++i) if (games[i] == '\n') ++n_lines;
+	text = (char*) malloc(strlen(games) + 1);
+	moves = (char**) malloc(n_lines * sizeof *moves);
+	randomness = (int*) malloc(n_lines * sizeof *randomness);
+	result = (int*) malloc(n_lines * sizeof *result);
+	index = (int*) malloc(n_lines * sizeof *index);
+	if (text && moves && randomness && result && index) {
+		strcpy(text, games);
+		for (i = 0, line = text; line; line = next, ++i) {
+			next = strchr(line, '\n');
+			if (next) *next++ = '\0';
+			if (next == NULL && *line == '\0') break; // nothing after the last '\n'
+			if (status) { status[i] = '0'; status[i + 1] = '\0'; }
+			randomness[n] = options.book_randomness;
+			moves[n] = play_learn_parse(line, randomness + n);
+			if (moves[n] && *moves[n]) index[n++] = i;
+		}
+
+		if (n > 0) {
+			book = lib_book_begin_change();
+			n_learned = play_learn_games(g_ui->play, (const char *const*) moves, randomness, n, result);
+			lib_book_end(book);
+			if (status) for (i = 0; i < n; ++i) if (result[i] == 0) status[index[i]] = '1';
+		}
+	}
+	free(text); free(moves); free(randomness); free(result); free(index);
+	return n_learned;
+}
+
+/**
  * @brief book on command.
  */
 LIBEDAX_API void edax_book_on(void)

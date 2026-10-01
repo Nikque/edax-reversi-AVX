@@ -550,6 +550,53 @@ int main(int argc, char **argv)
 	edax_base_correct("libtest-short.txt", 4);
 	CHECK(file_size("libtest-short.txt") > 0);
 
+	if (!original) {
+		int (*store_tasks)(void) = (int (*)(void)) optional(dll, "edax_book_store_tasks");
+		int (*store_games)(const char*, char*) = (int (*)(const char*, char*)) optional(dll, "edax_book_store_games");
+		char status[16];
+		int n_before;
+
+		section("games learned together");
+		CHECK(store_tasks != NULL && store_games != NULL);
+		if (store_tasks && store_games) {
+			// one game after the other (book-store-tasks = 1): as init, play, go & book store
+			CHECK_INT(store_tasks(), 1);
+			edax_book_new(4, 12);
+			memset(status, 'x', sizeof status);
+			CHECK_INT(store_games("f5d6c3\n2,F5F6E6\n// a comment\nf5f5\nf5 d6 c4\nfix\n", status), 3);
+			CHECK_STR(status, "110010");
+			CHECK_INT(edax_is_game_over(), 1); // the last game
+			edax_book_info(&info);
+			printf("after 3 games: %d positions\n", info.n_nodes);
+			CHECK(info.n_nodes >= 14);
+			CHECK_INT(store_games("", status), 0);
+			CHECK_STR(status, "");
+			CHECK_INT(store_games("a1", NULL), 0);
+
+			// several games at the same time
+			edax_set_option("n-tasks", "4");
+			edax_set_option("book-store-tasks", "auto");
+			CHECK_INT(store_tasks(), 4);
+			edax_set_option("book-store-tasks", "2");
+			CHECK_INT(store_tasks(), 2);
+			edax_init();
+			play("f5f4");
+			n_before = info.n_nodes;
+			memset(status, 'x', sizeof status);
+			CHECK_INT(store_games("f5f4e3\nf5d6c4d3\n1,f5d6c5f4e3\nf5d6c5f4e3\nh8\nf5f6e6f4e3", status), 5);
+			CHECK_STR(status, "111101");
+			CHECK_STR(moves(), "F5f4"); // the current game is not changed
+			edax_book_info(&info);
+			printf("after 5 more games: %d positions\n", info.n_nodes);
+			CHECK(info.n_nodes > n_before);
+			edax_book_store(); // a game: its positions are searched at the same time
+			edax_book_fix();
+			edax_set_option("book-store-tasks", "1");
+			edax_set_option("n-tasks", "1");
+			CHECK_INT(store_tasks(), 1);
+		}
+	}
+
 	section("bench");
 	memset(&bench, 0, sizeof bench);
 	edax_bench_get_result(&bench.result);
