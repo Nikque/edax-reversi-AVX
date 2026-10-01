@@ -140,6 +140,7 @@ extern const unsigned char SQUARE_TYPE[];
 /* function definition */
 void search_global_init(void);
 void search_init(Search*);
+void search_init_with(Search*, const int, const int);
 void search_free(Search*);
 void search_cleanup(Search*);
 void search_setup(Search*);

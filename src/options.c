@@ -91,6 +91,7 @@ Options options = {
 	false, // level given by the user (else no level cap with a time control)
 	0, // probcut model: standard
 	0, // book depth: auto (the depth of the loaded book)
+	1, // games learned at the same time
 };
 
 /**
@@ -137,6 +138,7 @@ void options_usage(void)
 		"  -book-deviate-save-rounds <n> save deviate progress every n rounds; 0 means completion only.\n"
 		"  -book-merge-auto-save <on/off> save the book to <book-file>.mrg after book merge.\n"
 		"  -book-expand-tasks <n|auto>   expand n book positions at the same time (n-tasks / n threads each).\n"
+		"  -book-store-tasks <n|auto>    learn n games at the same time (n-tasks / n threads each).\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
@@ -258,6 +260,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "book-deviate-save-rounds") == 0) options.book_deviate_save_rounds = string_to_int(value, options.book_deviate_save_rounds);
 		else if (strcmp(option, "book-depth") == 0) options.book_depth = (strcmp(value, "auto") == 0) ? 0 : string_to_int(value, options.book_depth);
 		else if (strcmp(option, "book-expand-tasks") == 0) options.book_expand_tasks = (strcmp(value, "auto") == 0) ? 0 : string_to_int(value, options.book_expand_tasks);
+		else if (strcmp(option, "book-store-tasks") == 0) options.book_store_tasks = (strcmp(value, "auto") == 0) ? 0 : string_to_int(value, options.book_store_tasks);
 		else if (strcmp(option, "book-merge-auto-save") == 0) parse_boolean(value, &options.book_merge_auto_save);
 
 		else read = 0;
@@ -438,6 +441,7 @@ void options_bound(void)
 	}
 
 	if (options.book_expand_tasks != 0) BOUND(options.book_expand_tasks, 1, options.n_task, "book-expand-tasks");	// 0 = auto
+	if (options.book_store_tasks != 0) BOUND(options.book_store_tasks, 1, options.n_task, "book-store-tasks");	// 0 = auto
 	BOUND(options.book_depth, 0, 60, "book-depth");	// 0 = auto
 	BOUND(options.verbosity, 0, 4, "verbosity");
 	BOUND(options.noise, 0, 60, "noise");
@@ -508,7 +512,9 @@ void options_dump(FILE *f)
 	fprintf(f, "\tbook randomness: %d\n", options.book_randomness);
 	fprintf(f, "\tbook timed-save interval: %d minutes\n", options.book_save_interval);
 	fprintf(f, "\tbook deviate-save interval: %d productive rounds (0 = completion only)\n", options.book_deviate_save_rounds);
-	fprintf(f, "\tbook merge auto-save: %s\n\n", boolean_string[options.book_merge_auto_save]);
+	fprintf(f, "\tbook merge auto-save: %s\n", boolean_string[options.book_merge_auto_save]);
+	if (options.book_store_tasks > 0) fprintf(f, "\tbook store tasks: %d\n\n", options.book_store_tasks);
+	else fprintf(f, "\tbook store tasks: auto\n\n");
 
 	fprintf(f, "ggs options\n");
 	fprintf(f, "\thost: %s\n", options.ggs_host ? options.ggs_host : "?");

@@ -785,6 +785,13 @@ void ui_loop_edax(UI *ui)
 					base_load(&base, book_file);
 					book_add_base(book, &base);
 					base_free(&base);
+					book_store_release();
+
+				// play the games of a file (first moves, then edax vs edax) and store them
+				} else if (strcmp(book_cmd, "learn") == 0) {
+					parse_word(book_param, book_file, FILENAME_MAX);
+					play_learn_file(play, book_file);
+					book_store_release();
 
 				// check positions from a game database
 				} else if (strcmp(book_cmd, "check") == 0) {

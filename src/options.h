@@ -94,6 +94,7 @@ typedef struct {
 	bool level_set;                       /**< level given by the user (with a time control, it caps the search level) */
 	int probcut_model;                    /**< probcut error model: 0 = standard, 1 = refit (experimental, see eval.c) */
 	int book_depth;                       /**< book depth set at startup (book-depth); 0 = auto: keep the depth of the loaded book */
+	int book_store_tasks;                 /**< games learned at the same time by book store/add/learn (each game uses n_task / book_store_tasks threads); 1 = one position after the other, 0 = auto */
 
 	// TODO: add more options?
 } Options;

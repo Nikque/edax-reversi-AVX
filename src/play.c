@@ -18,6 +18,7 @@
 #include "settings.h"
 
 #include <assert.h>
+#include <ctype.h>
 
 /**
  * @brief Initialization.
@@ -976,6 +977,8 @@ void play_book_analyze(Play *play, int n)
 	}
 }
 
+static void play_store_boards(Book*, const Board*, Move*, const int, const bool);
+
 /**
  * @brief store the game into the opening book
  *
@@ -983,29 +986,402 @@ void play_book_analyze(Play *play, int n)
  */
 void play_store(Play *play)
 {
-	Board board;
-	int i;
 	char file[FILENAME_MAX + 1];
 
 	file_add_ext(options.book_file, ".store", file);
 
 	play->book->stats.n_nodes = play->book->stats.n_links = 0;
 
-	board = play->initial_board;
-	for (i = 0; i < play->n_game && board_check_move(&board, play->game + i); ++i) {
-		board_update(&board, play->game + i);
+	if (book_store_task_count() > 1 && book_plan_begin(play->book)) { // book-store-tasks: search the positions at the same time
+		play_store_boards(play->book, &play->initial_board, play->game, play->n_game, true);
+		book_plan_search(play->book);
 	}
+	play_store_boards(play->book, &play->initial_board, play->game, play->n_game, false);
+	book_plan_end(play->book);
 
-	for (--i; i >= 0; --i) {
-		book_add_board(play->book, &board);
-		board_restore(&board, play->game + i);
-	}
-	book_add_board(play->book, &board);
 	if (play->book->stats.n_nodes + play->book->stats.n_links) {
 		book_link(play->book);
 		book_negamax(play->book);
 		book_save_progress(play->book, file);
 	}
+}
+
+/**
+ * @brief Add the positions of a game to the book, from the last one to the first one,
+ * or plan their searches (see book_plan_begin).
+ *
+ * @param book Opening book.
+ * @param initial_board Initial board of the game.
+ * @param game Moves of the game.
+ * @param n_game Number of moves.
+ * @param plan Only plan the searches.
+ */
+static void play_store_boards(Book *book, const Board *initial_board, Move *game, const int n_game, const bool plan)
+{
+	Board board;
+	int i;
+
+	board = *initial_board;
+	for (i = 0; i < n_game && board_check_move(&board, game + i); ++i) {
+		board_update(&board, game + i);
+	}
+
+	for (--i; i >= 0; --i) {
+		if (plan) book_plan_board(book, &board);
+		else book_add_board(book, &board);
+		board_restore(&board, game + i);
+	}
+	if (plan) book_plan_board(book, &board);
+	else book_add_board(book, &board);
+}
+
+/** a game to play and to learn (see play_learn_games) */
+typedef struct LearnGame {
+	const char *moves;         /**< first moves of the game */
+	int randomness;            /**< randomness of the book moves */
+	Move game[80];             /**< moves of the game */
+	int n_game;                /**< number of moves */
+	bool legal;                /**< the first moves are legal */
+} LearnGame;
+
+/** games played at the same time */
+typedef struct LearnShared {
+	Book *book;
+	LearnGame *game;
+	int n, next, n_done;
+	Lock lock;                 /**< guards next and n_done */
+} LearnShared;
+
+/** a thread playing games, with its own search */
+typedef struct LearnLane {
+	LearnShared *shared;
+	Search *search;
+	Random random;             /**< to choose among the book moves */
+	Thread thread;
+	bool progress;             /**< this one shows the progress */
+} LearnLane;
+
+/**
+ * @brief Play the first moves of a game.
+ *
+ * @param g Game.
+ * @param board Board (the initial position; updated).
+ * @return player to move.
+ */
+static int learn_game_start(LearnGame *g, Board *board)
+{
+	const char *string = g->moves, *next;
+	Move move;
+	int player = BLACK;
+
+	board_init(board);
+	g->n_game = 0;
+	next = opening_get_line(string);
+	if (next) string = next;
+	while (g->n_game < 80 && ((next = parse_move(string, board, &move)) != string || move.x == PASS)) { // as play_game()
+		string = next;
+		board_update(board, &move);
+		g->game[g->n_game++] = move;
+		player ^= 1;
+	}
+	string = parse_skip_spaces(string);
+	g->legal = (*string == '\0'); // Edax ignores an illegal move and the following ones: such a game is not learned
+	return player;
+}
+
+/**
+ * @brief Play games to their end, as play_go() does: a move of the book, or the move of a search.
+ *
+ * The book is only read.
+ *
+ * @param v Lane.
+ * @return NULL.
+ */
+static void* learn_lane_run(void *v)
+{
+	LearnLane *lane = (LearnLane*) v;
+	LearnShared *s = lane->shared;
+	Search *const search = lane->search;
+	long long t = real_clock() + 1000;
+	char s_move[4];
+
+	for (;;) {
+		LearnGame *g;
+		Board board;
+		Move move;
+		int i, player, n_done;
+
+		lock(s);
+		i = s->next < s->n ? s->next++ : -1;
+		unlock(s);
+		if (i < 0) break;
+
+		g = s->game + i;
+		player = learn_game_start(g, &board);
+		search_cleanup(search); // as play_new()
+		while (g->legal && g->n_game < 80 && !board_is_game_over(&board)) {
+			move = MOVE_INIT;
+			if (g->n_game == 0) { // as play_force_go(): the first move is F5
+				board_get_move_flip(&board, F5, &move);
+			} else if (options.book_allowed && book_get_random_move_with(s->book, &board, &move, g->randomness, &lane->random) && move.x != NOMOVE) {
+				;
+			} else {
+				search->options.verbosity = 0;
+				search_set_board(search, &board, player);
+				search_set_level(search, play_level(), search->eval.n_empties);
+				if (options.play_type == EDAX_TIME_PER_MOVE) search_set_move_time(search, options.time);
+				else search_set_game_time(search, options.time);
+				search_time_init(search);
+				search_run(search);
+				if (!board_get_move_flip(&board, search->result->move, &move) && move.x != PASS) {
+					fatal_error("bad move found: %s\n", move_to_string(move.x, player, s_move));
+				}
+			}
+			board_update(&board, &move);
+			g->game[g->n_game++] = move;
+			player ^= 1;
+		}
+
+		lock(s);
+		n_done = ++s->n_done;
+		unlock(s);
+		if (lane->progress && real_clock() >= t) {
+			book_print("Playing games...%d/%d\r", n_done, s->n);
+			t = real_clock() + 1000;
+		}
+	}
+	return NULL;
+}
+
+/**
+ * @brief Play games and store them into the opening book.
+ *
+ * For each game: play its first moves from the initial position, let Edax play both sides to
+ * the end (as the go command does), then store the game (as book store does).
+ *
+ * With book-store-tasks = 1, the games are played and stored one after the other, with the
+ * game of the user interface: it is the same as the commands init, play, go (until the game is
+ * over) and book store, for each game.
+ *
+ * With book-store-tasks > 1, as many games are played at the same time, each one with its own
+ * search (n-tasks / book-store-tasks threads), reading the book as it was before the call;
+ * then all the games are stored: their positions are searched at the same time, and the book
+ * is linked, negamaxed and saved (to <book-file>.store) once. The game of the user interface
+ * is not changed.
+ *
+ * @param play Play.
+ * @param moves First moves of each game.
+ * @param randomness Randomness of the book moves of each game (NULL: the current setting).
+ * @param n Number of games.
+ * @param status Set for each game: 0 = learned, 1 = not learned (illegal move). Can be NULL.
+ * @return number of learned games.
+ */
+int play_learn_games(Play *play, const char *const *moves, const int *randomness, const int n, int *status)
+{
+	Book *book = play->book;
+	const int book_randomness = options.book_randomness;
+	const int n_lanes = MIN(book_store_task_count(), n);
+	const int verbosity = play->search.options.verbosity;
+	int i, n_learned = 0;
+	char file[FILENAME_MAX + 1];
+
+	if (n <= 0) return 0;
+	play_stop_pondering(play);
+
+	if (book_store_task_count() <= 1) {
+		for (i = 0; i < n; ++i) {
+			char buffer[256], played[256];
+			int j, k;
+
+			if (randomness) options.book_randomness = randomness[i];
+			// init
+			board_init(&play->initial_board);
+			play->initial_player = BLACK;
+			play_force_init(play, "F5");
+			play_new(play);
+			// play
+			strncpy(buffer, moves[i], sizeof buffer - 1); buffer[sizeof buffer - 1] = '\0';
+			string_to_lowercase(buffer);
+			play_game(play, buffer);
+			for (j = k = 0; j < play->n_game; ++j) {
+				if (play->game[j].x != PASS) { move_to_string(play->game[j].x, WHITE, played + k); k += 2; }
+			}
+			played[k] = '\0';
+			string_to_lowercase(played);
+			for (j = k = 0; buffer[j]; ++j) if (buffer[j] != ' ') buffer[k++] = buffer[j];
+			buffer[k] = '\0';
+			if (strcmp(played, buffer) != 0) { // Edax ignores an illegal move and the following ones: such a game is not learned
+				if (status) status[i] = 1;
+				continue;
+			}
+			// go
+			while (!play_is_game_over(play)) play_go(play, true);
+			// book store
+			play->search.options.verbosity = verbosity; // as set by the book command (play_go() changed it)
+			play_store(play);
+			if (status) status[i] = 0;
+			++n_learned;
+		}
+		options.book_randomness = book_randomness;
+		play->search.options.verbosity = verbosity;
+		return n_learned;
+	}
+
+	{
+		LearnGame *game = (LearnGame*) calloc(n, sizeof *game);
+		char *buffer = (char*) malloc((size_t) n * 256);
+		LearnLane *lane = (LearnLane*) calloc(n_lanes, sizeof *lane);
+		const int n_tasks = MAX(1, book_store_thread_count() / n_lanes);
+		Search **search = book_store_searches(n_lanes, n_tasks);
+		LearnShared shared;
+		Board initial_board;
+
+		if (game == NULL || buffer == NULL || lane == NULL || search == NULL) {
+			error("cannot allocate the games to learn");
+			free(game); free(buffer); free(lane);
+			if (status) for (i = 0; i < n; ++i) status[i] = 1;
+			return 0;
+		}
+
+		// play the games
+		for (i = 0; i < n; ++i) {
+			strncpy(buffer + i * 256, moves[i], 255); buffer[i * 256 + 255] = '\0';
+			string_to_lowercase(buffer + i * 256);
+			game[i].moves = buffer + i * 256;
+			game[i].randomness = randomness ? randomness[i] : book_randomness;
+		}
+		shared.book = book; shared.game = game; shared.n = n; shared.next = shared.n_done = 0;
+		lock_init(&shared);
+		for (i = 0; i < n_lanes; ++i) {
+			lane[i].shared = &shared;
+			lane[i].search = search[i];
+			lane[i].progress = (i == 0);
+			random_seed(&lane[i].random, random_get(&book->random));
+		}
+		book_print("Playing games...\r");
+		for (i = 1; i < n_lanes; ++i) thread_create(&lane[i].thread, learn_lane_run, lane + i);
+		learn_lane_run(lane);
+		for (i = 1; i < n_lanes; ++i) thread_join(lane[i].thread);
+		lock_free(&shared);
+		book_print("Playing games...%d done\n", n);
+
+		// store the games
+		file_add_ext(options.book_file, ".store", file);
+		book->stats.n_nodes = book->stats.n_links = 0;
+		board_init(&initial_board);
+		if (book_plan_begin(book)) {
+			for (i = 0; i < n; ++i) if (game[i].legal) play_store_boards(book, &initial_board, game[i].game, game[i].n_game, true);
+			book_plan_search(book);
+		}
+		for (i = 0; i < n; ++i) {
+			if (game[i].legal) {
+				play_store_boards(book, &initial_board, game[i].game, game[i].n_game, false);
+				++n_learned;
+			}
+			if (status) status[i] = game[i].legal ? 0 : 1;
+		}
+		book_plan_end(book);
+		if (book->stats.n_nodes + book->stats.n_links) {
+			book_link(book);
+			book_negamax(book);
+			book_save_progress(book, file);
+		}
+		free(game); free(buffer); free(lane);
+	}
+	return n_learned;
+}
+
+/**
+ * @brief Parse a line that describes a game to learn.
+ *
+ * A line holds the first moves of a game from the initial position ("f5d6c3"), or
+ * "<book randomness>,<moves>" ("2,f5d6c3"). Empty lines, lines that start with '#' and
+ * lines with "//" are comments.
+ *
+ * @param line Line (modified).
+ * @param randomness Set to the book randomness, if the line gives it.
+ * @return the moves (inside line); an empty string for a comment; NULL if the line is not a game.
+ */
+char* play_learn_parse(char *line, int *randomness)
+{
+	char *s = parse_skip_spaces(line), *e;
+
+	for (e = s + strlen(s); e > s && isspace((unsigned char) e[-1]); --e) ;
+	*e = '\0';
+	if (*s == '\0' || *s == '#' || strstr(s, "//")) return e;
+	if (isdigit((unsigned char) *s)) { // <book randomness>,<moves>
+		const long r = strtol(s, &e, 10);
+		e = parse_skip_spaces(e);
+		if (*e != ',' || r < 0 || r > 127) return NULL;
+		*randomness = (int) r;
+		s = parse_skip_spaces(e + 1);
+	}
+	if (*s == '\0') return NULL;
+	for (e = s; *e; ) {
+		if (*e == ' ') ++e;
+		else if (strchr("abcdefghABCDEFGH", e[0]) && e[1] >= '1' && e[1] <= '8') e += 2;
+		else return NULL;
+	}
+	return s;
+}
+
+/**
+ * @brief Play and learn the games of a file (book learn command).
+ *
+ * Each line of the file holds the first moves of a game from the initial position ("f5d6c3"),
+ * or "<book randomness>,<moves>" ("2,f5d6c3"). Empty lines, lines that start with '#' and lines
+ * with "//" are ignored. The games are learned by groups of book-store-tasks games (see
+ * play_learn_games).
+ *
+ * @param play Play.
+ * @param file File name.
+ * @return number of learned games, -1 if the file cannot be read.
+ */
+int play_learn_file(Play *play, const char *file)
+{
+	enum { LEARN_GROUP_MAX = MAX_THREADS };
+	FILE *f = fopen(file, "r");
+	const int n_group = MIN(book_store_task_count(), LEARN_GROUP_MAX);
+	char *line, *moves[LEARN_GROUP_MAX];
+	int randomness[LEARN_GROUP_MAX], status[LEARN_GROUP_MAX], number[LEARN_GROUP_MAX];
+	int i, n = 0, n_line = 0, n_games = 0, n_learned = 0;
+	bool more = true;
+
+	if (f == NULL) {
+		warn("cannot open game file %s\n", file);
+		return -1;
+	}
+	while (more) {
+		line = string_read_line(f);
+		more = (line != NULL);
+		if (line) {
+			int r = options.book_randomness;
+			char *s = play_learn_parse(line, &r);
+
+			++n_line;
+			if (s == NULL || *s == '\0') {
+				if (s == NULL) warn("%s:%d: not the moves of a game: ignored\n", file, n_line);
+				free(line);
+				continue;
+			}
+			memmove(line, s, strlen(s) + 1);
+			moves[n] = line; randomness[n] = r; number[n] = n_line;
+			++n;
+		}
+		if (n == n_group || (!more && n > 0)) {
+			n_learned += play_learn_games(play, (const char *const*) moves, randomness, n, status);
+			n_games += n;
+			for (i = 0; i < n; ++i) {
+				if (status[i]) warn("%s:%d: illegal move: the game was not learned\n", file, number[i]);
+				free(moves[i]);
+			}
+			n = 0;
+			if (play->book->failed) more = false; // a position could not be added: stop learning
+		}
+	}
+	fclose(f);
+	book_print("%d/%d games learned\n", n_learned, n_games);
+	return n_learned;
 }
 
 /**

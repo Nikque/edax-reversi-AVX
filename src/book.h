@@ -111,6 +111,16 @@ void book_get_line(Book*, const Board*, const Move*, Line*);
 void book_add_board(Book*, const Board*);
 void book_add_game(Book*, const Game*);
 void book_add_base(Book*, const Base*);
+int book_store_task_count(void);
+int book_store_thread_count(void);
+Search** book_store_searches(const int, const int);
+void book_store_release(void);
+bool book_plan_begin(Book*);
+void book_plan_board(Book*, const Board*);
+void book_plan_search(Book*);
+void book_plan_end(Book*);
+bool book_get_random_move_with(Book*, const Board*, Move*, const int, Random*);
+void book_print(const char*, ...);
 void book_check_base(Book*, const Base*);
 
 void book_extract_skeleton(Book*, Base*);

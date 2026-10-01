@@ -62,6 +62,23 @@ static void bprint(const char *format, ...)
 	}
 }
 
+/**
+ * @brief print a message about the book on stdout (as the functions of this file do).
+ * @param format Format string.
+ * @param ... variable arguments.
+ */
+void book_print(const char *format, ...)
+{
+	if (book_verbose) {
+		va_list args;
+
+		va_start(args, format);
+		vprintf(format, args);
+		va_end(args);
+		fflush (stdout);
+	}
+}
+
 /** struct Link
  * @brief a move (with its score) linking to another Position.
  */
@@ -153,6 +170,7 @@ static Position* book_probe(const Book*, const Board*);
 static int book_add(Book*, const Position*);
 static void book_mark_todo(Book*, Position*);
 static void position_print(const Position*, const Board*, FILE*);
+static bool book_game_boards(Book*, const Game*, const bool);
 
 #define foreach_link(l, p)  \
 	for ((l) = position_links(p); (l) < position_links(p) + (p)->n_link; ++(l))
@@ -833,10 +851,12 @@ static void position_sort(Position *position)
  * @param book Opening book.
  */
 static int position_search_with(Position *position, Search *search);
+static int position_search_planned(Position *position, Book *book);
+static struct BookPlan *book_plan = NULL; /**< searches done ahead of book_add_board() (book-store-tasks); NULL: none */
 
 static void position_search(Position *position, Book *book)
 {
-	const int r = position_search_with(position, book->search);
+	const int r = book_plan ? position_search_planned(position, book) : position_search_with(position, book->search);
 
 	if (r & 1) ++book->stats.n_links;
 	if (r) book->need_saving = true;
@@ -857,6 +877,9 @@ static int position_search_with(Position *position, Search *search)
 	bool time_per_move;
 	int r = 0;
 
+#ifdef BOOK_TEST_ISOLATE
+	search_cleanup(search); // test builds: every search starts with empty hash tables, as the planned searches do
+#endif
 	if (position->leaf.move != NOMOVE && position_add_link(position, &position->leaf)) {
 		r = 1;
 	}
@@ -2038,6 +2061,7 @@ void book_free(Book *book)
 	book->todo_list.item = NULL;
 	book->todo_list.n = book->todo_list.size = 0;
 	book->todo_list.valid = false;
+	book_store_release();
 }
 
 /**
@@ -4332,9 +4356,25 @@ void book_get_line(Book *book, const Board *board, const Move *move, Line *line)
 #else
 bool book_get_random_move(Book *book, const Board *board, Move *move, const int randomness)
 {
+	return book_get_random_move_with(book, board, move, randomness, &book->random);
+}
+
+/**
+ * @brief Get a move at random from the opening book, with a given random generator.
+ *
+ * The book is only read: several threads can call it at the same time, each one with its generator.
+ *
+ * @param book Opening book.
+ * @param board Position to find a move from.
+ * @param move Chosen move.
+ * @param randomness Randomness.
+ * @param random Random generator.
+ */
+bool book_get_random_move_with(Book *book, const Board *board, Move *move, const int randomness, Random *random)
+{
 	Position *position = book_probe(book, board);
 	if (position) {
-		position_get_random_move(position, board, move, &book->random, randomness);
+		position_get_random_move(position, board, move, random, randomness);
 		return true;
 	}
 
@@ -4384,6 +4424,523 @@ void book_get_game_stats(Book *book, const Board *board, GameStats *stat)
 }
 
 
+/*
+ * Learning games with several threads (book-store-tasks > 1).
+ *
+ * book_add_board() searches the positions of a game one after the other. Which positions it is
+ * going to search, and which moves of each one are links (so excluded from its search), only
+ * depend on the positions that are in the book and on the ones that the games add. So:
+ * 1. plan: go through the boards as book_add_board() will, without changing the book, and note
+ *    each search (book_plan_board);
+ * 2. search: do all these searches at the same time, each one with its own search and with
+ *    empty hash tables (book_plan_search);
+ * 3. add: call book_add_board() as usual. position_search() takes the result of the planned
+ *    search of the same board with the same links, or searches as usual if there is none.
+ * The book is changed by the third step only, in the same order as without a plan.
+ */
+
+/** searches used to learn games, kept from a call to the next (see book_store_release) */
+typedef struct StorePool {
+	Search **search;
+	int n, n_tasks, hash_bits;
+} StorePool;
+
+static StorePool store_pool[2]; /**< [0]: one thread each, for the positions; [1]: for the games played at the same time */
+
+static void store_pool_release(StorePool *pool)
+{
+	int i;
+	for (i = 0; i < pool->n; ++i) {
+		search_free(pool->search[i]);
+		mm_free(pool->search[i]);
+	}
+	free(pool->search);
+	pool->search = NULL;
+	pool->n = 0;
+}
+
+static Search** store_pool_get(StorePool *pool, const int n, const int n_tasks, const int hash_bits)
+{
+	if (pool->n && (pool->n_tasks != n_tasks || pool->hash_bits != hash_bits)) store_pool_release(pool);
+	if (pool->n < n) {
+		Search **s = (Search**) realloc(pool->search, n * sizeof *s);
+		if (s == NULL) return NULL;
+		pool->search = s;
+		pool->n_tasks = n_tasks;
+		pool->hash_bits = hash_bits;
+		for (; pool->n < n; ++pool->n) {
+			Search *search = (Search*) mm_malloc(sizeof (Search));
+			if (search == NULL) return NULL;
+			search_init_with(search, n_tasks, hash_bits);
+			search->options.verbosity = 0;
+			pool->search[pool->n] = search;
+		}
+	}
+	return pool->search;
+}
+
+/**
+ * @brief Release the searches used to learn games.
+ */
+void book_store_release(void)
+{
+	store_pool_release(store_pool);
+	store_pool_release(store_pool + 1);
+}
+
+/**
+ * @brief Size of the hash tables of a search used to learn games.
+ * @param n_tasks Threads of the search.
+ * @return size (in number of bits).
+ */
+static int book_store_hash_bits(const int n_tasks)
+{
+#ifdef BOOK_TEST_HASH_BITS
+	if (n_tasks == 1) return BOOK_TEST_HASH_BITS; // test builds: to choose the size
+#endif
+	return options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
+}
+
+/**
+ * @brief Get searches to play games at the same time (see play_learn_games).
+ *
+ * @param n Number of searches.
+ * @param n_tasks Threads of each search.
+ * @return the searches, NULL if they cannot be allocated.
+ */
+Search** book_store_searches(const int n, const int n_tasks)
+{
+	// with one thread each, they are the searches of the positions
+	return store_pool_get(store_pool + (n_tasks > 1), n, n_tasks, book_store_hash_bits(n_tasks));
+}
+
+/**
+ * @brief Number of games learned at the same time.
+ *
+ * book-store-tasks = n, or auto (0): each game gets 1 thread.
+ *
+ * @return the number of games learned at the same time; 1 = one position after the other, as
+ * Edax always did.
+ */
+int book_store_task_count(void)
+{
+#ifdef BOOK_TEST_STORE
+	return BOOK_TEST_STORE; // test builds: whatever the search uses
+#else
+	int n = options.book_store_tasks;
+
+	if (n <= 0) n = options.n_task;
+	return MAX(1, MIN(n, options.n_task));
+#endif
+}
+
+/**
+ * @brief Number of threads used to learn games (book-store-tasks > 1).
+ * @return number of threads.
+ */
+int book_store_thread_count(void)
+{
+	return MAX(1, MIN(book_n_task(), MAX_THREADS - 1));
+}
+
+#define PLAN_LEAF_UNKNOWN 0xfe /**< leaf of a position whose search is planned */
+
+/** a planned search */
+typedef struct PlanJob {
+	Board board;               /**< board to search */
+	unsigned long long links;  /**< moves that are links (excluded from the search) */
+	Link leaf;                 /**< result of the search */
+	unsigned char level;       /**< level of the search */
+	bool pass;                 /**< the pass is a link */
+	bool done;                 /**< the search was done */
+} PlanJob;
+
+/** a position as it will be after the boards already planned (in the book before the plan, or added by it) */
+typedef struct PlanNode {
+	Board board;               /**< unique board */
+	unsigned long long links;  /**< moves that are links */
+	unsigned char leaf;        /**< leaf move (NOMOVE: none, PLAN_LEAF_UNKNOWN: given by a planned search) */
+	unsigned char level;       /**< level of the position */
+	bool pass;                 /**< the pass is a link */
+	bool no_score;             /**< its score is -SCORE_INF */
+} PlanNode;
+
+typedef struct BookPlan {
+	Book *book;
+	PlanJob *job;
+	PlanNode *node;
+	int n_job, job_size, n_node, node_size;
+	int *job_index, *node_index;   /**< hash tables of the jobs and of the nodes: index + 1 (0: free slot) */
+	unsigned int job_mask, node_mask;
+	bool failed;                   /**< out of memory: nothing more is planned */
+	int n_used, n_missed;          /**< searches taken from the plan, searches that were not planned */
+	Lock lock;                     /**< guards next and n_done */
+	int next, n_done;
+} BookPlan;
+
+/** a thread doing planned searches */
+typedef struct PlanWorker {
+	BookPlan *plan;
+	Search *search;
+	Thread thread;
+	bool progress;                 /**< this one shows the progress */
+} PlanWorker;
+
+#define plan_slot(board, mask) ((unsigned int) (board_get_hash_code(board) >> 24) & (mask))
+
+/** Add an item to a hash table of the plan (growing it if needed). */
+static bool plan_index_add(BookPlan *plan, int **index, unsigned int *mask, const int n, const bool is_job)
+{
+	unsigned int j;
+	int i;
+
+	if (*index == NULL || (unsigned int) n * 2 > *mask) { // rebuild a larger table
+		const unsigned int size = *index ? (*mask + 1) * 2 : 256;
+		int *t = (int*) calloc(size, sizeof *t);
+		if (t == NULL) return false;
+		free(*index);
+		*index = t; *mask = size - 1;
+		i = 0;
+	} else {
+		i = n - 1;
+	}
+	for (; i < n; ++i) {
+		const Board *board = is_job ? &plan->job[i].board : &plan->node[i].board;
+		for (j = plan_slot(board, *mask); (*index)[j]; j = (j + 1) & *mask) ;
+		(*index)[j] = i + 1;
+	}
+	return true;
+}
+
+static PlanNode* plan_node_find(const BookPlan *plan, const Board *unique)
+{
+	unsigned int j;
+
+	if (plan->node_index == NULL) return NULL;
+	for (j = plan_slot(unique, plan->node_mask); plan->node_index[j]; j = (j + 1) & plan->node_mask) {
+		PlanNode *node = plan->node + plan->node_index[j] - 1;
+		if (board_equal(&node->board, unique)) return node;
+	}
+	return NULL;
+}
+
+static PlanNode* plan_node_add(BookPlan *plan, const PlanNode *node)
+{
+	if (plan->n_node == plan->node_size) {
+		const int size = plan->node_size * 2 + 64;
+		PlanNode *n = (PlanNode*) realloc(plan->node, size * sizeof *n);
+		if (n == NULL) { plan->failed = true; return NULL; }
+		plan->node = n; plan->node_size = size;
+	}
+	plan->node[plan->n_node] = *node;
+	if (!plan_index_add(plan, &plan->node_index, &plan->node_mask, plan->n_node + 1, false)) { plan->failed = true; return NULL; }
+	return plan->node + plan->n_node++;
+}
+
+static PlanJob* plan_job_find(const BookPlan *plan, const Board *board, const unsigned long long links, const bool pass, const int level)
+{
+	unsigned int j;
+
+	if (plan->job_index == NULL) return NULL;
+	for (j = plan_slot(board, plan->job_mask); plan->job_index[j]; j = (j + 1) & plan->job_mask) {
+		PlanJob *job = plan->job + plan->job_index[j] - 1;
+		if (board_equal(&job->board, board) && job->links == links && job->pass == pass && job->level == level) return job;
+	}
+	return NULL;
+}
+
+static void plan_job_add(BookPlan *plan, const Board *board, const unsigned long long links, const bool pass, const int level)
+{
+	PlanJob *job;
+
+	if (plan_job_find(plan, board, links, pass, level)) return;
+	if (plan->n_job == plan->job_size) {
+		const int size = plan->job_size * 2 + 64;
+		job = (PlanJob*) realloc(plan->job, size * sizeof *job);
+		if (job == NULL) { plan->failed = true; return; }
+		plan->job = job; plan->job_size = size;
+	}
+	job = plan->job + plan->n_job;
+	job->board = *board;
+	job->links = links;
+	job->leaf = BAD_LINK;
+	job->level = (unsigned char) level;
+	job->pass = pass;
+	job->done = false;
+	if (!plan_index_add(plan, &plan->job_index, &plan->job_mask, plan->n_job + 1, true)) { plan->failed = true; return; }
+	++plan->n_job;
+}
+
+/** @return true if a board is in the book, or will be when the boards already planned are added. */
+static bool plan_has_board(const BookPlan *plan, const Book *book, const Board *board)
+{
+	Board unique;
+
+	board_unique(board, &unique);
+	return plan_node_find(plan, &unique) != NULL
+	    || position_array_probe(book->array + (board_get_hash_code(&unique) & (book->n - 1)), &unique) != NULL;
+}
+
+/**
+ * @brief Moves of a board that position_link() would link.
+ * @param pass Set to true if the pass would be linked.
+ * @return the moves, as a bitboard.
+ */
+static unsigned long long plan_links(const BookPlan *plan, const Book *book, const Board *board, bool *pass)
+{
+	unsigned long long moves = board_get_moves(board), links = 0;
+	Board next;
+	int x;
+
+	*pass = false;
+	if (moves) {
+		foreach_bit(x, moves) {
+			board_next(board, x, &next);
+			if (plan_has_board(plan, book, &next)) links |= x_to_bit(x);
+		}
+	} else if (can_move(board->opponent, board->player)) {
+		next.player = board->opponent;
+		next.opponent = board->player;
+		*pass = plan_has_board(plan, book, &next);
+	}
+	return links;
+}
+
+/**
+ * @brief Start a plan: the searches of the next calls to book_add_board() are done ahead, at the same time.
+ *
+ * Call book_plan_board() with the same boards, in the same order, as book_add_board() will get,
+ * then book_plan_search(), then book_add_board() for each board, then book_plan_end().
+ *
+ * @param book Opening book.
+ * @return false if it cannot be allocated (book_add_board() searches as usual).
+ */
+bool book_plan_begin(Book *book)
+{
+	BookPlan *plan = (BookPlan*) calloc(1, sizeof *plan);
+
+	if (plan == NULL) return false;
+	plan->book = book;
+	lock_init(plan);
+	book_plan = plan;
+	return true;
+}
+
+/**
+ * @brief Plan the search that book_add_board() will do for a board.
+ *
+ * @param book Opening book (not changed).
+ * @param board Board that book_add_board() will get.
+ */
+void book_plan_board(Book *book, const Board *board)
+{
+	BookPlan *plan = book_plan;
+	Board unique;
+	PlanNode *node, new_node;
+	unsigned long long links;
+	int n_moves, n_link;
+	bool pass;
+
+	if (plan == NULL || plan->failed || board_count_empties(board) < book->options.n_empties - 1) return;
+	board_unique(board, &unique);
+	node = plan_node_find(plan, &unique);
+	if (node == NULL) {
+		const Position *p = position_array_probe(book->array + (board_get_hash_code(&unique) & (book->n - 1)), &unique);
+		const Link *l;
+
+		new_node.board = unique;
+		if (p == NULL) { // a new position: linked and searched as it is given, then added
+			links = plan_links(plan, book, board, &pass);
+			n_link = bit_count(links) + pass;
+			n_moves = get_mobility(board->player, board->opponent);
+			if (n_link < n_moves || (n_link == 0 && n_moves == 0)) plan_job_add(plan, board, links, pass, book->options.level);
+			new_node.links = plan_links(plan, book, &unique, &new_node.pass);
+			new_node.leaf = PLAN_LEAF_UNKNOWN;
+			new_node.level = (unsigned char) book->options.level;
+			new_node.no_score = false;
+			plan_node_add(plan, &new_node);
+			return;
+		}
+		new_node.links = 0;
+		new_node.pass = false;
+		foreach_link(l, p) {
+			if (l->move == PASS) new_node.pass = true;
+			else if (l->move <= H8) new_node.links |= x_to_bit(l->move);
+		}
+		new_node.leaf = p->leaf.move;
+		new_node.level = p->level;
+		new_node.no_score = (p->score.value == -SCORE_INF);
+		node = plan_node_add(plan, &new_node);
+		if (node == NULL) return;
+	}
+
+	// a position of the book: linked, then searched if its leaf is (now) a link
+	links = plan_links(plan, book, &unique, &pass);
+	if (node->leaf <= H8 ? (links & ~node->links & x_to_bit(node->leaf)) != 0 : (node->leaf == PASS && pass && !node->pass)) node->leaf = NOMOVE;
+	// the leaf that a planned search will find is not known yet: if the position gets a new link,
+	// it may be that leaf. Search it with the new links as well, in case it is (else this search is not used)
+	if (node->leaf == PLAN_LEAF_UNKNOWN && ((links & ~node->links) != 0 || (pass && !node->pass))) node->leaf = NOMOVE;
+	node->links |= links;
+	node->pass = node->pass || pass;
+	if (node->leaf == NOMOVE) {
+		n_link = bit_count(node->links) + node->pass;
+		n_moves = get_mobility(unique.player, unique.opponent);
+		if (n_link < n_moves || (n_link == 0 && n_moves == 0 && node->no_score)) {
+			plan_job_add(plan, &unique, node->links, node->pass, node->level);
+			node->leaf = PLAN_LEAF_UNKNOWN;
+			node->no_score = false;
+		}
+	}
+}
+
+/** Thread doing the planned searches. */
+static void* plan_worker_run(void *v)
+{
+	PlanWorker *w = (PlanWorker*) v;
+	BookPlan *plan = w->plan;
+	long long next = real_clock() + 1000;
+
+	for (;;) {
+		PlanJob *job;
+		Position p;
+		Link link;
+		unsigned long long links;
+		int i, x, n_done;
+
+		lock(plan);
+		i = plan->next < plan->n_job ? plan->next++ : -1;
+		unlock(plan);
+		if (i < 0) break;
+
+		job = plan->job + i;
+		position_init(&p);
+		p.board = job->board;
+		p.level = job->level;
+		link.score = -SCORE_INF; // the search does not use the scores of the links
+		links = job->links;
+		foreach_bit(x, links) {
+			link.move = (unsigned char) x;
+			position_add_link(&p, &link);
+		}
+		if (job->pass) {
+			link.move = PASS;
+			position_add_link(&p, &link);
+		}
+		search_cleanup(w->search); // empty hash tables: the result does not depend on the searches done before
+		if (position_search_with(&p, w->search) & 2) {
+			job->leaf = p.leaf;
+			job->done = true;
+		}
+		position_free(&p);
+
+		lock(plan);
+		n_done = ++plan->n_done;
+		unlock(plan);
+		if (w->progress && book_progress_due(&next)) bprint("Searching positions...%d/%d\r", n_done, plan->n_job);
+	}
+	return NULL;
+}
+
+/**
+ * @brief Do the planned searches, with as many threads as book-store-tasks allows.
+ *
+ * @param book Opening book (not changed).
+ */
+void book_plan_search(Book *book)
+{
+	BookPlan *plan = book_plan;
+	PlanWorker w[MAX_THREADS];
+	Search **search;
+	int i, n;
+
+	if (plan == NULL || plan->failed || plan->n_job == 0) return;
+	n = MIN(book_store_thread_count(), plan->n_job);
+	search = store_pool_get(store_pool, n, 1, book_store_hash_bits(1));
+	if (search == NULL) { error("cannot allocate the searches"); return; }
+
+	bprint("Searching positions...\r");
+	for (i = 0; i < n; ++i) {
+		w[i].plan = plan;
+		w[i].search = search[i];
+		w[i].progress = (i == 0);
+		search[i]->options.verbosity = 0;
+	}
+	for (i = 1; i < n; ++i) thread_create(&w[i].thread, plan_worker_run, w + i);
+	plan_worker_run(w);
+	for (i = 1; i < n; ++i) thread_join(w[i].thread);
+	bprint("Searching positions...%d done\n", plan->n_job);
+	(void) book;
+}
+
+/**
+ * @brief Search a position as position_search_with() does, with the result of the planned search.
+ *
+ * @param position Position to search.
+ * @param book Opening book.
+ * @return 1 if the leaf became a link, | 2 if a search was done.
+ */
+static int position_search_planned(Position *position, Book *book)
+{
+	BookPlan *plan = book_plan;
+	const int n_moves = get_mobility(position->board.player, position->board.opponent);
+	int r = 0;
+
+	if (position->leaf.move != NOMOVE && position_add_link(position, &position->leaf)) {
+		r = 1;
+	}
+
+	if (position->n_link < n_moves || (position->n_link == 0 && n_moves == 0 && position->score.value == -SCORE_INF)) {
+		unsigned long long links = 0;
+		bool pass = false;
+		const Link *l;
+		const PlanJob *job;
+
+		foreach_link(l, position) {
+			if (l->move == PASS) pass = true;
+			else if (l->move <= H8) links |= x_to_bit(l->move);
+		}
+		job = (plan->book == book) ? plan_job_find(plan, &position->board, links, pass, position->level) : NULL;
+		if (job && job->done) {
+			position->leaf = job->leaf;
+			if (position->leaf.score > position->score.value) {
+				position->score.value = position->leaf.score;
+			}
+			++plan->n_used;
+			r |= 2;
+		} else { // not planned: search now
+			++plan->n_missed;
+#ifdef BOOK_TEST_STORE
+			fprintf(stderr, "<not planned: %016llx %016llx links %016llx pass %d level %d n_link %d n_moves %d leaf %d empties %d>\n", position->board.player, position->board.opponent, links, pass, position->level, position->n_link, n_moves, position->leaf.move, board_count_empties(&position->board));
+#endif
+			r |= position_search_with(position, book->search);
+		}
+	}
+	return r;
+}
+
+/**
+ * @brief End a plan: book_add_board() searches as usual again.
+ *
+ * @param book Opening book.
+ */
+void book_plan_end(Book *book)
+{
+	BookPlan *plan = book_plan;
+
+	if (plan == NULL) return;
+#ifdef BOOK_TEST_STORE
+	fprintf(stderr, "<book plan: %d searches planned, %d used, %d not planned>\n", plan->n_job, plan->n_used, plan->n_missed);
+#endif
+	if (plan->n_missed) {
+		info("<book plan: %d searches planned, %d used, %d not planned>\n", plan->n_job, plan->n_used, plan->n_missed);
+	}
+	book_plan = NULL;
+	lock_free(plan);
+	free(plan->job); free(plan->node); free(plan->job_index); free(plan->node_index);
+	free(plan);
+	(void) book;
+}
+
 /**
  * @brief Add a position.
  *
@@ -4422,16 +4979,32 @@ void book_add_board(Book *book, const Board *board)
  */
 void book_add_game(Book *book, const Game *game)
 {
-	Board board;
-	Move stack[99];
-	int i, n_moves;
 	char file[FILENAME_MAX + 1];
 	const long long n_stats = book->stats.n_nodes + book->stats.n_links;
 
 	file_add_ext(options.book_file, ".gam", file);
-	
+
+	if (!book_game_boards(book, game, false)) return; // skip non standard game
+
+	if (book->stats.n_nodes + book->stats.n_links > n_stats && book_get_age(book) > 3600) book_save_progress(book, file);
+}
+
+/**
+ * @brief Add the positions of a game, or plan their searches (see book_plan_begin).
+ *
+ * @param book opening book.
+ * @param game game to add.
+ * @param plan Only plan the searches.
+ * @return false if the game is skipped (it does not start from the standard position).
+ */
+static bool book_game_boards(Book *book, const Game *game, const bool plan)
+{
+	Board board;
+	Move stack[99];
+	int i, n_moves;
+
 	board_init(&board);
-	if (!board_equal(&board, &game->initial_board)) return; // skip non standard game
+	if (!board_equal(&board, &game->initial_board)) return false; // skip non standard game
 	for (i = n_moves = 0; i < 60 - book->options.n_empties && game->move[i] != NOMOVE; ++i) {
 		if (!can_move(board.player, board.opponent)) {
 			stack[n_moves++] = MOVE_PASS;
@@ -4441,18 +5014,18 @@ void book_add_game(Book *book, const Game *game)
 			board_update(&board, stack + n_moves);
 			++n_moves;
 		} else {
-			warn("illegal move in game");
+			if (!plan) warn("illegal move in game");
 			break; // stop, illegal moves
 		}
 	}
 
-	search_cleanup(book->search);
+	if (!plan) search_cleanup(book->search);
 	while (--n_moves >= 0) {
-		book_add_board(book, &board);
+		if (plan) book_plan_board(book, &board);
+		else book_add_board(book, &board);
 		board_restore(&board, stack + n_moves);
 	}
-
-	if (book->stats.n_nodes + book->stats.n_links > n_stats && book_get_age(book) > 3600) book_save_progress(book, file);
+	return true;
 }
 
 /**
@@ -4463,9 +5036,10 @@ void book_add_game(Book *book, const Game *game)
  */
 void book_add_base(Book *book, const Base *base)
 {
-	int i;
+	int i, j;
 	char file[FILENAME_MAX + 1];
 	long long t0, t;
+	const int n_tasks = book_store_task_count();
 
 	file_add_ext(options.book_file, ".gam", file);
 
@@ -4473,6 +5047,13 @@ void book_add_base(Book *book, const Base *base)
 	bprint("Adding %d games to book...\n", base->n_games);
 	t0 = real_clock();
 	for (i = 0; i < base->n_games; ++i) {
+		if (n_tasks > 1 && i % n_tasks == 0) { // book-store-tasks: the searches of the next n_tasks games are done ahead, at the same time
+			book_plan_end(book);
+			if (book_plan_begin(book)) {
+				for (j = i; j < base->n_games && j < i + n_tasks; ++j) book_game_boards(book, base->game + j, true);
+				book_plan_search(book);
+			}
+		}
 		book_add_game(book, base->game + i);
 		t = real_clock();
 		if (t - t0 > 1000) {
@@ -4482,6 +5063,7 @@ void book_add_base(Book *book, const Base *base)
 		if (book->search->options.verbosity) putchar('\n');
 		
 	}
+	book_plan_end(book);
 	bprint("Adding games...%d/%d done: %lld positions, %lld links\n", i, base->n_games, book->stats.n_nodes, book->stats.n_links);
 	bprint("%d games added to book\n", i);
 

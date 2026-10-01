@@ -391,6 +391,18 @@ void search_alloc_thread_hash(Search *search)
  */
 void search_init(Search *search)
 {
+	search_init_with(search, options.n_task, options.hash_table_size);
+}
+
+/**
+ * @brief Init a *main* search with its own number of threads and size of hash tables.
+ *
+ * @param search  search.
+ * @param n_task Number of threads.
+ * @param hash_bits Size of the main hash table (in number of bits).
+ */
+void search_init_with(Search *search, const int n_task, const int hash_bits)
+{
 	/* id */
 	search->id = 0;
 
@@ -405,7 +417,7 @@ void search_init(Search *search)
 	search->pv_table.hash_mask = 0;
 	search->shallow_table.hash = NULL;
 	search->shallow_table.hash_mask = 0;
-	search_resize_hashtable(search);
+	search_set_hash_size(search, hash_bits);
 	search_alloc_thread_hash(search);
 
 	/* board */
@@ -424,7 +436,7 @@ void search_init(Search *search)
 		fatal_error("Cannot allocate a task stack\n");
 	}
 	if (options.cpu_affinity) thread_set_cpu(thread_self(), 0);
-	task_stack_init(search->tasks, options.n_task);
+	task_stack_init(search->tasks, n_task);
 	search->allow_node_splitting = (search->tasks->n > 1);
 
 	/* task associated with the current search */
