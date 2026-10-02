@@ -1,6 +1,8 @@
 """Create the Edax runtime ZIP with the upstream 4.5.5 directory layout.
 
-Usage: python package-release.py path/to/edax-4.5.5-nikque.2.zip
+Usage: python package-release.py path/to/edax-4.5.5-nikque.2.zip [--without-macos]
+--without-macos makes a ZIP to check before the macOS files (built by the
+release-binaries workflow) are there: it leaves them out.
 The 32-bit macOS executable is intentionally omitted: current Xcode SDKs
 cannot link it, and shipping the upstream executable would misrepresent it
 as containing this fork's fixes.
@@ -22,6 +24,7 @@ BINARIES = (
     "bin/lEdax-x86-64",
     "bin/lEdax-x86-64-v3",
     "bin/lEdax-x86-64-v4",
+    "bin/mEdax-arm64",
     "bin/mEdax-x64-modern",
     "bin/wEdax-arm64.exe",
     "bin/wEdax-x86.exe",
@@ -31,8 +34,9 @@ BINARIES = (
     "bin/wEdax-x86-64-v4.exe",
 )
 
-# libedax (Edax as a library); the macOS library is not built yet
+# libedax (Edax as a library)
 LIBRARIES = (
+    "bin/libedax.universal.dylib",
     "bin/libedax-arm64-v8a.so",
     "bin/libedax-armeabi-v7a.so",
     "bin/libedax-x86-64.so",
@@ -42,6 +46,8 @@ LIBRARIES = (
     "bin/libedax-x64-v3.dll",
     "bin/libedax-x64-v4.dll",
 )
+
+MACOS_FILES = ("bin/mEdax-arm64", "bin/mEdax-x64-modern", "bin/libedax.universal.dylib")
 
 OTHER_FILES = (
     "LICENSE",
@@ -62,7 +68,8 @@ OTHER_FILES = (
 
 
 def main() -> None:
-    if len(argv) != 2:
+    without_macos = "--without-macos" in argv[2:]
+    if len(argv) < 2 or (len(argv) > 2 and not without_macos):
         raise SystemExit(__doc__)
 
     output = Path(argv[1]).resolve()
@@ -73,6 +80,9 @@ def main() -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(output, "w") as archive:
         for name in (*OTHER_FILES, *BINARIES, *LIBRARIES):
+            if without_macos and name in MACOS_FILES:
+                print(f"left out: {name}")
+                continue
             path = ROOT / name
             data = path.read_bytes()
             info = ZipInfo(name, date_time=(2026, 9, 27, 0, 0, 0))

@@ -257,6 +257,8 @@ ifeq ($(OS),windows)
 endif
 ifeq ($(OS),osx)
 	LIB_EXT = dylib
+	# the programs find the library next to them (the two architectures are joined in libedax.universal.dylib)
+	LIB_CFLAGS += -Wl,-install_name,@rpath/libedax.universal.dylib
 endif
 
 
