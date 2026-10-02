@@ -78,6 +78,8 @@ jobs:
           name: release-macos-x64
           path: bin/mEdax-x64-modern
           if-no-files-found: error
+      - name: Test the executable
+        run: cd bin && ./mEdax-x64-modern -n 1 -l 60 -solve ../problem/fforum-1-19.obf
 
   # Apple silicon executable, and the library (libedax) for both kinds of Mac in one file
   macos-arm64:
@@ -105,7 +107,7 @@ jobs:
           mkdir -p t/data && cp bin/data/eval.dat t/data/ && cp bin/libedax.universal.dylib bin/mEdax-arm64 t/
           clang -O1 tests/libedax_test.c t/libedax.universal.dylib -Wl,-rpath,@loader_path -o t/libedax_test
           cd t
-          ./mEdax-arm64 -n 1 -l 60 -solve ../problem/fforum-1-19.obf | tail -3
+          ./mEdax-arm64 -n 1 -l 60 -solve ../problem/fforum-1-19.obf
           ./libedax_test libedax.universal.dylib > libedax_test.log 2>&1 || { cat libedax_test.log; exit 1; }
           grep 'checks,' libedax_test.log
 

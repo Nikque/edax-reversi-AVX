@@ -576,7 +576,7 @@ int main(int argc, char **argv)
 			// several games at the same time
 			edax_set_option("n-tasks", "4");
 			edax_set_option("book-store-tasks", "auto");
-			CHECK_INT(store_tasks(), 4);
+			CHECK(store_tasks() >= 2 && store_tasks() <= 4); // auto: n-tasks, which is 4 or the number of CPUs
 			edax_set_option("book-store-tasks", "2");
 			CHECK_INT(store_tasks(), 2);
 			edax_init();
