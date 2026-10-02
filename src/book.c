@@ -4661,6 +4661,8 @@ typedef struct PlanNode {
 	bool no_score;             /**< its score is -SCORE_INF */
 } PlanNode;
 
+struct PlanWorker;
+
 typedef struct BookPlan {
 	Book *book;
 	PlanJob *job;
@@ -4669,9 +4671,13 @@ typedef struct BookPlan {
 	int *job_index, *node_index;   /**< hash tables of the jobs and of the nodes: index + 1 (0: free slot) */
 	unsigned int job_mask, node_mask;
 	bool failed;                   /**< out of memory: nothing more is planned */
+	bool usual;                    /**< a single search: it is done as usual, when the position is added */
 	int n_used, n_missed;          /**< searches taken from the plan, searches that were not planned */
-	Lock lock;                     /**< guards next and n_done */
+	Lock lock;                     /**< guards next, n_done, and the workers */
 	int next, n_done;
+	struct PlanWorker *worker;     /**< threads doing the searches (book_plan_search) */
+	int n_worker, n_threads;       /**< workers started, threads that they share */
+	int n_continued;               /**< searches stopped and continued with more threads */
 } BookPlan;
 
 /** a thread doing planned searches */
@@ -4680,6 +4686,11 @@ typedef struct PlanWorker {
 	Search *search;
 	Thread thread;
 	bool progress;                 /**< this one shows the progress */
+	int n_tasks;                   /**< threads of its search */
+	/* guarded by the lock of the plan: */
+	int want;                      /**< threads that its search should have */
+	int run_tasks;                 /**< threads of the search that it is running (0: it is not searching) */
+	bool busy;                     /**< it has a job */
 } PlanWorker;
 
 #define plan_slot(board, mask) ((unsigned int) (board_get_hash_code(board) >> 24) & (mask))
@@ -4889,6 +4900,33 @@ void book_plan_board(Book *book, const Board *board)
 	}
 }
 
+/**
+ * Give the threads of the workers that have no job to the searches that are still running.
+ *
+ * Called with the lock of the plan, when there is no search left to start. A search that can get
+ * at least twice its threads is stopped: its worker runs it again with more threads and the same
+ * hash tables, which give back what was already searched. A level 24 search that takes 25 s with
+ * one thread no longer keeps 31 threads idle until it ends.
+ */
+static void plan_share_threads(BookPlan *plan)
+{
+#ifndef BOOK_TEST_ONE_THREAD
+	int i, n_busy = 0, n;
+
+	for (i = 0; i < plan->n_worker; ++i) if (plan->worker[i].busy) ++n_busy;
+	if (n_busy == 0) return;
+	n = MIN(plan->n_threads / n_busy, MAX_THREADS - 1);
+	for (i = 0; i < plan->n_worker; ++i) {
+		PlanWorker *w = plan->worker + i;
+		if (w->busy && n >= 2 * w->want) w->want = n;
+		// (also asked again when a first request came before the search started)
+		if (w->busy && w->run_tasks > 0 && w->run_tasks < w->want) search_stop_all(w->search, STOP_ON_DEMAND);
+	}
+#else
+	(void) plan; // test builds: every search has one thread, to compare with the searches done one after the other
+#endif
+}
+
 /** Thread doing the planned searches. */
 static void* plan_worker_run(void *v)
 {
@@ -4901,29 +4939,55 @@ static void* plan_worker_run(void *v)
 		Position p;
 		Link link;
 		unsigned long long links;
-		int i, x, n_done;
+		int i, x, n, n_done;
+		bool done;
 
 		lock(plan);
 		i = plan->next < plan->n_job ? plan->next++ : -1;
+		w->busy = (i >= 0);
+		if (plan->next >= plan->n_job) plan_share_threads(plan); // no search left to start
 		unlock(plan);
 		if (i < 0) break;
 
 		job = plan->job + i;
-		position_init(&p);
-		p.board = job->board;
-		p.level = job->level;
-		link.score = -SCORE_INF; // the search does not use the scores of the links
-		links = job->links;
-		foreach_bit(x, links) {
-			link.move = (unsigned char) x;
-			position_add_link(&p, &link);
-		}
-		if (job->pass) {
-			link.move = PASS;
-			position_add_link(&p, &link);
-		}
 		search_cleanup(w->search); // empty hash tables: the result does not depend on the searches done before
-		if (position_search_with(&p, w->search) & 2) {
+		w->search->options.keep_date = false;
+		for (;;) {
+			position_init(&p);
+			p.board = job->board;
+			p.level = job->level;
+			link.score = -SCORE_INF; // the search does not use the scores of the links
+			links = job->links;
+			foreach_bit(x, links) {
+				link.move = (unsigned char) x;
+				position_add_link(&p, &link);
+			}
+			if (job->pass) {
+				link.move = PASS;
+				position_add_link(&p, &link);
+			}
+
+			for (;;) { // the threads of this search
+				lock(plan);
+				n = w->want;
+				if (n == w->n_tasks) w->run_tasks = n; // (a stop is only asked while run_tasks is set)
+				unlock(plan);
+				if (n == w->n_tasks) break;
+				search_set_task_number(w->search, n);
+				w->n_tasks = n;
+			}
+			done = (position_search_with(&p, w->search) & 2) != 0;
+			lock(plan);
+			w->run_tasks = 0;
+			if (done && w->search->stop == STOP_ON_DEMAND) ++plan->n_continued;
+			unlock(plan);
+			if (!done || w->search->stop != STOP_ON_DEMAND) break; // the search ended by itself
+			// stopped to get more threads: search again, with what the hash tables kept
+			position_free(&p);
+			w->search->options.keep_date = true;
+		}
+		w->search->options.keep_date = false;
+		if (done) {
 			job->leaf = p.leaf;
 			job->done = true;
 		}
@@ -4938,7 +5002,41 @@ static void* plan_worker_run(void *v)
 }
 
 /**
- * @brief Do the planned searches, with as many threads as book-store-tasks allows.
+ * @brief Size of the hash tables of a planned search that starts with several threads.
+ *
+ * The size of a one-thread search (book_store_hash_bits), doubled each time the threads are: the
+ * searches done at the same time never take more memory together than as many one-thread searches
+ * as threads. It is never more than the size that hash-table-size gives to a search with these threads.
+ *
+ * @param book Opening book.
+ * @param n_tasks Threads of the search.
+ * @return size (in number of bits).
+ */
+static int book_plan_hash_bits(const Book *book, const int n_tasks)
+{
+	int bits = book_store_hash_bits(book, 1), n;
+
+	if (n_tasks > 1) {
+		for (n = 2; n <= n_tasks; n *= 2) ++bits;
+		bits = MIN(bits, book_store_hash_bits(book, n_tasks));
+	}
+	return bits;
+}
+
+/**
+ * @brief Do the planned searches at the same time.
+ *
+ * The threads (n-tasks) are shared between the searches:
+ * - as many searches as threads, or more: one thread each;
+ * - fewer searches: each one starts with n-tasks / searches threads;
+ * - when no search is left to start, the searches that are still running get the threads of the
+ *   ones that ended (plan_share_threads).
+ * A one-thread search only depends on its position: it starts with empty hash tables. A search with
+ * several threads can give another leaf from a run to the next, as any search with several threads.
+ * The searches of the pool are created while there are searches left to start: a few short searches
+ * do not pay for the memory of as many searches as threads.
+ * A single search is not done here: it is done as usual when its position is added (all the threads,
+ * the hash tables of the main search), exactly as with book-store-tasks = 1.
  *
  * @param book Opening book (not changed).
  */
@@ -4947,23 +5045,56 @@ void book_plan_search(Book *book)
 	BookPlan *plan = book_plan;
 	PlanWorker w[MAX_THREADS];
 	Search **search;
-	int i, n;
+	int i, n, n_tasks, bits;
 
 	if (plan == NULL || plan->failed || plan->n_job == 0) return;
-	n = MIN(book_store_thread_count(), plan->n_job);
-	search = store_pool_get(store_pool, n, 1, book_store_hash_bits(book, 1));
-	if (search == NULL) { error("cannot allocate the searches"); return; }
+#ifndef BOOK_TEST_ONE_THREAD
+	if (plan->n_job == 1) { plan->usual = true; return; }
+#endif
+	plan->n_threads = book_store_thread_count();
+	n = MIN(plan->n_threads, plan->n_job);
+	n_tasks = MIN(plan->n_threads / n, MAX_THREADS - 1);
+#ifdef BOOK_TEST_ONE_THREAD
+	n_tasks = 1;
+#endif
+	bits = book_plan_hash_bits(book, n_tasks);
 
 	bprint("Searching positions...\r");
+	plan->worker = w;
+	plan->n_worker = 0;
 	for (i = 0; i < n; ++i) {
+		bool left;
+		search = store_pool_get(store_pool, i + 1, 1, bits);
+		if (search == NULL) {
+			if (i == 0) { error("cannot allocate the searches"); plan->worker = NULL; return; }
+			break; // the workers already started do all the searches
+		}
 		w[i].plan = plan;
 		w[i].search = search[i];
 		w[i].progress = (i == 0);
+		w[i].n_tasks = search_count_tasks(search[i]);
+		w[i].run_tasks = 0;
+		w[i].busy = true; // until it finds no job
 		search[i]->options.verbosity = 0;
+		lock(plan);
+		w[i].want = n_tasks;
+		plan->n_worker = i + 1;
+		left = (plan->next < plan->n_job);
+		unlock(plan);
+		thread_create(&w[i].thread, plan_worker_run, w + i);
+		if (!left) break; // the searches are short: no more worker is needed
 	}
-	for (i = 1; i < n; ++i) thread_create(&w[i].thread, plan_worker_run, w + i);
-	plan_worker_run(w);
-	for (i = 1; i < n; ++i) thread_join(w[i].thread);
+	n = plan->n_worker;
+	for (i = 0; i < n; ++i) thread_join(w[i].thread);
+	for (i = 0; i < n; ++i) { // back to the state of the pool
+		if (w[i].n_tasks != 1) search_set_task_number(w[i].search, 1);
+		w[i].search->options.keep_date = false;
+	}
+	plan->worker = NULL;
+	plan->n_worker = 0;
+#ifdef BOOK_TEST_STORE
+	fprintf(stderr, "<plan search: %d searches, %d workers, %d threads each at first, %d continued with more threads>\n", plan->n_job, n, n_tasks, plan->n_continued);
+#endif
 	bprint("Searching positions...%d done\n", plan->n_job);
 }
 
@@ -5002,6 +5133,9 @@ static int position_search_planned(Position *position, Book *book)
 			}
 			++plan->n_used;
 			r |= 2;
+		} else if (job && plan->usual) { // the single search of the plan
+			++plan->n_used;
+			r |= position_search_with(position, book->search);
 		} else { // not planned: search now
 			++plan->n_missed;
 #ifdef BOOK_TEST_STORE
