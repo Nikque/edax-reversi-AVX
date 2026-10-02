@@ -2,6 +2,16 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.8
+
+Fixes `book-store-tasks = auto`, the default since v4.5.5-nikque.7, which was slower than v4.5.5-nikque.6 when few searches were needed or at a high level. This is the only change: `eval.dat`, the book file format, the search results and `book-store-tasks = 1` are unchanged, and no book was damaged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+
+- The problem: the searches of the learning commands (`book store`, `book add`, `book learn`) and of the link rebuild (`book fix`, `book merge`, `book import`, ...) ran at the same time with one thread each, so with few searches, or with a long search among short ones, the other threads waited until the longest search ended. Measured (32 threads, `1` against `auto` of v4.5.5-nikque.7): playing a game then `book store` at level 24 took 13.4 s against 26.0 s, at level 21 4.2 s against 6.4 s; `book fix` with one leaf at level 24 took 1.1 s against 6.2 s. `book merge` of 6.49 million positions was about 0.4 s slower, with a peak memory of 0.96 GiB instead of 0.55.
+- The fix: with fewer searches than threads, each search starts with several threads; when no search is left to start, the searches still running are stopped and continued with the threads of the ones that ended (same hash tables). A single search is the search of `1`. The searches of the pool are only created when needed.
+- Measured after the fix (`1` against `auto` of v4.5.5-nikque.8): a game then `book store` at level 24: 13.4 s against 5.8 and 10.6 s; at level 21: 4.2 s against 2.0 s; 30 games stored one by one at level 18: 34.5 s against 18.2 s (29.0 s with v4.5.5-nikque.7); `book fix` with 16 leaves at level 24: 7.8 s against 3.2 s; with 1,000 leaves at level 18: 54 to 59 s against 9.2 to 9.7 s (about 18 s with v4.5.5-nikque.7); 128 games learned by edax_runner: 37.2 and 38.8 s before, 35.1 and 35.9 s now; `book merge` of 6.49 million positions: the time of v4.5.5-nikque.6 and nearly its memory (0.57 GiB). `auto` was as fast as `1` or faster in everything that was measured.
+- A search that gets more threads is a search with several threads: its result can slightly change from a run to the next (two runs of the learning of 128 games: another leaf move in 7 of 272,576 positions, same scores). `auto` uses more memory than `1` (with 32 threads: up to about 450 MB up to level 18, 0.9 GB up to level 21, 1.8 GB above).
+- Checked: `-solve` results and node counts; the book regression tests (every file as v4.5.5-nikque.6 with `-book-store-tasks 1`, and also with the default in these tests); with a test build where every search keeps one thread, the same books as the searches done one after the other; 300 runs for the searches continued with more threads.
+
 ## v4.5.5-nikque.7
 
 A library (libedax), learning games with several threads (new setting `book-store-tasks`; its default, `auto`, learns `n-tasks` games at the same time), a faster `book fix`, and two book bug fixes. `eval.dat`, the book file format and the search results are unchanged. **The books learned from games slightly differ from those of v4.5.5-nikque.6** (with `book-store-tasks = 1`, the learning and its books are the same as with v4.5.5-nikque.6). See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.

@@ -4,6 +4,65 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.8
+
+`book-store-tasks = auto`, the default since v4.5.5-nikque.7, was **slower than v4.5.5-nikque.6 when few searches were needed or at a high level**. The way the threads are given to the searches done at the same time is fixed. This is the only change: the evaluation data `eval.dat`, the book file format, the search results and `book-store-tasks = 1` are unchanged. The books were not damaged: the books made with v4.5.5-nikque.7 can be used as they are.
+
+### The problem
+
+v4.5.5-nikque.7 does the searches of the learning commands (`book store`, `book add`, `book learn`) and of the link rebuild (`book fix`, `book merge`, `book import`, ...) at the same time, one thread each. With fewer searches than threads, or with a long search among short ones, the other threads waited idle until the longest one-thread search ended. The higher the level, the more long searches there are (searches that several threads speed up well), and the worse it was. It does not show when many games are learned at level 18, which is what was measured before that release.
+
+### The fix
+
+- **Fewer searches than threads**: each search starts with `n-tasks / searches` threads.
+- **When no search is left to start**: the searches still running are stopped and continued with the threads of the ones that ended. They keep their hash tables, so what was searched before the stop is not lost. This is done each time a search can get at least twice its threads.
+- **A single search**: it is exactly the search of `book-store-tasks = 1` (no more memory either).
+- **The searches of the pool** (each one with its hash tables) are created while there are searches left to start: a few short searches no longer create as many of them as threads.
+
+### Measurements
+
+Ryzen 9 9950X (32 logical CPUs), `n-tasks` 32, `hash-table-size = auto`, the AVX-512 Windows build. Times in seconds.
+
+| | `1` (the searches of v4.5.5-nikque.6) | `auto` of v4.5.5-nikque.7 | `auto` of v4.5.5-nikque.8 |
+|---|---|---|---|
+| level 24: play a game, then `book store` (34 searches) | 13.4 | **26.0** | 5.8, 10.6 |
+| level 21: the same | 4.2 | **6.4** | 2.0 |
+| level 18: 30 games, each one played then stored (a book of 270,000 positions) | 34.5 | 29.0 | 18.2, 18.3 |
+| level 24: `book fix` with 1 leaf to search again | 1.1 to 1.5 | **6.2** | 1.2 (the same search as `1`) |
+| level 24: the same, 4 leaves | 2.0 to 3.0 (average 2.5) | **6.1** | 1.4 to 2.5 (average 1.7) |
+| level 24: the same, 16 leaves | 6.8 to 9.2 (average 7.8) | **8.9** | 2.9 to 3.7 (average 3.2) |
+| level 18: the same, 1,000 leaves (a book of 270,000 positions) | 54.1 to 58.8 | 17.7 to 18.2 | 9.2 to 9.7 |
+| level 24: `book learn` of 4 games (new book) | 36.0 | 13.2 | 10.6, 10.7 |
+| level 21: `book learn` of 8 games (new book) | 31.2 | 17.9 | 11.0, 11.1 |
+| level 18: `book learn` of 128 games (a book of 270,000 positions) | - | 36.1 | 33.5, 33.6 |
+| level 18: 128 games learned by edax_runner | 112.9 (measured with v4.5.5-nikque.7) | 37.2, 38.8 | 35.1, 35.9 |
+| level 18: `book add` of 30 games | 24.0 (the same) | 3.1 | 3.0 |
+| `book merge` of a book of 6.49 million positions into an empty book (127 searches) | as v4.5.5-nikque.6 | about 0.4 s slower (4.7 to 5.1) | as v4.5.5-nikque.6 (4 alternate runs each: 5.7 to 6.3 and 5.8 to 6.3) |
+
+- In bold: where `auto` of v4.5.5-nikque.7 was slower than `1`. `auto` of v4.5.5-nikque.8 was as fast as `1` or faster in everything that was measured.
+- With few searches, the time changes from a run to the next (searches with several threads). The averages are those of 10 to 20 runs.
+- `book merge` of two real books of 270,000 positions (1 search) took 0.12 s, against 0.21 s with v4.5.5-nikque.6.
+- `book fix` of a sound book (6.49 million positions, no search) took 2.2 s, against 21.5 to 21.9 s with v4.5.5-nikque.6 (23.3 s and 23.2 s with one thread), with the same peak memory of 407 MB (this code is the one of v4.5.5-nikque.7).
+- **Against several edax_runner at the same time** (128 games at level 18, with the time to merge their books): 42.3 s + 1.9 s of merges with 8 of them and 4 threads each, 34.9 s + 2.6 s with 16 and 2 threads each. One edax_runner with `auto` took 35.1 and 35.9 s.
+
+**Peak memory** (each of the searches done at the same time has its hash tables):
+
+| | `1` | `auto` of v4.5.5-nikque.7 | `auto` of v4.5.5-nikque.8 |
+|---|---|---|---|
+| level 24: `book store` of a game | 262 MB | 2.2 GB | 2.2 GB |
+| level 24: `book fix` with 4 / 16 leaves | 261 MB | 462 MB / 1.1 GB | 684 MB / 1.1 GB |
+| level 21: `book store` of a game | 261 MB | 1.3 GB | 1.4 GB |
+| level 18: `book fix` with 1,000 leaves | 274 MB | 696 MB | 701 MB |
+| `book merge` of 6.49 million positions | 0.55 GiB (v4.5.5-nikque.6) | 0.96 GiB | 0.57 GiB |
+
+- With 32 threads, the hash tables of the searches done at the same time take up to about 450 MB up to level 18, 0.9 GB up to level 21 and 1.8 GB above (in proportion to the threads). With few searches, each one uses more threads and gets larger tables (never more in total than these values). Set `book-store-tasks = 1` if this memory is a problem.
+
+**Resulting books**:
+
+- A search that ends with its single thread gives the same result as with v4.5.5-nikque.7 (it only depends on the position). A search that got more threads, or that started with several, can give a slightly different result from a run to the next, as any search with several threads. Two runs of the learning of 128 games gave books (272,576 positions) with another leaf move in 7 positions and the same scores everywhere (`auto` of v4.5.5-nikque.7 gave the same book every time). The book differs from the one of `auto` of v4.5.5-nikque.7 in 19 positions.
+- With a test build where every search keeps one thread, the books are still exactly those of the searches done one after the other with empty hash tables (the 10 damaged books, `book store`, `book add`, `book learn`, merges), as with v4.5.5-nikque.7.
+- Test of the searches continued with more threads: 300 runs of `book fix` with a few leaves and 32 threads all ended normally (840 continued searches counted in 120 of them), and `book fix` of v4.5.5-nikque.6 has nothing to change in the books they make.
+
 ## Changes in v4.5.5-nikque.7
 
 Edax can now be used as a library by other programs (libedax); games are learned with several threads (`book store`, `book add` and the new `book learn`, with the new setting `book-store-tasks`; its default, `auto`, learns `n-tasks` games at the same time); `book fix` is faster; and two book bugs are fixed. The evaluation data `eval.dat`, the book file format and the search results are unchanged.
@@ -11,6 +70,8 @@ Edax can now be used as a library by other programs (libedax); games are learned
 **The books learned from games slightly differ from those of v4.5.5-nikque.6** (372 positions with different contents in a measured book of about 270,000 positions: about as much as the original learning differs when the number of threads changes). With `book-store-tasks = 1`, the learning and its books are the same as with v4.5.5-nikque.6.
 
 ### Learning games with several threads: book-store-tasks (new setting)
+
+(v4.5.5-nikque.8 fixed how the threads are given to the searches done at the same time. The times of this section, and "the longest search still has to end", are those of v4.5.5-nikque.7: see "Changes in v4.5.5-nikque.8" above.)
 
 `book store` (add the game just played to the book) and `book add` (add a file of games) search the positions of a game one after the other, from its end, and add them to the book. Each search is short (about 0.1 s at level 18), so more search threads stop helping at about 8 threads, and most CPUs stay idle. This is why several Edax or edax_runner were run at the same time, and their books merged afterwards. With the new setting `book-store-tasks`, one Edax learns with many threads.
 
@@ -575,9 +636,9 @@ book-expand-tasks = auto
 With `book-store-tasks = auto` (the bundled value, and the default without `config.ini`), `book store`, `book add` and `book learn` learn `n-tasks` games at the same time (one thread per game); with a number n (2 or more), n games at the same time (see "Learning games with several threads" above for how it works and for the measurements). With `book-store-tasks = 1`, they search the positions of a game one after the other, with all the `n-tasks` threads: exactly as up to v4.5.5-nikque.6, with the same book as a result.
 
 - **Speed**: `auto` is the fastest: 2.8 to 3.3 times faster than `1` in the measurement above (32 logical CPUs, level 18). `auto` is faster than 8 or 16, with less memory.
-- **Resulting book**: with `auto` (or a number of 2 or more) it is not the same as with `1` (each search starts with empty hash tables, and the games of a group are played without what the other games of the group teach). See the table above for how much it differs. Set `1` to make the same books as the previous versions.
+- **Resulting book**: with `auto` (or a number of 2 or more) it is not the same as with `1` (each search starts with empty hash tables, and the games of a group are played without what the other games of the group teach). See the table above for how much it differs. Set `1` to make the same books as the previous versions. Since v4.5.5-nikque.8 some searches get more threads while they run, so the book of `auto` can also slightly change from a run to the next (7 positions of 270,000).
 - **Leaf searches while the links are rebuilt** (`book fix`, `book merge`, `book import`, ...): they are also done at the same time, one thread each, when this setting is not 1.
-- **Memory**: the positions are searched by up to `n-tasks` one-thread searches at the same time, each one with its hash tables. They take 14 MB each (19 bits) up to level 18, 28 MB up to level 21 and 57 MB above, whatever `hash-table-size` is (there are `n-tasks` of them: a large number would take too much memory; only a smaller number is used as it is). When `n` is smaller than `n-tasks`, add the hash tables of the n searches that play the games (`n-tasks / n` threads each).
+- **Memory**: the positions are searched by up to `n-tasks` searches at the same time, each one with its hash tables. With fewer searches than `n-tasks`, each search uses several threads and larger tables (never more in total than `n-tasks` one-thread searches). The one-thread searches take 14 MB each (19 bits) up to level 18, 28 MB up to level 21 and 57 MB above, whatever `hash-table-size` is (there are `n-tasks` of them: a large number would take too much memory; only a smaller number is used as it is). When `n` is smaller than `n-tasks`, add the hash tables of the n searches that play the games (`n-tasks / n` threads each).
 - edax_runner (built with the libedax of this fork) learns the "edax vs edax" lines of its learning list by groups of that many games when this setting is not 1.
 
 The book memory does not depend on these settings (about 50 bytes per position with its links, 30.6 GiB for 657 million positions; about 58 bytes and 35.6 GiB up to v4.5.5-nikque.4); add the hash tables (for example 16 x 57 MB = 0.9 GB above), and 1 byte per position while `book deviate`/`deviate2`/`deviate3` select positions.
