@@ -702,7 +702,7 @@ void ui_loop_edax(UI *ui)
 					parse_word(book_param, book_file, FILENAME_MAX);
 					if (book_merge_file(book, book_file)) { // the source book is streamed, not loaded
 						book_link_parallel(book); // rebuild links before validating imported positions
-						book_fix_parallel(book);
+						book_fix(book);
 						book_negamax(book);
 						book_sort_parallel(book);
 						if (options.book_merge_auto_save) {
@@ -785,13 +785,11 @@ void ui_loop_edax(UI *ui)
 					base_load(&base, book_file);
 					book_add_base(book, &base);
 					base_free(&base);
-					book_store_release();
 
 				// play the games of a file (first moves, then edax vs edax) and store them
 				} else if (strcmp(book_cmd, "learn") == 0) {
 					parse_word(book_param, book_file, FILENAME_MAX);
 					play_learn_file(play, book_file);
-					book_store_release();
 
 				// check positions from a game database
 				} else if (strcmp(book_cmd, "check") == 0) {
@@ -861,6 +859,9 @@ void ui_loop_edax(UI *ui)
 				} else {
 					warn("Unknown book command: \"%s %s\"\n", cmd, param);
 				}
+				// the searches used to learn games or to link the book at the same time (book-store-tasks) are
+				// kept from a book store to the next one (as with auto-store), and released by the other commands
+				if (strcmp(book_cmd, "store") != 0) book_store_release();
 				book->options.verbosity = book->search->options.verbosity;
 				book->search->options.verbosity = options.verbosity;
 

@@ -91,7 +91,7 @@ Options options = {
 	false, // level given by the user (else no level cap with a time control)
 	0, // probcut model: standard
 	0, // book depth: auto (the depth of the loaded book)
-	1, // games learned at the same time
+	0, // games learned at the same time: auto
 };
 
 /**
@@ -138,7 +138,7 @@ void options_usage(void)
 		"  -book-deviate-save-rounds <n> save deviate progress every n rounds; 0 means completion only.\n"
 		"  -book-merge-auto-save <on/off> save the book to <book-file>.mrg after book merge.\n"
 		"  -book-expand-tasks <n|auto>   expand n book positions at the same time (n-tasks / n threads each).\n"
-		"  -book-store-tasks <n|auto>    learn n games at the same time (n-tasks / n threads each).\n"
+		"  -book-store-tasks <n|auto>    learn n games at the same time (n-tasks / n threads each); auto (default): n-tasks; 1: as before.\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 

@@ -1554,7 +1554,7 @@ LIBEDAX_API void edax_book_merge(const char *book_file)
 	// merge an opening book to the current one
 	if (book_merge_file(book, book_file)) { // the source book is streamed, not loaded
 		book_link_parallel(book); // rebuild links before validating imported positions
-		book_fix_parallel(book);
+		book_fix(book);
 		book_negamax(book);
 		book_sort_parallel(book);
 		if (options.book_merge_auto_save) {

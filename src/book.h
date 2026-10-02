@@ -83,7 +83,6 @@ void book_export(Book*, const char*);
 void book_merge(Book*, const Book*);
 bool book_merge_file(Book*, const char*);
 void book_link_parallel(Book*);
-void book_fix_parallel(Book*);
 void book_sort_parallel(Book*);
 void book_sort(Book *book);
 void book_negamax(Book*);

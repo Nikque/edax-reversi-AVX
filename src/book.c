@@ -2519,7 +2519,6 @@ struct ChangedSet;
 typedef struct BookTask {
 	Book *book;
 	int first, last;           /**< bucket range [first, last) */
-	bool exact;                /**< book_link: also refresh the scores of the existing links */
 	const struct ChangedSet *changed; /**< book_link: positions whose score changed while linking */
 	unsigned long long *item;  /**< collected (bucket << 32 | index << 8 | move) items, in bucket order */
 	long long n, size;
@@ -2564,17 +2563,17 @@ static bool book_progress_due(long long *next)
  * With a progress label, all the ranges run in worker threads and this thread prints
  * "<label>...<positions scanned>/<positions> positions checked" once per second.
  *
- * @param exact, changed Given to every task (see book_link_tasks; false and NULL otherwise).
+ * @param changed Given to every task (see book_link_tasks; NULL otherwise).
  * @return number of tasks (task[0..n-1] hold the results, in bucket order).
  */
-static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task, const char *progress, const bool exact, const struct ChangedSet *changed)
+static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task, const char *progress, const struct ChangedSet *changed)
 {
 	int i, n = book_n_task();
 	if (n > MAX_THREADS) n = MAX_THREADS;
 	if (n < 1) n = 1;
 	for (i = 0; i < n; ++i) {
 		task[i].book = book;
-		task[i].exact = exact; task[i].changed = changed;
+		task[i].changed = changed;
 		task[i].first = (int) ((long long) book->n * i / n);
 		task[i].last = (int) ((long long) book->n * (i + 1) / n);
 		task[i].item = NULL; task[i].n = task[i].size = 0; task[i].oom = false;
@@ -2604,7 +2603,7 @@ static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task
 
 static int book_parallel(Book *book, void (*run)(BookTask*), BookTask *task, const char *progress)
 {
-	return book_parallel_with(book, run, task, progress, false, NULL);
+	return book_parallel_with(book, run, task, progress, NULL);
 }
 
 static void book_tasks_free(BookTask *task, const int n)
@@ -2718,9 +2717,9 @@ static void book_link_refresh(BookTask *task)
 
 /**
  * Phase 1 of book_link: find the missing links.
- * Read only, except the exact variant: as position_link() does, it gives to the existing links the
- * score of their position (only this thread writes to the links of a position, and no thread reads
- * the links of another position).
+ * As position_link() does, it also gives to the existing links the score of their position
+ * (only this thread writes to the links of a position, and no thread reads the links of
+ * another position).
  */
 static void book_link_find(BookTask *task)
 {
@@ -2734,30 +2733,52 @@ static void book_link_find(BookTask *task)
 			Position *p = a->positions + k;
 			unsigned long long moves = board_get_moves(&p->board);
 			bool found = false;
-			if (task->exact) {
-				const Position *child;
-				Link *l;
-				if (moves) {
-					foreach_bit(x, moves) {
-						board_next(&p->board, x, &next);
-						child = book_probe(book, &next);
-						if (child) {
-							foreach_link(l, p) if (l->move == x) break;
-							if (l < position_links(p) + p->n_link) l->score = -child->score.value;
-							else { book_task_push(task, TASK_ITEM(b, k, x)); found = true; }
-						}
-					}
-				} else if (can_move(p->board.opponent, p->board.player)) {
-					next.player = p->board.opponent;
-					next.opponent = p->board.player;
+			const Position *child;
+			Link *l;
+			if (moves) {
+				foreach_bit(x, moves) {
+					board_next(&p->board, x, &next);
 					child = book_probe(book, &next);
 					if (child) {
-						foreach_link(l, p) if (l->move == PASS) break;
+						foreach_link(l, p) if (l->move == x) break;
 						if (l < position_links(p) + p->n_link) l->score = -child->score.value;
-						else { book_task_push(task, TASK_ITEM(b, k, PASS)); found = true; }
+						else { book_task_push(task, TASK_ITEM(b, k, x)); found = true; }
 					}
 				}
-			} else if (moves) {
+			} else if (can_move(p->board.opponent, p->board.player)) {
+				next.player = p->board.opponent;
+				next.opponent = p->board.player;
+				child = book_probe(book, &next);
+				if (child) {
+					foreach_link(l, p) if (l->move == PASS) break;
+					if (l < position_links(p) + p->n_link) l->score = -child->score.value;
+					else { book_task_push(task, TASK_ITEM(b, k, PASS)); found = true; }
+				}
+			}
+			if (!found && p->leaf.move == NOMOVE) book_task_push(task, TASK_ITEM(b, k, TASK_NO_LINK));
+		}
+		task->done += a->n;
+	}
+}
+
+/**
+ * Phase 1 of the link of book merge (as from v4.5.5-nikque.3): find the missing links (read only).
+ * The moves that are already links are not probed and keep their score: book merge negamaxes the
+ * book afterwards, which sets again the scores of the links of every position reachable from the root.
+ */
+static void book_link_find_missing(BookTask *task)
+{
+	Book *book = task->book;
+	int b, k, x;
+	Board next;
+
+	for (b = task->first; b < task->last; ++b) {
+		const PositionArray *a = book->array + b;
+		for (k = 0; k < a->n; ++k) {
+			const Position *p = a->positions + k;
+			unsigned long long moves = board_get_moves(&p->board);
+			bool found = false;
+			if (moves) {
 				foreach_bit(x, moves) {
 					if (!position_has_link(p, x)) {
 						board_next(&p->board, x, &next);
@@ -2831,13 +2852,65 @@ static const MergeHint* merge_hint_find(const unsigned long long key)
 
 static void book_link_one_by_one(Book*);
 
+static void plan_job_add(struct BookPlan*, const Board*, const unsigned long long, const bool, const int);
+
+/**
+ * @brief Plan the leaf searches that linking is going to do (book-store-tasks > 1).
+ *
+ * The positions that get new links, and their links, are known from the items: a position whose
+ * leaf becomes a link (or that has no leaf) is searched again without its links, unless a leaf of
+ * the merged book can be used. These searches are done at the same time (see book_plan_begin).
+ *
+ * @param book Opening book (not changed).
+ * @param task Items found by the threads.
+ * @param n Number of tasks.
+ */
+static void book_link_plan(Book *book, const BookTask *task, const int n)
+{
+	int i;
+	long long j;
+
+	for (i = 0; i < n; ++i) {
+		for (j = 0; j < task[i].n; ) {
+			const unsigned long long key = task[i].item[j] >> 8;
+			const Position *p = book->array[TASK_BUCKET(task[i].item[j])].positions + TASK_INDEX(task[i].item[j]);
+			const MergeHint *hint = merge_hint_find(((unsigned long long) TASK_BUCKET(task[i].item[j]) << 32) | (unsigned long long) TASK_INDEX(task[i].item[j]));
+			const int n_moves = get_mobility(p->board.player, p->board.opponent);
+			unsigned long long links = 0;
+			bool pass = false, no_leaf = (p->leaf.move == NOMOVE);
+			int value = p->score.value, n_link;
+			const Link *l;
+
+			foreach_link(l, p) {
+				if (l->move == PASS) pass = true;
+				else if (l->move <= H8) links |= x_to_bit(l->move);
+			}
+			for (; j < task[i].n && (task[i].item[j] >> 8) == key; ++j) { // the new links of this position
+				const int x = TASK_MOVE(task[i].item[j]);
+				if (x == TASK_NO_LINK) continue;
+				if (x == PASS) pass = true; else links |= x_to_bit(x);
+				if (x == p->leaf.move) no_leaf = true;
+				value = SCORE_INF; // a link was added: the score is not -SCORE_INF any more
+			}
+			if (!no_leaf) continue;
+			if (hint && hint->level == p->level && hint->leaf.move != NOMOVE
+			 && !(hint->leaf.move == PASS ? pass : (hint->leaf.move <= H8 && (links & x_to_bit(hint->leaf.move)) != 0))) continue;
+			n_link = bit_count(links) + pass;
+			if (n_link < n_moves || (n_link == 0 && n_moves == 0 && value == -SCORE_INF)) plan_job_add(book_plan, &p->board, links, pass, p->level);
+		}
+	}
+}
+
 /**
  * @brief Link a book using several threads.
  *
  * Same links and leaf searches as the one by one book_link(), in the same order.
  * - exact (book_link): the book is the same as with the one by one book_link().
- * - not exact (book merge, as from v4.5.5-nikque.3 to 6): scores of links that already existed are not
- *   refreshed here (book_negamax() recomputes them for every position reachable from the root).
+ * - not exact (book merge, as from v4.5.5-nikque.3 to 6): the scores of the links that already
+ *   existed are not refreshed here (book_negamax() recomputes them for every position reachable
+ *   from the root), and the leaves of the merged book are used (merge hints).
+ * With book-store-tasks > 1, the leaf searches are done at the same time before (each one with
+ * empty hash tables: see book_plan_begin); with book-store-tasks = 1 they are done one by one.
  *
  * @param book Opening book.
  * @param exact Same result as the one by one book_link().
@@ -2848,10 +2921,10 @@ static void book_link_tasks(Book *book, const bool exact)
 	ChangedSet changed = {0};
 	int i, n, value = 0;
 	long long j, n_items = 0, i_item = 0, next = real_clock() + 1000;
-	bool first = true, oom = false;
+	bool first = true, oom = false, plan = false;
 
 	bprint("Linking book...\r");
-	n = book_parallel_with(book, book_link_find, task, "Linking book", exact, NULL);
+	n = book_parallel(book, exact ? book_link_find : book_link_find_missing, task, "Linking book");
 	for (i = 0; i < n; ++i) { n_items += task[i].n; oom = oom || task[i].oom; }
 	if (exact && !oom) {
 		changed.list = (unsigned long long*) malloc((n_items + 1) * sizeof *changed.list); // enough for every position of the items
@@ -2860,9 +2933,16 @@ static void book_link_tasks(Book *book, const bool exact)
 	if (oom) {
 		// nothing was done yet, but the scores of some existing links (exact), that the one by one link sets again
 		book_tasks_free(task, n);
+		merge_hint_free();
 		error("cannot allocate link list; using sequential link\n");
 		book_link_one_by_one(book);
 		return;
+	}
+
+	if (n_items > 0 && book_plan == NULL && book_store_task_count() > 1 && book_plan_begin(book)) {
+		plan = true;
+		book_link_plan(book, task, n);
+		book_plan_search(book);
 	}
 
 	for (i = 0; i < n; ++i) {
@@ -2900,18 +2980,21 @@ static void book_link_tasks(Book *book, const bool exact)
 			if (last && exact && p->score.value != value) changed.list[changed.n++] = ((unsigned long long) TASK_BUCKET(item) << 32) | (unsigned long long) TASK_INDEX(item);
 		}
 	}
+	if (plan) book_plan_end(book);
 	book_tasks_free(task, n);
 	merge_hint_free();
 	if (changed.n) {
 		changed_set_index(&changed, book);
-		book_tasks_free(task, book_parallel_with(book, book_link_refresh, task, NULL, true, &changed));
+		book_tasks_free(task, book_parallel_with(book, book_link_refresh, task, NULL, &changed));
 	}
 	changed_set_free(&changed);
 	bprint("Linking book...%u done\n", book->n_nodes);
 }
 
 /**
- * @brief Link a book using several threads (book merge).
+ * @brief Link a book after book merge.
+ *
+ * With the leaves of the merged book (merge hints), even with one thread.
  *
  * @param book opening book.
  */
@@ -2921,8 +3004,7 @@ void book_link_parallel(Book *book)
 }
 
 /**
- * Phase 1 of book_fix: find wrong positions (read only).
- * exact (book_fix): only check; not exact (book merge): explain what is wrong with a position.
+ * Phase 1 of book_fix: find wrong positions (read only; what is wrong is explained when they are fixed).
  */
 static void book_fix_find(BookTask *task)
 {
@@ -2930,7 +3012,7 @@ static void book_fix_find(BookTask *task)
 	for (b = task->first; b < task->last; ++b) {
 		const PositionArray *a = task->book->array + b;
 		for (k = 0; k < a->n; ++k) {
-			if (!position_check(a->positions + k, !task->exact)) book_task_push(task, TASK_ITEM(b, k, 0));
+			if (!position_check(a->positions + k, false)) book_task_push(task, TASK_ITEM(b, k, 0));
 			else if (position_has_missing_link(a->positions + k, task->book)) book_task_push(task, TASK_ITEM(b, k, 1));
 		}
 		task->done += a->n;
@@ -2938,37 +3020,6 @@ static void book_fix_find(BookTask *task)
 }
 
 static void book_fix_one_by_one(Book*, int, int, int*, int*);
-
-void book_fix_parallel(Book *book)
-{
-	BookTask task[MAX_THREADS];
-	int i, n, n_fix = 0, n_missing = 0;
-	long long j, n_items = 0, next = real_clock() + 1000;
-
-	bprint("Fixing book...\r");
-	n = book_parallel(book, book_fix_find, task, "Fixing book");
-	for (i = 0; i < n; ++i) if (task[i].oom) {
-		book_tasks_free(task, n);
-		book_fix_one_by_one(book, 0, 0, &n_fix, &n_missing);
-		if (n_missing) warn("links to missing positions removed from %d positions\n", n_missing);
-		bprint("Fixing book...%d done\n", n_fix);
-		return;
-	}
-	for (i = 0; i < n; ++i) n_items += task[i].n;
-	for (i = 0; i < n; ++i) for (j = 0; j < task[i].n; ++j) {
-		Position *p = book->array[TASK_BUCKET(task[i].item[j])].positions + TASK_INDEX(task[i].item[j]);
-		if (((n_fix + 1) & 15) == 0 && book_progress_due(&next)) bprint("Fixing book...%d/%lld positions fixed\r", n_fix + 1, n_items);
-		if (TASK_MOVE(task[i].item[j]) == 0) position_fix(p, book);
-		else {
-			position_remove_links(p, book);
-			++n_missing;
-		}
-		++n_fix;
-	}
-	book_tasks_free(task, n);
-	if (n_missing) warn("links to missing positions removed from %d positions\n", n_missing);
-	bprint("Fixing book...%d done\n", n_fix);
-}
 
 static void book_sort_range(BookTask *task)
 {
@@ -3199,7 +3250,7 @@ void book_fix(Book *book)
 	bprint("Fixing book...\r");
 	if (book_n_task() > 1) {
 		BookTask task[MAX_THREADS];
-		const int n = book_parallel_with(book, book_fix_find, task, "Fixing book", true, NULL);
+		const int n = book_parallel(book, book_fix_find, task, "Fixing book");
 		long long j;
 		int i;
 		bool oom = false;
@@ -4521,10 +4572,12 @@ void book_store_release(void)
 /**
  * @brief Size of the hash tables of a search used to learn games.
  *
- * hash-table-size = n: this size. auto: the size for the threads of the search; and for a
- * one-thread search, which starts with empty tables and is short at a low level, a smaller
- * size: 19 bits (14 MB) up to level 18, 20 bits up to level 21. At level 18, the searches
- * of 30 games visited 0.7% more nodes with 19 bits than with 21 bits (1.5% more with 18 bits).
+ * hash-table-size = n: this size. auto: the size for the threads of the search.
+ * A one-thread search starts with empty tables and is short at a low level, and there are as
+ * many of them as threads: it never gets more than 19 bits (14 MB) up to level 18, 20 bits up
+ * to level 21, 21 bits above, whatever hash-table-size is (32 searches with the tables of
+ * hash-table-size = 24 would take 14 GB). At level 18, the searches of 30 games visited 0.7%
+ * more nodes with 19 bits than with 21 bits (1.5% more with 18 bits).
  *
  * @param book Opening book.
  * @param n_tasks Threads of the search.
@@ -4538,9 +4591,8 @@ static int book_store_hash_bits(const Book *book, const int n_tasks)
 #ifdef BOOK_TEST_HASH_BITS
 	if (n_tasks == 1) return BOOK_TEST_HASH_BITS; // test builds: to choose the size
 #endif
-	if (!options.hash_table_auto) return options.hash_table_size;
-	bits = hash_table_size_auto(n_tasks);
-	if (n_tasks == 1 && level <= 21) bits = MIN(bits, level <= 18 ? 19 : 20);
+	bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
+	if (n_tasks == 1) bits = MIN(bits, level <= 18 ? 19 : (level <= 21 ? 20 : 21));
 	return bits;
 }
 
