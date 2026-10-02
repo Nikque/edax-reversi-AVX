@@ -36,15 +36,19 @@ The new command `book learn <file>` does this for each game of the file: play it
 |---|---|---|---|---|
 | 8 | 1 | 133.5 s | 1.04 s | 179 MB |
 | 32 | 1 | 112.9 s | 0.88 s | 290 MB |
+| 32 | 2 (16 threads per game) | 105.3 s | 0.82 s | 1.2 GB |
+| 32 | 4 (8 threads per game) | 76.4 s | 0.60 s | 1.2 GB |
 | 32 | 8 (4 threads per game) | 59.7 s | 0.47 s | 1.6 GB |
 | 32 | 16 (2 threads per game) | 48.7 s | 0.38 s | 1.6 GB |
-| 32 | auto (32 games, 1 thread per game) | 39.4 to 41.6 s (4 runs) | 0.31 to 0.33 s | 722 MB |
+| 32 | auto (32 games, 1 thread per game) | 39.4 to 41.6 s (6 runs) | 0.31 to 0.33 s | 722 MB |
+| 16 | auto (16 games) | 63.4 s | 0.50 s | 503 MB |
+| 8 | auto (8 games) | 102.9 s | 0.80 s | 285 MB |
 
 - `auto` is 2.8 times (`n-tasks` 32) to 3.3 times (`n-tasks` 8) faster than `1`. The more games at the same time, the faster (a one-thread search does the most work per core).
 - **Against several edax_runner at the same time** (the usual way so far): the same 128 games shared between several edax_runner (all with `book-store-tasks = 1`, each one with its own book) took 53.4 s with 4 of them and 8 threads each, 41.1 s with 8 x 4 threads, 35.2 s with 16 x 2 threads and 41.3 s with 32 x 1 thread (0.7 to 3.5 GB of memory in total; the time to merge the books afterwards is not included). One edax_runner with `auto` (40.2 to 40.8 s, 722 MB) is about as fast, with a single book and no merge.
 - With `1`, this version is also faster than the libedax before this work (165.3 s to 133.5 s with `n-tasks` 8): the links of the book are now rebuilt with several threads after `book store` (see "A faster book fix" below).
 - `book add` (30 games added to the book above; from the start of Edax to the saved book) took 3.4 s with `auto` and `n-tasks` 32, 24.0 s with `1` (24.4 s with `1` and `n-tasks` 8).
-- **`book store` of a single game gains little.** Playing then storing 30 games one by one took 33.2 s with `auto` and 37.9 s with `1` (`n-tasks` 32; the time includes the games). The 20 to 30 positions of a game are searched at the same time, but the longest search still has to end. For the same reason, a small `book-store-tasks` such as 2 or 4 can be slower than `1` (measured while other programs were running, for reference: 110 s with 4, 149 s with 2). Use `auto` on a PC with many threads.
+- **`book store` of a single game gains little.** Playing then storing 30 games one by one took 33.2 s with `auto` and 37.9 s with `1` (`n-tasks` 32; the time includes the games). The 20 to 30 positions of a game are searched at the same time, but the longest search still has to end. For the same reason, a small `book-store-tasks` such as 2 or 4 gains little (see the table above). Use `auto` on a PC with many threads.
 
 **How much the book differs** (the same 128 games; position by position). The book learned with `auto` is not the same as the book learned game by game, but it differs no more than the books of the original learning differ when the number of threads changes. And `auto` gives the same book every time (its searches use one thread and start with empty hash tables).
 
