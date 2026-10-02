@@ -4,15 +4,27 @@
 
 ## v4.5.5-nikque.7
 
-ライブラリ版（libedax）の追加と、bookの不具合の修正2件。`eval.dat`、bookのファイル形式、探索結果は変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+ライブラリ版（libedax）の追加、棋譜の学習の並列化（新しい設定 `book-store-tasks`、既定は従来どおり）、`book fix` の高速化、bookの不具合の修正2件。`eval.dat`、bookのファイル形式、探索結果は変わりません。既定の設定では、学習してできるbookも v4.5.5-nikque.6 と同じです。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
 libedax（Edaxをほかのプログラムから呼び出すライブラリ）：
 
 - lavox氏・sensuikan1973氏のlibedaxと同じ93個の関数と、同じデータの並びです。libedax用のプログラム（libedax4dart、edax_runner など）が、ライブラリのファイルを差し替えるだけで動きます。
 - `libedax-x64.dll`（x86-64 のどのCPUでも）、`libedax-x64-v3.dll`（AVX2）、`libedax-x64-v4.dll`（AVX-512）。Linux用は `libedax-x86-64.so` など。macOS用は未作成です。
 - 設定は、作業フォルダの `edax.ini`、`config.ini`、初期化の引数の順に読みます。
-- 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`、`libedax_cpu_level`。
+- 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`、`libedax_cpu_level`、`edax_book_store_games`（複数の棋譜をまとめて対局・学習）、`edax_book_store_tasks`。
+- Android用（`libedax-arm64-v8a.so`・`libedax-armeabi-v7a.so`）も作りました（ビルドの確認のみ）。
 - edax 本体には影響しません（libedaxを追加しただけのソースからビルドした edax は、v4.5.5-nikque.6 のものとバイト単位で同じ）。ライブラリと edax 本体は、同じノード数・同じ速さです。元のlibedax（Edax 4.4）と比べて、1スレッドの終盤探索が 1.3〜1.7倍、最大メモリが約半分でした。
+
+棋譜の学習を複数のスレッドで（新しい設定 `book-store-tasks`）：
+
+- `book-store-tasks = 1`（既定）は従来と同じ動作で、できるbookも同じです。2以上の数値または `auto`（`n-tasks` と同じ数）では、その数の棋譜を同時に学習します。対象は `book store`・`book add`・新しいコマンド `book learn <ファイル>`（1行1局の手順を打ち、終局までEdaxどうしで対局して `book store` する。edax_runnerの「Edax対Edax」と同じ）と、libedaxの `edax_book_store_games`。
+- 仕組み：bookに加える局面と、探索から除く手を先に調べ、全部の探索を1スレッドの探索として同時に行い、従来と同じ順序でbookに加えます。`book learn` では対局も同時に行い、bookのLinkの張り直し・negamax・保存は1組につき1回です。
+- 実測（論理CPU 32、level 18・27万局面のbook、棋譜128本をedax_runnerで学習）：`1` で112.9秒（`n-tasks` 8 では133.5秒）、`auto` で39.4〜41.6秒（2.8〜3.3倍）。最大メモリは 290MB → 722MB。
+- できるbookは `1` の場合と同じにはなりません（上の128本で、1スレッド・`1` のbookと比べて、約27.26万局面のうち内容が違う局面が372、片方にしかない局面が5と8。従来の学習で8スレッドにしたときの違い（381、192と196）と同じ程度かそれ以下。`auto` は何度実行しても同じbookになります）。`book deviate` などの展開（`book-expand-tasks`）と `book fill` は変わりません。
+
+`book fix` の高速化（結果は同じ）：
+
+- `book fix`（`book import`・`correct`・`prune`・`subtree`、`book store` の後処理でも使います）の、局面の確認（Fixing）・Linkの張り直し（Linking）・並べ替え（Sorting）を複数スレッドで行います。1スレッドの場合と同じbookになります。649万局面のbookの `book fix` は、32スレッドで 22.9秒 → 2.3秒（上流 v4.5.5 は25.4秒）、1スレッドでは変わらず24.7秒。最大メモリも変わりません（407MB）。
 
 不具合の修正：
 

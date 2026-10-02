@@ -4,15 +4,27 @@
 
 ## v4.5.5-nikque.7
 
-A library (libedax) and two book bug fixes. `eval.dat`, the book file format and the search results are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+A library (libedax), learning games with several threads (new setting `book-store-tasks`; nothing changes by default), a faster `book fix`, and two book bug fixes. `eval.dat`, the book file format and the search results are unchanged. With the default settings, the learned books are also the same as with v4.5.5-nikque.6. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
 
 libedax (Edax as a library for other programs):
 
 - The same 93 functions and the same data layout as libedax by lavox and sensuikan1973: programs written for libedax (libedax4dart, edax_runner, ...) work by replacing the library file.
 - `libedax-x64.dll` (any x86-64 CPU), `libedax-x64-v3.dll` (AVX2), `libedax-x64-v4.dll` (AVX-512); `libedax-x86-64.so`, ... on Linux. The macOS library is not built yet.
 - Settings are read from `edax.ini` and `config.ini` of the current folder, then from the arguments of the initialization.
-- New functions: `edax_book_deviate2`, `edax_book_deviate3`, `libedax_cpu_level`.
+- New functions: `edax_book_deviate2`, `edax_book_deviate3`, `libedax_cpu_level`, `edax_book_store_games` (play and learn several games together), `edax_book_store_tasks`.
+- Android libraries (`libedax-arm64-v8a.so`, `libedax-armeabi-v7a.so`) are also built (build checked only).
 - The edax program is not affected (an edax built from the sources with only libedax added is byte-identical to the one of v4.5.5-nikque.6). The library and the edax program search the same nodes at the same speed. Compared with the original libedax (Edax 4.4), a single-thread endgame search is 1.3 to 1.7 times faster, with about half the peak memory.
+
+Learning games with several threads (new setting `book-store-tasks`):
+
+- `book-store-tasks = 1` (default) works as before, with the same book as a result. With a number of 2 or more, or `auto` (the value of `n-tasks`), that many games are learned at the same time, by `book store`, `book add`, the new command `book learn <file>` (for each line: play the moves, let Edax play both sides to the end, then `book store`; the "edax vs edax" of edax_runner) and `edax_book_store_games` of libedax.
+- How: the positions to add and the moves excluded from their searches are found first; all the searches are done at the same time as one-thread searches; then the positions are added to the book in the usual order. `book learn` also plays the games at the same time, and the book is linked, negamaxed and saved once per group of games.
+- Measured (32 logical CPUs, a book of 270,000 positions at level 18, 128 games learned by edax_runner): 112.9 s with `1` (133.5 s with `n-tasks` 8), 39.4 to 41.6 s with `auto` (2.8 to 3.3 times faster). Peak memory: 290 MB to 722 MB.
+- The book is not the same as with `1` (for these 128 games, compared with the book of one thread and `1`: 372 positions with different contents out of about 272,600, and 5 and 8 positions in one book only; this is no more than the difference made by 8 threads in the original learning (381, and 192 and 196). `auto` gives the same book every time). The expansion commands (`book deviate`, ..., which use `book-expand-tasks`) and `book fill` are unchanged.
+
+Faster `book fix` (same result):
+
+- The checking (Fixing), linking and sorting steps of `book fix` (also used by `book import`, `correct`, `prune`, `subtree`, and after `book store`) use all the threads. The book is the same as with one thread. `book fix` of a book of 6.49 million positions: 22.9 s to 2.3 s with 32 threads (25.4 s with upstream v4.5.5), unchanged with one thread (24.7 s); same peak memory (407 MB).
 
 Bug fixes:
 
