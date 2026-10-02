@@ -2,22 +2,25 @@
 
 [English](README-NIKQUE.en.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [修正一覧](RELEASE-NOTES.ja.md)
 
-この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS x64・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
+この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
 
 ## v4.5.5-nikque.7 の変更点
 
-Edaxをほかのプログラムから呼び出せるライブラリ（libedax）を追加し、棋譜の学習（`book store`・`book add`・新しい `book learn`）を複数のスレッドで行えるようにし（新しい設定 `book-store-tasks`。既定は従来と同じ動作）、`book fix` を速くし、bookの不具合を2件直しました。評価データ `eval.dat`、bookのファイル形式、探索結果は変わりません。既定の設定では、学習してできるbookも v4.5.5-nikque.6 と同じです。
+Edaxをほかのプログラムから呼び出せるライブラリ（libedax）を追加し、棋譜の学習（`book store`・`book add`・新しい `book learn`）を複数のスレッドで行うようにし（新しい設定 `book-store-tasks`。既定の `auto` は `n-tasks` 本の棋譜を同時に学習）、`book fix` を速くし、bookの不具合を2件直しました。評価データ `eval.dat`、bookのファイル形式、探索結果は変わりません。
+
+**棋譜の学習でできるbookは、v4.5.5-nikque.6 とわずかに違います**（実測では、約27万局面のbookで内容が違う局面が372。従来の学習でスレッド数を変えたときの違いと同じ程度です）。`book-store-tasks = 1` を指定すると、v4.5.5-nikque.6 と同じ動作で、同じbookになります。
 
 ### 棋譜の学習を複数のスレッドで：book-store-tasks（新しい設定）
 
-`book store`（対局した棋譜をbookに入れる）と `book add`（棋譜のファイルをbookに入れる）は、棋譜の局面を終局側から1つずつ探索してbookに加えます。1回の探索は短い（level 18 で0.1秒ほど）ので、探索のスレッドを増やしても8スレッドあたりで頭打ちになり、多くのCPUを使いきれませんでした。このため、Edaxやedax_runnerを何本も同時に起動し、後でbookをmergeする使い方が行われていました。新しい設定 `book-store-tasks` で、1つのEdaxが多くのスレッドを使って学習できます。
+`book store`（対局した棋譜をbookに入れる）と `book add`（棋譜のファイルをbookに入れる）は、棋譜の局面を終局側から1つずつ探索してbookに加えます。1回の探索は短い（level 18 で0.1秒ほど）ので、探索のスレッドを増やしても8スレッドあたりで頭打ちになり、多くのCPUを使いきれませんでした。このため、Edaxやedax_runnerを何本も同時に起動し、後でbookをmergeする使い方が行われていました。新しい設定 `book-store-tasks` で、1つのEdaxが多くのスレッドを使って学習します。
 
 | `book-store-tasks` | 動作 |
 |---|---|
-| `1`（既定） | 従来と同じ。局面を1つずつ、`n-tasks` の全スレッドで探索します。できるbookも v4.5.5-nikque.6 と同じです。 |
-| 数値 n（2以上）・`auto` | n 本の棋譜を同時に学習します。`auto` は `n-tasks` と同じ数です（1本につき1スレッド）。 |
+| `auto`（既定。同梱の `config.ini` も、`config.ini` がない場合も） | `n-tasks` 本の棋譜を同時に学習します（1本につき1スレッド）。 |
+| 数値 n（2以上） | n 本の棋譜を同時に学習します（1本につき `n-tasks / n` スレッド）。 |
+| `1` | v4.5.5-nikque.6 までと同じ。局面を1つずつ、`n-tasks` の全スレッドで探索します。できるbookも v4.5.5-nikque.6 と同じです。 |
 
-`book-store-tasks` が2以上のときの動作：
+`n-tasks` が1のときは、`auto` も `1` と同じです。`book-store-tasks` が1以外のときの動作：
 
 1. **先に調べる**：棋譜の局面のうち、bookに加える局面と、その局面の探索から除く手（すでにLinkになっている手）を、bookを変えずに調べます。これは、bookにある局面と、棋譜が加える局面だけで決まります。
 2. **同時に探索する**：調べた探索を全部、1スレッドの探索として同時に行います（同時に動かす数は `n-tasks` まで）。それぞれの探索は自分のハッシュ表を持ち、空の状態から始めます。
@@ -26,8 +29,9 @@ Edaxをほかのプログラムから呼び出せるライブラリ（libedax）
 新しいコマンド `book learn <ファイル>` は、ファイルの各行の棋譜について「その手順を打つ → 終局までEdaxどうしで対局する → `book store`」を行います（プロンプトの `init`・`play <手順>`・終局まで `go`・`book store` と同じで、edax_runnerの学習リストの「Edax対Edax」の行と同じ書き方です）。1行に1局で、`f5d6c3` のような手順、または `2,f5d6c3` のように `book-randomness` の値と手順を書きます。空行、`#` で始まる行、`//` を含む行は読み飛ばします。
 
 - `book-store-tasks = 1` では、1行ずつ、上のコマンドとまったく同じ処理をします。
-- `book-store-tasks = n`（2以上）では、n 局を同時に対局し（1局につき `n-tasks / n` スレッド）、終わったら n 局分の局面をまとめて上の 1〜3 の方法でbookに加えます。bookのLinkの張り直し・negamax・保存（`<bookファイル名>.store`）は、n 局につき1回です。対局中に読むbookは、その n 局を始める前のbookです（同じ組の中の棋譜の学習結果は、その組の対局には反映されません）。
+- `book-store-tasks = n`（2以上。`auto` は `n-tasks`）では、n 局を同時に対局し（1局につき `n-tasks / n` スレッド）、終わったら n 局分の局面をまとめて上の 1〜3 の方法でbookに加えます。bookのLinkの張り直し・negamax・保存（`<bookファイル名>.store`）は、n 局につき1回です。対局中に読むbookは、その n 局を始める前のbookです（同じ組の中の棋譜の学習結果は、その組の対局には反映されません）。
 - `book add` は、n 局分ずつ、探索を同時に行います。`book store` は、1局の局面の探索を同時に行います。
+- Linkの張り直しで必要になるLeafの探索（`book fix`・`book merge`・`book import` など）も、この設定が1以外なら同時に行います（下の「book fix を速く」）。
 - `book deviate`・`deviate2`・`deviate3`・`enhance`・`play`（`book-expand-tasks` を使います）と、`book fill` は変わりません。
 
 **速さの実測**（Ryzen 9 9950X・論理CPU 32、level 18・深さ40・27万局面の実book、Windows の AVX-512 版）。棋譜128本（平均32手まで指定。残りはEdaxどうしで終局まで対局）を、このforkのlibedaxを使うedax_runnerで学習した時間です（対局と学習の合計）。
@@ -48,9 +52,9 @@ Edaxをほかのプログラムから呼び出せるライブラリ（libedax）
 - **edax_runnerを何本も同時に起動する従来のやり方との比較**：同じ128本を複数のedax_runner（どれも `book-store-tasks = 1`、それぞれ自分のbook）に分けて同時に学習すると、4本×8スレッドで53.4秒、8本×4スレッドで41.1秒、16本×2スレッドで35.2秒、32本×1スレッドで41.3秒でした（最大メモリは合計0.7〜3.5GB。学習後のbookのmergeの時間は含みません）。`auto` の1本（40.2〜40.8秒、722MB）は、これらとほぼ同じ速さで、bookが1つで済み、mergeが要りません。
 - `1` の場合も、この版は v4.5.5-nikque.7 の作業前のlibedaxより速くなっています（`n-tasks` 8 で 165.3秒→133.5秒）。`book store` の後のLinkの張り直しを複数スレッドにした効果です（下の「book fix を速く」）。
 - `book add`（上のbookに棋譜30本を追加。Edaxの起動からbookの保存まで）は、`n-tasks` 32 の `auto` で3.4秒、`1` で24.0秒（`n-tasks` 8 の `1` で24.4秒）でした。
-- **1局だけの `book store` は、あまり速くなりません。** 棋譜30本を1本ずつ「対局して `book store`」した合計は、`auto` で33.2秒、`1` で37.9秒でした（`n-tasks` 32。対局の時間を含む）。1局の局面（20〜30個）を同時に探索しても、いちばん長い探索が終わるまで待つためです。同じ理由で、`book-store-tasks` が2や4のように小さいと、効果は小さくなります（上の表）。多くのスレッドがあるPCでは `auto` を使ってください。
+- **1局だけの `book store` は、あまり速くなりません。** 棋譜30本を1本ずつ「対局して `book store`」した合計は、`auto` で33.2秒、`1` で37.9秒でした（`n-tasks` 32。対局の時間を含む）。1局の局面（20〜30個）を同時に探索しても、いちばん長い探索が終わるまで待つためです。同じ理由で、`book-store-tasks` が2や4のように小さいと、効果は小さくなります（上の表）。計測した中では、既定の `auto` が最も速くなりました。
 
-**できるbookの違い**（上と同じ128本の学習。局面ごとに比較）。`auto` のbookは、1本ずつ学習したbookと同じにはなりませんが、その違いは、従来の学習でスレッド数を変えたときの違いと同じ程度かそれ以下でした。また、`auto` は何度実行しても同じbookになりました（探索が1スレッドで、毎回空のハッシュ表から始まるため）。
+**できるbookの違い**（上と同じ128本の学習。局面ごとに比較）。`auto` のbookは、1本ずつ学習したbookと同じにはなりませんが、その違いは、従来の学習でスレッド数を変えたときの違いと同じ程度かそれ以下でした。また、`auto` は何度実行しても同じbookになりました（探索が1スレッドで、毎回空のハッシュ表から始まるため）。この結果から、`auto` を既定にしました。v4.5.5-nikque.6 と同じbookが必要な場合は、`book-store-tasks = 1` を指定してください。
 
 | 比べたbook（どれも約27.26万局面） | 内容が違う局面 | 片方にしかない局面 | 評価値が違う局面（差1〜2 / 3〜4 / 5〜8） |
 |---|---|---|---|
@@ -66,15 +70,17 @@ Edaxをほかのプログラムから呼び出せるライブラリ（libedax）
 - `book add`（棋譜30本）では、1スレッド・`1` のbookと 32スレッド・`auto` のbookの違いは60局面（評価値の差はすべて1〜2）、片方にしかない局面はなし。8スレッド・`1` との違いは97局面でした。`auto` を2回実行したbookは一致しました。
 - **仕組みが正しいことの確認**：従来の学習でも探索のたびにハッシュ表を空にする試験用ビルドを作り、同じ条件（探索1スレッド）で比べると、`book store`・`book add` でできるbookは、計画して同時に探索した場合と完全に一致しました。つまり、従来との違いは「探索ごとにハッシュ表を空にする」ことだけから生じます。ハッシュ表を空にすると、探索するノード数は約9%増えます（棋譜30本・level 18 での実測）。
 
-**メモリ**：同時に動かす1スレッドの探索は、それぞれハッシュ表を持ちます。`hash-table-size = auto` では、level 18 以下のとき1個14MB（19ビット）にしています（短い探索なので、21ビットの表と比べてノード数は0.7%増えるだけでした）。上の表の `auto` の722MBは、32個の探索の分（約450MB）と、プロンプト用の探索の表（226MB）、bookなどの合計です。
+**メモリ**：同時に動かす1スレッドの探索は、それぞれハッシュ表を持ちます。その大きさは、level 18 以下のとき1個14MB（19ビット）です（短い探索なので、21ビットの表と比べてノード数は0.7%増えるだけでした。`hash-table-size` の値にはよりません）。上の表の `auto` の722MBは、32個の探索の分（約450MB）と、プロンプト用の探索の表（226MB）、bookなどの合計です。
 
-### book fix を速く（結果は同じ）
+### book fix を速く（Linkの張り直しを複数スレッドで）
 
 `book fix` は「局面の確認（Fixing）→ Linkの張り直し（Linking）→ negamax → 並べ替え（Sorting）」を行います（`book import`・`correct`・`prune`・`subtree` の後処理と同じ。Linkの張り直しとnegamaxは `book store` の後にも行います）。これまで、確認・張り直し・並べ替えは1スレッドでした。これを複数スレッドにしました。
 
 - **確認**：スレッドが手分けして局面を調べ、見つかった局面をbookの順に直します。壊れた局面（盤面が正規化されていない、など）を直すと、後の局面の判定が変わることがあるので、最初の壊れた局面からは従来どおり1つずつ調べ直します。
-- **Linkの張り直し**：スレッドが手分けして「足りないLink」を探し（既にあるLinkの評価値の更新もここで行います）、Linkの追加とLeafの探索はbookの順に行います。追加の途中で評価値が変わった局面へのLinkは、最後に従来と同じ値に直します。
-- どちらも、**1スレッドの場合と同じbookになります**。全bookコマンドの回帰試験と、わざと壊した10種類のbook（局面を間引いたもの、Linkを消したもの、評価値を書き換えたもの、盤面を裏返したものなど）で、1つずつ処理した場合と結果が一致することを確かめました（探索は1スレッド）。`book merge` のLinkの張り直しは、これまでどおりです。
+- **Linkの張り直し**：スレッドが手分けして「足りないLink」を探し（既にあるLinkの評価値の更新もここで行います）、Linkの追加はbookの順に行います。追加の途中で評価値が変わった局面へのLinkは、最後に従来と同じ値に直します。`book merge` の張り直しは、v4.5.5-nikque.6 までと同じ方法のままです（v4.5.5-nikque.3 から複数スレッドで、統合元のLeafを再利用します）。
+- **張り直しで必要になるLeafの探索**：最善の未登録手（Leaf）がLinkになった局面は、Leafを探索し直します。`book-store-tasks` が1以外なら、探索が必要な局面と除く手を先に調べ、1スレッドの探索として同時に行います（棋譜の学習と同じ仕組み）。`1` なら、従来どおり1つずつ `n-tasks` の全スレッドで探索します。
+- 確認と張り直しは、**1つずつ処理した場合と同じbookになります**。全bookコマンドの回帰試験と、わざと壊した10種類のbook（局面を間引いたもの、Linkを消したもの、評価値を書き換えたもの、盤面を裏返したものなど）で、結果が一致することを確かめました（探索は1スレッド）。Leafの探索を同時に行う場合も、探索のたびにハッシュ表を空にする試験用ビルドで1つずつ処理した結果と完全に一致しました（同じ10種類のbookと、level 18 の実bookでLinkを1000個外したもの、bookのmerge）。従来の探索（前の探索の結果がハッシュ表に残る・複数スレッド）とは、棋譜の学習と同じ理由で、探索し直したLeafがわずかに違うことがあります。
+- 「局面の確認」の中で行うLeafの探索（Leafが壊れている局面の修復）は、従来どおり1つずつです。
 
 実測（649万局面・286MBのbookを読み込んで `book fix`。秒）：
 
@@ -90,6 +96,16 @@ Edaxをほかのプログラムから呼び出せるライブラリ（libedax）
 - 上流より「確認」が長いのは、v4.5.5-nikque.2 から、bookにない局面へのLinkも調べているためです。
 - 77万局面のbook（32スレッド）では、上流 2.3秒、v4.5.5-nikque.6 1.9秒、この版 0.1秒でした。
 
+**Leafの探索が多い場合**（level 18 の実book 27万局面で、1000局面のLinkを1つずつLeafに戻してから `book fix`。Leafの探索が1000回必要です。32スレッド、`hash-table-size = auto`）：
+
+| `book-store-tasks` | 時間 | 最大メモリ |
+|---|---|---|
+| `1`（1つずつ、32スレッドで探索） | 56.5〜58.3秒 | 288 MB |
+| `auto`（既定。1スレッドの探索を32個同時に） | 18.2〜18.5秒 | 730 MB |
+
+- 約3倍の速さでした。できたbookは、探索ごとにハッシュ表を空にする試験用ビルドで1つずつ処理したbookと完全に一致します。
+- **通常の `book merge` では、探索を同時に行う効果はほとんどありません。** 統合元のbookが同じlevelで探索したLeafを再利用するので、探索がほとんど要らないためです（同じbookに別々の棋譜64本ずつを学習した2つの実bookのmergeでは、908局面が増え、探索は1回。649万局面のbookを空のbookにmergeした場合で127回）。Leafの探索が多くなるのは、Linkが欠けたbookの `book fix` や、levelの違うbookのmergeなどです。
+
 
 ### libedax：Edaxをライブラリとして使う
 
@@ -100,11 +116,12 @@ Edaxをほかのプログラムから呼び出せるライブラリ（libedax）
 | `libedax-x64.dll`（Linux：`libedax-x86-64.so`） | x86-64 のどのCPUでも動きます。libedax用のプログラムが読み込む名前です（Linuxでは `libedax.so` に名前を変えて置きます）。 |
 | `libedax-x64-v3.dll`（`libedax-x86-64-v3.so`） | AVX2 対応のCPU |
 | `libedax-x64-v4.dll`（`libedax-x86-64-v4.so`） | AVX-512 対応のCPU |
+| `libedax.universal.dylib` | macOS（Apple silicon と Intel の両用）。 |
 | `libedax-arm64-v8a.so`・`libedax-armeabi-v7a.so` | Android（ARM64・32ビットARMv7）。アプリに入れるときは `libedax.so` に名前を変えて、ABIごとのフォルダ（`jniLibs/arm64-v8a` など）に置きます。ビルドの確認だけで、実機での動作は確かめていません。 |
 
 - **関数と、呼び出し側とやり取りするデータの並びは元のlibedaxと同じです**（`src/libedax.h`）。Edax 4.5 で内部の構造が変わっているので、内部のデータをそのまま渡さず、元の並びのデータに詰め替えて渡します。
 - **設定**は、作業フォルダの `edax.ini`、`config.ini`、`libedax_initialize` の引数の順に読みます（後のものが優先）。書き方と項目は edax 本体と同じです。
-- 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`（`book deviate2`・`deviate3`）、`libedax_cpu_level`（CPUが動かせる版を返します。`libedax-x64.dll` に問い合わせてから、v3・v4 を読み込む使い方ができます）、`edax_book_store_games`（複数の棋譜をまとめて対局・学習します。上の `book learn` と同じ処理で、棋譜は1行に1局の文字列で渡します）、`edax_book_store_tasks`（同時に学習する棋譜の数＝`book-store-tasks` の値を返します）。
+- 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`（`book deviate2`・`deviate3`）、`libedax_cpu_level`（CPUが動かせる版を返します。`libedax-x64.dll` に問い合わせてから、v3・v4 を読み込む使い方ができます）、`edax_book_store_games`（複数の棋譜をまとめて対局・学習します。上の `book learn` と同じ処理で、棋譜は1行に1局の文字列で渡します）、`edax_book_store_tasks`（同時に学習する棋譜の数を返します。`book-store-tasks` が `auto` なら `n-tasks` の値）。
 - 元のlibedax（Edax 4.4）との違い：
   - 既定のlevelは18です（元は21）。同じlevelでも、探索の評価値や手がEdax 4.4と違うことがあります。
   - `edax_book_merge` は、この版の `book merge` と同じく、リンクの再構築・修正・negamaxまで行います（元は局面を足すだけ）。
@@ -124,7 +141,7 @@ Edaxをほかのプログラムから呼び出せるライブラリ（libedax）
 
   ライブラリと edax 本体（同じCPU向け）は、ノード数が一致し、速さも同じでした。
 - 試験：`tests/libedax_test.c` が全関数を呼び出します（147項目。Windows 3種とLinux 3種で合格。元のlibedaxでも、対応する項目は同じ結果）。libedax4dart 7.67.0 のテスト29件のうち28件が合格し、残る1件は探索の評価値の比較です（既定のlevelの違いと、直前の探索の状態によるもの。同じlevelで単独に探索すると、元のlibedaxと同じ評価値になります）。Edax 4.4 のlibedaxが保存したbookを読めること、この版が保存したbookをEdax 4.4のlibedaxが読めること（27万局面のbookで全局面一致）も確かめました。
-- ビルド：Windowsは `nmake -f NMakefile vc-lib`（`vc-lib-x64`・`vc-lib-x64-v3`・`vc-lib-x64-v4`）、Linuxなどは `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`。Android用は `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib`（`src/libs-lib/<ABI>/libedax.so` ができます。NDK r27d で確認）。試験は `tests\build-libedax-test.cmd`。macOS版は未作成です。
+- ビルド：Windowsは `nmake -f NMakefile vc-lib`（`vc-lib-x64`・`vc-lib-x64-v3`・`vc-lib-x64-v4`）、Linuxなどは `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`。Android用は `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib`（`src/libs-lib/<ABI>/libedax.so` ができます。NDK r27d で確認）。試験は `tests\build-libedax-test.cmd`。macOS用は、release-binaries ワークフローが arm64 と x86-64 のライブラリを作り、1つのファイル `libedax.universal.dylib`（libedax用のプログラムが読み込む名前）にまとめます。
 
 ### 不具合の修正：学習の後、終了時にbookが保存されないことがある
 
@@ -505,7 +522,7 @@ Edaxは次の順に設定を読み、後のものが前のものより優先さ�
 | `book-merge-auto-save` | `on` | `book merge` が成功するたびに、bookを `<bookファイル名>.mrg` に保存します。 |
 | `hash-table-size` | `auto` | 探索用ハッシュ表の大きさ（下記）。 |
 | `book-expand-tasks` | `auto` | 学習コマンドで同時に展開する局面の数（下記）。 |
-| `book-store-tasks` | `1` | `book store`・`book add`・`book learn`（とedax_runner）で同時に学習する棋譜の数（下記）。 |
+| `book-store-tasks` | `auto` | `book store`・`book add`・`book learn`（とedax_runner）で同時に学習する棋譜の数（下記）。 |
 | `probcut-model` | `standard` | 探索の枝刈り（ProbCut）の誤差モデル。`refit` は実験用（上の v4.5.5-nikque.5 の説明を参照）。 |
 
 そのほかによく使う設定：`book-file` と `eval-file`（ファイルの場所）。コマンドラインの `-l`（とプロンプトの `level`）で指定したlevelは、持ち時間制の対局で読みの上限になります。
@@ -555,12 +572,13 @@ book-expand-tasks = auto
 
 ### book-store-tasks
 
-`book-store-tasks = 1`（同梱の値。`config.ini` がない場合の既定値も同じ）では、`book store`・`book add`・`book learn` は棋譜の局面を1つずつ、`n-tasks` の全スレッドで探索します。v4.5.5-nikque.6 までとまったく同じ動作で、できるbookも同じです。`book-store-tasks = n`（2以上）と `auto`（`n-tasks` と同じ数）では、n 本の棋譜を同時に学習します（仕組みと実測は、上の「棋譜の学習を複数のスレッドで」を参照）。
+`book-store-tasks = auto`（同梱の値。`config.ini` がない場合の既定値も同じ）では、`book store`・`book add`・`book learn` は `n-tasks` 本の棋譜を同時に学習します（1本につき1スレッド）。数値 n（2以上）では n 本を同時に学習します（仕組みと実測は、上の「棋譜の学習を複数のスレッドで」を参照）。`book-store-tasks = 1` では、棋譜の局面を1つずつ、`n-tasks` の全スレッドで探索します。v4.5.5-nikque.6 までとまったく同じ動作で、できるbookも同じです。
 
-- **速さ**：多くのスレッドがあるPCでは `auto` が最も速く、上の実測（論理CPU 32、level 18）では `1` の2.8〜3.3倍でした。8や16を指定するより `auto` のほうが速く、メモリも少なく済みます。
-- **できるbook**：`1` の場合と同じにはなりません（探索ごとにハッシュ表を空にすることと、同じ組の棋譜が互いの学習結果を使わずに対局することによる違い）。違いの大きさは上の表を参照してください。
-- **メモリ**：局面の探索は1スレッドの探索を `n-tasks` 個まで同時に動かし、それぞれがハッシュ表を持ちます。`hash-table-size = auto` なら、level 18 以下で1個14MB（19ビット）、level 21 以下で28MB、それより上は57MBです（数値を指定した場合はどれもその大きさ）。`n` が `n-tasks` より小さいときは、同時に対局する n 個の探索（それぞれ `n-tasks / n` スレッド）のハッシュ表も加わります。
-- edax_runner（このforkのlibedaxを使う版）は、この設定が2以上のとき、学習リストの「Edax対Edax」の行をこの数ずつまとめて学習します。
+- **速さ**：`auto` が最も速く、上の実測（論理CPU 32、level 18）では `1` の2.8〜3.3倍でした。8や16を指定するより `auto` のほうが速く、メモリも少なく済みます。
+- **できるbook**：`auto`（と2以上の数値）のbookは、`1` の場合と同じにはなりません（探索ごとにハッシュ表を空にすることと、同じ組の棋譜が互いの学習結果を使わずに対局することによる違い）。違いの大きさは上の表を参照してください。以前の版と同じbookを作りたいときは `1` を指定します。
+- **Linkの張り直し中のLeafの探索**（`book fix`・`book merge`・`book import` など）も、この設定が1以外なら、1スレッドの探索として同時に行います。
+- **メモリ**：局面の探索は1スレッドの探索を `n-tasks` 個まで同時に動かし、それぞれがハッシュ表を持ちます。1個の大きさは、level 18 以下で14MB（19ビット）、level 21 以下で28MB、それより上は57MBです。`hash-table-size` の値にはよりません（探索が `n-tasks` 個あるので、大きな数値をそのまま使うとメモリが足りなくなるためです。これより小さい数値を指定した場合だけ、その大きさになります）。`n` が `n-tasks` より小さいときは、同時に対局する n 個の探索（それぞれ `n-tasks / n` スレッド）のハッシュ表も加わります。
+- edax_runner（このforkのlibedaxを使う版）は、この設定が1以外のとき、学習リストの「Edax対Edax」の行をこの数ずつまとめて学習します。
 
 bookのメモリはこれらの設定によらず、1局面あたりLinkを含めて約50バイトです（6.57億局面で30.6GiB。v4.5.5-nikque.4 までは約58バイト・35.6GiB）。これにハッシュ表の分（上の例では16×57MB＝約0.9GB）と、`book deviate`・`deviate2`・`deviate3` の局面選択中だけ1局面1バイトの表が加わります。
 
@@ -575,13 +593,14 @@ Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuha
 | Windows ARM64 | `wEdax-arm64.exe` |
 | Linux x86-64：標準 / AVX2 / AVX-512 | `lEdax-x86-64` / `lEdax-x86-64-v3` / `lEdax-x86-64-v4` |
 | Linux 32-bit x86 | `lEdax-x86` |
-| macOS Intel x86-64 | `mEdax-x64-modern` |
+| macOS Intel x86-64 / Apple silicon（arm64） | `mEdax-x64-modern` / `mEdax-arm64` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 | ライブラリ（libedax）Windows x86-64：標準 / AVX2 / AVX-512 | `libedax-x64.dll` / `libedax-x64-v3.dll` / `libedax-x64-v4.dll` |
 | ライブラリ Linux x86-64：標準 / AVX2 / AVX-512 | `libedax-x86-64.so` / `libedax-x86-64-v3.so` / `libedax-x86-64-v4.so` |
+| ライブラリ macOS（Apple silicon と Intel の両用） | `libedax.universal.dylib` |
 | ライブラリ Android ARM64 / 32-bit ARMv7 | `libedax-arm64-v8a.so` / `libedax-armeabi-v7a.so` |
 
-`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini`（上の「設定（config.ini）」を参照）は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save`、`hash-table-size`、`book-expand-tasks` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。配布するWindows版（ARM64を除く）は PGO のターゲット（`vc-pgo-x64-v4`・`vc-pgo-x64-v3`・`vc-pgo-x64`、x86のコマンドプロンプトで `vc-pgo-x86-sse`・`vc-pgo-x86`）でビルドします。v4.5.5-nikque.4 の実行ファイルは、Windows版を Visual Studio 2022（MSVC 19.44）、Linux版を Ubuntu 22.04（WSL）の gcc 11.4、Android版を NDK r27d でビルドし、macOS版は release-binaries ワークフローでビルドしました。32ビットLinux版（`lEdax-x86`）は、bookの並列処理に必要なアトミック命令のため libatomic を静的にリンクしています（i486以降のCPUが必要です）。
+`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini`（上の「設定（config.ini）」を参照）は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save`、`hash-table-size`、`book-expand-tasks`、`book-store-tasks` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。配布するWindows版（ARM64を除く）は PGO のターゲット（`vc-pgo-x64-v4`・`vc-pgo-x64-v3`・`vc-pgo-x64`、x86のコマンドプロンプトで `vc-pgo-x86-sse`・`vc-pgo-x86`）でビルドします。v4.5.5-nikque.4 の実行ファイルは、Windows版を Visual Studio 2022（MSVC 19.44）、Linux版を Ubuntu 22.04（WSL）の gcc 11.4、Android版を NDK r27d でビルドし、macOS版は release-binaries ワークフローでビルドしました。32ビットLinux版（`lEdax-x86`）は、bookの並列処理に必要なアトミック命令のため libatomic を静的にリンクしています（i486以降のCPUが必要です）。
 
 元配布物の旧32ビットmacOS用 `mEdax-x86` は除外しました。現在のXcode SDKにはi386用のリンクライブラリがなく修正版をビルドできません。元の実行ファイルをそのまま同梱しても、今回の修正は反映されません。
 

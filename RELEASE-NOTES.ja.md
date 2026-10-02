@@ -4,12 +4,12 @@
 
 ## v4.5.5-nikque.7
 
-ライブラリ版（libedax）の追加、棋譜の学習の並列化（新しい設定 `book-store-tasks`、既定は従来どおり）、`book fix` の高速化、bookの不具合の修正2件。`eval.dat`、bookのファイル形式、探索結果は変わりません。既定の設定では、学習してできるbookも v4.5.5-nikque.6 と同じです。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+ライブラリ版（libedax）の追加、棋譜の学習の並列化（新しい設定 `book-store-tasks`、既定の `auto` は `n-tasks` 本の棋譜を同時に学習）、`book fix` の高速化、bookの不具合の修正2件。`eval.dat`、bookのファイル形式、探索結果は変わりません。**棋譜の学習でできるbookは、v4.5.5-nikque.6 とわずかに違います**（`book-store-tasks = 1` を指定すると、v4.5.5-nikque.6 と同じ動作・同じbookになります）。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
 libedax（Edaxをほかのプログラムから呼び出すライブラリ）：
 
 - lavox氏・sensuikan1973氏のlibedaxと同じ93個の関数と、同じデータの並びです。libedax用のプログラム（libedax4dart、edax_runner など）が、ライブラリのファイルを差し替えるだけで動きます。
-- `libedax-x64.dll`（x86-64 のどのCPUでも）、`libedax-x64-v3.dll`（AVX2）、`libedax-x64-v4.dll`（AVX-512）。Linux用は `libedax-x86-64.so` など。macOS用は未作成です。
+- `libedax-x64.dll`（x86-64 のどのCPUでも）、`libedax-x64-v3.dll`（AVX2）、`libedax-x64-v4.dll`（AVX-512）。Linux用は `libedax-x86-64.so` など。macOS用は `libedax.universal.dylib`（Apple silicon と Intel の両用）。
 - 設定は、作業フォルダの `edax.ini`、`config.ini`、初期化の引数の順に読みます。
 - 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`、`libedax_cpu_level`、`edax_book_store_games`（複数の棋譜をまとめて対局・学習）、`edax_book_store_tasks`。
 - Android用（`libedax-arm64-v8a.so`・`libedax-armeabi-v7a.so`）も作りました（ビルドの確認のみ）。
@@ -17,14 +17,20 @@ libedax（Edaxをほかのプログラムから呼び出すライブラリ）：
 
 棋譜の学習を複数のスレッドで（新しい設定 `book-store-tasks`）：
 
-- `book-store-tasks = 1`（既定）は従来と同じ動作で、できるbookも同じです。2以上の数値または `auto`（`n-tasks` と同じ数）では、その数の棋譜を同時に学習します。対象は `book store`・`book add`・新しいコマンド `book learn <ファイル>`（1行1局の手順を打ち、終局までEdaxどうしで対局して `book store` する。edax_runnerの「Edax対Edax」と同じ）と、libedaxの `edax_book_store_games`。
+- `book-store-tasks = auto`（既定。同梱の `config.ini` も、`config.ini` がない場合も）は、`n-tasks` 本の棋譜を同時に学習します（1本につき1スレッド）。2以上の数値では、その数の棋譜を同時に学習します。`1` は v4.5.5-nikque.6 までと同じ動作で、できるbookも同じです。対象は `book store`・`book add`・新しいコマンド `book learn <ファイル>`（1行1局の手順を打ち、終局までEdaxどうしで対局して `book store` する。edax_runnerの「Edax対Edax」と同じ）と、libedaxの `edax_book_store_games`。
 - 仕組み：bookに加える局面と、探索から除く手を先に調べ、全部の探索を1スレッドの探索として同時に行い、従来と同じ順序でbookに加えます。`book learn` では対局も同時に行い、bookのLinkの張り直し・negamax・保存は1組につき1回です。
 - 実測（論理CPU 32、level 18・27万局面のbook、棋譜128本をedax_runnerで学習）：`1` で112.9秒（`n-tasks` 8 では133.5秒）、`auto` で39.4〜41.6秒（2.8〜3.3倍）。最大メモリは 290MB → 722MB。edax_runnerを複数同時に起動する従来のやり方（8本×4スレッドで41.1秒、16本×2スレッドで35.2秒。mergeの時間は別）とほぼ同じ速さを、1本・1つのbookで出せます。1局だけの `book store` や、2・4のような小さい値では、効果は小さくなります（2 で105.3秒、4 で76.4秒）。
-- できるbookは `1` の場合と同じにはなりません（上の128本で、1スレッド・`1` のbookと比べて、約27.26万局面のうち内容が違う局面が372、片方にしかない局面が5と8。従来の学習で8スレッドにしたときの違い（381、192と196）と同じ程度かそれ以下。`auto` は何度実行しても同じbookになります）。`book deviate` などの展開（`book-expand-tasks`）と `book fill` は変わりません。
+- `auto` でできるbookは `1` の場合と同じにはなりません（上の128本で、1スレッド・`1` のbookと比べて、約27.26万局面のうち内容が違う局面が372、片方にしかない局面が5と8。従来の学習で8スレッドにしたときの違い（381、192と196）と同じ程度かそれ以下。`auto` は何度実行しても同じbookになります）。この結果から `auto` を既定にしました。`book deviate` などの展開（`book-expand-tasks`）と `book fill` は変わりません。
 
-`book fix` の高速化（結果は同じ）：
+`book fix` の高速化：
 
-- `book fix`（`book import`・`correct`・`prune`・`subtree`、`book store` の後処理でも使います）の、局面の確認（Fixing）・Linkの張り直し（Linking）・並べ替え（Sorting）を複数スレッドで行います。1スレッドの場合と同じbookになります。649万局面のbookの `book fix` は、32スレッドで 22.9秒 → 2.3秒（上流 v4.5.5 は25.4秒）、1スレッドでは変わらず24.7秒。最大メモリも変わりません（407MB）。
+- `book fix`（`book import`・`correct`・`prune`・`subtree`、`book store` の後処理でも使います）の、局面の確認（Fixing）・Linkの張り直し（Linking）・並べ替え（Sorting）を複数スレッドで行います。1つずつ処理した場合と同じbookになります。649万局面のbookの `book fix` は、32スレッドで 22.9秒 → 2.3秒（上流 v4.5.5 は25.4秒）、1スレッドでは変わらず24.7秒。最大メモリも変わりません（407MB）。
+- Linkの張り直しで必要になるLeafの探索（`book fix`・`book merge`・`book import` など）は、`book-store-tasks` が1以外なら、1スレッドの探索として同時に行います（棋譜の学習と同じ仕組み。探索ごとにハッシュ表を空にして1つずつ処理した場合と同じbookになります）。level 18 の27万局面のbookでLeafを1000個探索し直す `book fix`（32スレッド）は、`1` で56.5〜58.3秒、`auto` で18.2〜18.5秒（最大メモリ 288MB → 730MB）。通常の `book merge` は統合元のLeafを再利用するので探索がほとんどなく（実book 2つのmergeで1回）、この効果はほとんどありません。`book merge` の張り直しの方法は v4.5.5-nikque.6 のままです。
+- 同時に動かす1スレッドの探索のハッシュ表は、level 18 以下で1個14MB、level 21 以下で28MB、それより上は57MBです（`hash-table-size` の値によりません）。
+
+実行ファイル：
+
+- macOS：Apple silicon 用の `mEdax-arm64` と、ライブラリ `libedax.universal.dylib` を追加（release-binaries ワークフローでビルド）。
 
 不具合の修正：
 

@@ -2,11 +2,13 @@
 
 [日本語](README-NIKQUE.ja.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [Change list](RELEASE-NOTES.md)
 
-This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS x64, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
+This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
 ## Changes in v4.5.5-nikque.7
 
-Edax can now be used as a library by other programs (libedax); games can be learned with several threads (`book store`, `book add` and the new `book learn`, with the new setting `book-store-tasks`; nothing changes by default); `book fix` is faster; and two book bugs are fixed. The evaluation data `eval.dat`, the book file format and the search results are unchanged. With the default settings, the learned books are also the same as with v4.5.5-nikque.6.
+Edax can now be used as a library by other programs (libedax); games are learned with several threads (`book store`, `book add` and the new `book learn`, with the new setting `book-store-tasks`; its default, `auto`, learns `n-tasks` games at the same time); `book fix` is faster; and two book bugs are fixed. The evaluation data `eval.dat`, the book file format and the search results are unchanged.
+
+**The books learned from games slightly differ from those of v4.5.5-nikque.6** (372 positions with different contents in a measured book of about 270,000 positions: about as much as the original learning differs when the number of threads changes). With `book-store-tasks = 1`, the learning and its books are the same as with v4.5.5-nikque.6.
 
 ### Learning games with several threads: book-store-tasks (new setting)
 
@@ -14,10 +16,11 @@ Edax can now be used as a library by other programs (libedax); games can be lear
 
 | `book-store-tasks` | What happens |
 |---|---|
-| `1` (default) | As before: the positions are searched one after the other, with all the `n-tasks` threads. The book is the same as with v4.5.5-nikque.6. |
-| a number n (2 or more), `auto` | n games are learned at the same time. `auto` is the value of `n-tasks` (one thread per game). |
+| `auto` (the default: in the bundled `config.ini`, and without `config.ini`) | `n-tasks` games are learned at the same time (one thread per game). |
+| a number n (2 or more) | n games are learned at the same time (`n-tasks / n` threads per game). |
+| `1` | As up to v4.5.5-nikque.6: the positions are searched one after the other, with all the `n-tasks` threads. The book is the same as with v4.5.5-nikque.6. |
 
-With `book-store-tasks` of 2 or more:
+When `n-tasks` is 1, `auto` is the same as `1`. With `book-store-tasks` other than 1:
 
 1. **Plan**: without changing the book, find which positions of the games will be added, and which moves are excluded from the search of each one (the moves that are already links). This only depends on the positions of the book and on the positions that the games add.
 2. **Search at the same time**: do all these searches as one-thread searches, at the same time (up to `n-tasks` at once). Each search has its own hash tables, empty when it starts.
@@ -26,8 +29,9 @@ With `book-store-tasks` of 2 or more:
 The new command `book learn <file>` does this for each game of the file: play its moves, let Edax play both sides to the end, then `book store` (as `init`, `play <moves>`, `go` until the game is over, and `book store` at the prompt; these are the "edax vs edax" lines of the learning list of edax_runner). Each line is a game: its moves (`f5d6c3`), or a `book-randomness` value and the moves (`2,f5d6c3`). Empty lines, lines starting with `#` and lines with `//` are skipped.
 
 - With `book-store-tasks = 1`, each line is learned exactly as these commands do.
-- With `book-store-tasks = n` (2 or more), n games are played at the same time (`n-tasks / n` threads each); then the positions of these n games are added to the book with steps 1 to 3. The book is linked, negamaxed and saved (to `<book file>.store`) once for the n games. The games of a group are played with the book as it was before the group (what a game of the group teaches is not used by the other games of the group).
+- With `book-store-tasks = n` (2 or more; `auto` is `n-tasks`), n games are played at the same time (`n-tasks / n` threads each); then the positions of these n games are added to the book with steps 1 to 3. The book is linked, negamaxed and saved (to `<book file>.store`) once for the n games. The games of a group are played with the book as it was before the group (what a game of the group teaches is not used by the other games of the group).
 - `book add` does the searches of n games at the same time. `book store` does the searches of the positions of its game at the same time.
+- The leaf searches needed while the links of a book are rebuilt (`book fix`, `book merge`, `book import`, ...) are also done at the same time when this setting is not 1 (see "A faster book fix" below).
 - `book deviate`, `deviate2`, `deviate3`, `enhance` and `play` (which use `book-expand-tasks`), and `book fill`, are unchanged.
 
 **Measured speed** (Ryzen 9 9950X with 32 logical CPUs; a real book of 270,000 positions at level 18, depth 40; the AVX-512 Windows build). 128 games (their first 32 moves on average are given; Edax plays the rest of each game) learned by edax_runner with the libedax of this fork; the times include playing and learning.
@@ -48,9 +52,9 @@ The new command `book learn <file>` does this for each game of the file: play it
 - **Against several edax_runner at the same time** (the usual way so far): the same 128 games shared between several edax_runner (all with `book-store-tasks = 1`, each one with its own book) took 53.4 s with 4 of them and 8 threads each, 41.1 s with 8 x 4 threads, 35.2 s with 16 x 2 threads and 41.3 s with 32 x 1 thread (0.7 to 3.5 GB of memory in total; the time to merge the books afterwards is not included). One edax_runner with `auto` (40.2 to 40.8 s, 722 MB) is about as fast, with a single book and no merge.
 - With `1`, this version is also faster than the libedax before this work (165.3 s to 133.5 s with `n-tasks` 8): the links of the book are now rebuilt with several threads after `book store` (see "A faster book fix" below).
 - `book add` (30 games added to the book above; from the start of Edax to the saved book) took 3.4 s with `auto` and `n-tasks` 32, 24.0 s with `1` (24.4 s with `1` and `n-tasks` 8).
-- **`book store` of a single game gains little.** Playing then storing 30 games one by one took 33.2 s with `auto` and 37.9 s with `1` (`n-tasks` 32; the time includes the games). The 20 to 30 positions of a game are searched at the same time, but the longest search still has to end. For the same reason, a small `book-store-tasks` such as 2 or 4 gains little (see the table above). Use `auto` on a PC with many threads.
+- **`book store` of a single game gains little.** Playing then storing 30 games one by one took 33.2 s with `auto` and 37.9 s with `1` (`n-tasks` 32; the time includes the games). The 20 to 30 positions of a game are searched at the same time, but the longest search still has to end. For the same reason, a small `book-store-tasks` such as 2 or 4 gains little (see the table above). The default, `auto`, was the fastest of the measured values.
 
-**How much the book differs** (the same 128 games; position by position). The book learned with `auto` is not the same as the book learned game by game, but it differs no more than the books of the original learning differ when the number of threads changes. And `auto` gives the same book every time (its searches use one thread and start with empty hash tables).
+**How much the book differs** (the same 128 games; position by position). The book learned with `auto` is not the same as the book learned game by game, but it differs no more than the books of the original learning differ when the number of threads changes. And `auto` gives the same book every time (its searches use one thread and start with empty hash tables). This is why `auto` is the default. Set `book-store-tasks = 1` when you need the same book as v4.5.5-nikque.6.
 
 | Compared books (about 272,600 positions each) | Positions with different contents | Positions in one book only | Positions with different scores (by 1-2 / 3-4 / 5-8) |
 |---|---|---|---|
@@ -66,15 +70,17 @@ The new command `book learn <file>` does this for each game of the file: play it
 - With `book add` (30 games), the book of 32 threads with `auto` differs from the book of 1 thread with `1` in 60 positions (all the score differences are 1 or 2), with no position in one book only; the book of 8 threads with `1` differs in 97 positions. Two runs with `auto` gave the same book.
 - **Check of the mechanism**: with a test build of the original learning that also empties the hash tables before every search, and one search thread, the books made by `book store` and `book add` are exactly the same as with the planned searches. So the difference from the original learning only comes from the empty hash tables. Emptying them makes the searches visit about 9% more nodes (30 games at level 18).
 
-**Memory**: each of the one-thread searches has its hash tables. With `hash-table-size = auto` they take 14 MB each (19 bits) up to level 18 (the searches are short: they visit only 0.7% more nodes than with 21 bits). The 722 MB of `auto` in the table above are these 32 searches (about 450 MB), the hash tables of the search of the prompt (226 MB), the book, etc.
+**Memory**: each of the one-thread searches has its hash tables. They take 14 MB each (19 bits) up to level 18 (the searches are short: they visit only 0.7% more nodes than with 21 bits), whatever `hash-table-size` is. The 722 MB of `auto` in the table above are these 32 searches (about 450 MB), the hash tables of the search of the prompt (226 MB), the book, etc.
 
-### A faster book fix (same result)
+### A faster book fix (links rebuilt with several threads)
 
 `book fix` checks the positions (Fixing), rebuilds the links (Linking), negamaxes and sorts the book (the same steps follow `book import`, `correct`, `prune` and `subtree`; the links are also rebuilt and the book negamaxed after `book store`). The checking, linking and sorting steps used one thread; they now use all the threads.
 
 - **Checking**: the threads check the positions; the positions found are fixed in the order of the book. Fixing a wrong position (a board that is not normalized, ...) can change what is found for the next positions, so from the first wrong position the positions are checked again one after the other, as before.
-- **Linking**: the threads look for the missing links (and refresh the scores of the existing links); the links are added, and the leaves searched, in the order of the book. The links to the positions whose score changed meanwhile are then set to the value that the original code gives.
-- **The book is the same as with one thread**: checked with the regression tests of all the book commands, and with 10 kinds of damaged books (removed positions, removed links, changed scores, mirrored boards, ...), with one search thread. The linking of `book merge` is unchanged.
+- **Linking**: the threads look for the missing links (and refresh the scores of the existing links); the links are added in the order of the book. The links to the positions whose score changed meanwhile are then set to the value that the original code gives. `book merge` rebuilds its links as up to v4.5.5-nikque.6 (with several threads since v4.5.5-nikque.3, reusing the leaves of the merged book).
+- **Leaf searches of the linking**: when the best unlinked move (the leaf) of a position becomes a link, its leaf is searched again. When `book-store-tasks` is not 1, the positions to search and the moves to exclude are found first, and these searches are done at the same time, one thread each (as the games are learned). With `1`, they are done one after the other with all the `n-tasks` threads, as before.
+- **The checking and the linking give the same book as one position after the other**: checked with the regression tests of all the book commands, and with 10 kinds of damaged books (removed positions, removed links, changed scores, mirrored boards, ...), with one search thread. With the leaf searches done at the same time, the book is also exactly the same as the one of a test build that does them one after the other and empties the hash tables before each search (the same 10 books, a real level 18 book with 1,000 links removed, and a merge). Against the original searches (several threads, with what the previous searches left in the hash tables), a leaf that is searched again can slightly differ, for the same reasons as when games are learned.
+- The leaf searches done by the checking step (to repair a position whose leaf is wrong) are done one after the other, as before.
 
 Measured (load a book of 6.49 million positions, 286 MB, then `book fix`; seconds):
 
@@ -90,6 +96,16 @@ Measured (load a book of 6.49 million positions, 286 MB, then `book fix`; second
 - The checking is longer than upstream because the links to positions missing from the book are also looked for since v4.5.5-nikque.2.
 - On a book of 770,000 positions (32 threads): upstream 2.3 s, v4.5.5-nikque.6 1.9 s, this version 0.1 s.
 
+**With many leaf searches** (a real level 18 book of 270,000 positions where a link of 1,000 positions was moved back to the leaf, then `book fix`: 1,000 leaves have to be searched; 32 threads, `hash-table-size = auto`):
+
+| `book-store-tasks` | Time | Peak memory |
+|---|---|---|
+| `1` (one after the other, 32 threads each) | 56.5 to 58.3 s | 288 MB |
+| `auto` (default: 32 one-thread searches at the same time) | 18.2 to 18.5 s | 730 MB |
+
+- About 3 times faster. The book is exactly the same as the one of a test build that does these searches one after the other and empties the hash tables before each one.
+- **A usual `book merge` gains almost nothing from this**: it reuses the leaves that the merged book searched at the same level, so it has almost no search to do (merging two real books, each one learned from 64 other games on the same book, added 908 positions and needed 1 search; merging a book of 6.49 million positions into an empty book needed 127). Many leaves are searched when `book fix` repairs a book with missing links, when the merged book has another level, etc.
+
 
 ### libedax: Edax as a library
 
@@ -100,11 +116,12 @@ The 93 functions of [libedax by lavox](https://github.com/lavox/edax-reversi) ([
 | `libedax-x64.dll` (Linux: `libedax-x86-64.so`) | Any x86-64 CPU. This is the name loaded by the programs written for libedax (on Linux, rename it to `libedax.so`). |
 | `libedax-x64-v3.dll` (`libedax-x86-64-v3.so`) | CPUs with AVX2 |
 | `libedax-x64-v4.dll` (`libedax-x86-64-v4.so`) | CPUs with AVX-512 |
+| `libedax.universal.dylib` | macOS (both Apple silicon and Intel). |
 | `libedax-arm64-v8a.so`, `libedax-armeabi-v7a.so` | Android (ARM64, 32-bit ARMv7). In an application, rename it to `libedax.so` in the folder of its ABI (`jniLibs/arm64-v8a`, ...). Only the build was checked: they were not run on a device. |
 
 - **The functions and the layout of the data exchanged with the caller are those of the original libedax** (`src/libedax.h`). The structures of Edax changed in 4.5, so they are not passed as they are: the data are copied to structures with the original layout.
 - **Settings** are read from `edax.ini` and `config.ini` of the current folder, then from the arguments of `libedax_initialize` (the last one wins). The syntax and the settings are those of the edax program.
-- New functions: `edax_book_deviate2` and `edax_book_deviate3` (`book deviate2` and `deviate3`), `libedax_cpu_level` (which build the CPU can run: a program can ask `libedax-x64.dll`, then load the v3 or v4 library), `edax_book_store_games` (play and learn several games together, as `book learn` above does; the games are given as a string, one game per line) and `edax_book_store_tasks` (the number of games learned at the same time: the value of `book-store-tasks`).
+- New functions: `edax_book_deviate2` and `edax_book_deviate3` (`book deviate2` and `deviate3`), `libedax_cpu_level` (which build the CPU can run: a program can ask `libedax-x64.dll`, then load the v3 or v4 library), `edax_book_store_games` (play and learn several games together, as `book learn` above does; the games are given as a string, one game per line) and `edax_book_store_tasks` (the number of games learned at the same time: `n-tasks` when `book-store-tasks` is `auto`).
 - Differences from the original libedax (Edax 4.4):
   - The default level is 18 (it was 21). At the same level, the scores and moves of a search can differ from Edax 4.4.
   - `edax_book_merge` does what `book merge` does in this version: it also rebuilds the links, fixes and negamaxes the book (the original only added the positions).
@@ -124,7 +141,7 @@ The 93 functions of [libedax by lavox](https://github.com/lavox/edax-reversi) ([
 
   The library and the edax program (for the same CPU) search the same number of nodes at the same speed.
 - Tests: `tests/libedax_test.c` calls every function (147 checks; passed by the 3 Windows and the 3 Linux libraries; the original libedax gives the same results on the checks it supports). 28 of the 29 tests of libedax4dart 7.67.0 pass; the other one compares a search score (it differs because of the default level and of the state left by the previous searches: a fresh search at the same level gives the same score as the original libedax). The books saved by the libedax of Edax 4.4 are read by this version, and the books saved by this version are read by the libedax of Edax 4.4 (all the positions of a 270,000-position book are the same).
-- Build: on Windows, `nmake -f NMakefile vc-lib` (`vc-lib-x64`, `vc-lib-x64-v3`, `vc-lib-x64-v4`); elsewhere, `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`. For Android: `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib` (it makes `src/libs-lib/<ABI>/libedax.so`; checked with NDK r27d). Test: `tests\build-libedax-test.cmd`. The macOS library is not built yet.
+- Build: on Windows, `nmake -f NMakefile vc-lib` (`vc-lib-x64`, `vc-lib-x64-v3`, `vc-lib-x64-v4`); elsewhere, `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`. For Android: `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib` (it makes `src/libs-lib/<ABI>/libedax.so`; checked with NDK r27d). Test: `tests\build-libedax-test.cmd`. For macOS, the release-binaries workflow builds the arm64 and x86-64 libraries and joins them in one file, `libedax.universal.dylib` (the name loaded by the programs written for libedax).
 
 ### Bug fix: the book was sometimes not saved on exit after learning
 
@@ -505,7 +522,7 @@ Each line of these files is `name = value`; `#` starts a comment (see "Easier co
 | `book-merge-auto-save` | `on` | Save the merged book to `<book file>.mrg` after each successful `book merge`. |
 | `hash-table-size` | `auto` | Size of the search hash tables (below). |
 | `book-expand-tasks` | `auto` | Number of book positions expanded at the same time by the learning commands (below). |
-| `book-store-tasks` | `1` | Number of games learned at the same time by `book store`, `book add` and `book learn` (and by edax_runner) (below). |
+| `book-store-tasks` | `auto` | Number of games learned at the same time by `book store`, `book add` and `book learn` (and by edax_runner) (below). |
 | `probcut-model` | `standard` | Error model of the search pruning (ProbCut); `refit` is experimental (see v4.5.5-nikque.5 above). |
 
 Other useful settings: `book-file` and `eval-file` (paths). A level given with `-l` on the command line (or `level` at the prompt) caps the search in timed games.
@@ -555,12 +572,13 @@ book-expand-tasks = auto
 
 ### book-store-tasks
 
-With `book-store-tasks = 1` (the bundled value, and the default without `config.ini`), `book store`, `book add` and `book learn` search the positions of a game one after the other, with all the `n-tasks` threads: exactly as up to v4.5.5-nikque.6, with the same book as a result. With `book-store-tasks = n` (2 or more) or `auto` (the value of `n-tasks`), n games are learned at the same time (see "Learning games with several threads" above for how it works and for the measurements).
+With `book-store-tasks = auto` (the bundled value, and the default without `config.ini`), `book store`, `book add` and `book learn` learn `n-tasks` games at the same time (one thread per game); with a number n (2 or more), n games at the same time (see "Learning games with several threads" above for how it works and for the measurements). With `book-store-tasks = 1`, they search the positions of a game one after the other, with all the `n-tasks` threads: exactly as up to v4.5.5-nikque.6, with the same book as a result.
 
-- **Speed**: with many threads, `auto` is the fastest: 2.8 to 3.3 times faster than `1` in the measurement above (32 logical CPUs, level 18). `auto` is faster than 8 or 16, with less memory.
-- **Resulting book**: not the same as with `1` (each search starts with empty hash tables, and the games of a group are played without what the other games of the group teach). See the table above for how much it differs.
-- **Memory**: the positions are searched by up to `n-tasks` one-thread searches at the same time, each one with its hash tables. With `hash-table-size = auto` they take 14 MB each (19 bits) up to level 18, 28 MB up to level 21 and 57 MB above (with a number, they all have that size). When `n` is smaller than `n-tasks`, add the hash tables of the n searches that play the games (`n-tasks / n` threads each).
-- edax_runner (built with the libedax of this fork) learns the "edax vs edax" lines of its learning list by groups of that many games when this setting is 2 or more.
+- **Speed**: `auto` is the fastest: 2.8 to 3.3 times faster than `1` in the measurement above (32 logical CPUs, level 18). `auto` is faster than 8 or 16, with less memory.
+- **Resulting book**: with `auto` (or a number of 2 or more) it is not the same as with `1` (each search starts with empty hash tables, and the games of a group are played without what the other games of the group teach). See the table above for how much it differs. Set `1` to make the same books as the previous versions.
+- **Leaf searches while the links are rebuilt** (`book fix`, `book merge`, `book import`, ...): they are also done at the same time, one thread each, when this setting is not 1.
+- **Memory**: the positions are searched by up to `n-tasks` one-thread searches at the same time, each one with its hash tables. They take 14 MB each (19 bits) up to level 18, 28 MB up to level 21 and 57 MB above, whatever `hash-table-size` is (there are `n-tasks` of them: a large number would take too much memory; only a smaller number is used as it is). When `n` is smaller than `n-tasks`, add the hash tables of the n searches that play the games (`n-tasks / n` threads each).
+- edax_runner (built with the libedax of this fork) learns the "edax vs edax" lines of its learning list by groups of that many games when this setting is not 1.
 
 The book memory does not depend on these settings (about 50 bytes per position with its links, 30.6 GiB for 657 million positions; about 58 bytes and 35.6 GiB up to v4.5.5-nikque.4); add the hash tables (for example 16 x 57 MB = 0.9 GB above), and 1 byte per position while `book deviate`/`deviate2`/`deviate3` select positions.
 
@@ -575,13 +593,14 @@ The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied 
 | Windows ARM64 | `wEdax-arm64.exe` |
 | Linux x86-64, baseline / AVX2 / AVX-512 | `lEdax-x86-64` / `lEdax-x86-64-v3` / `lEdax-x86-64-v4` |
 | Linux 32-bit x86 | `lEdax-x86` |
-| macOS Intel x86-64 | `mEdax-x64-modern` |
+| macOS Intel x86-64 / Apple silicon (arm64) | `mEdax-x64-modern` / `mEdax-arm64` |
 | Android ARM64 / 32-bit ARMv7 | `aEdax-arm64-v8a` / `aEdax-armeabi-v7a` |
 | Library (libedax), Windows x86-64: baseline / AVX2 / AVX-512 | `libedax-x64.dll` / `libedax-x64-v3.dll` / `libedax-x64-v4.dll` |
 | Library, Linux x86-64: baseline / AVX2 / AVX-512 | `libedax-x86-64.so` / `libedax-x86-64-v3.so` / `libedax-x86-64-v4.so` |
+| Library, macOS (both Apple silicon and Intel) | `libedax.universal.dylib` |
 | Library, Android ARM64 / 32-bit ARMv7 | `libedax-arm64-v8a.so` / `libedax-armeabi-v7a.so` |
 
-The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration (see "Settings (config.ini)" above); set paths, `book-save-interval`, `book-deviate-save-rounds`, `book-merge-auto-save`, `hash-table-size`, and `book-expand-tasks` for your environment. To rebuild a Windows executable, open a Visual Studio 2022 Developer Command Prompt, change to `src`, and run a target such as `nmake -f NMakefile vc-x64-v4` (`build-win-v4.cmd` also builds the v4 executable). The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP. The release Windows executables use the profile-guided targets (`vc-pgo-x64-v4`, `vc-pgo-x64-v3`, `vc-pgo-x64`, and `vc-pgo-x86-sse` and `vc-pgo-x86` from an x86 prompt) except ARM64. The v4.5.5-nikque.4 executables were built with Visual Studio 2022 (MSVC 19.44) for Windows, gcc 11.4 on Ubuntu 22.04 (WSL) for Linux and NDK r27d for Android; the macOS executable was built by the release-binaries workflow. The 32-bit Linux build (`lEdax-x86`) links libatomic statically for the atomic operations of the parallel book code, so it needs an i486 or later CPU.
+The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration (see "Settings (config.ini)" above); set paths, `book-save-interval`, `book-deviate-save-rounds`, `book-merge-auto-save`, `hash-table-size`, `book-expand-tasks`, and `book-store-tasks` for your environment. To rebuild a Windows executable, open a Visual Studio 2022 Developer Command Prompt, change to `src`, and run a target such as `nmake -f NMakefile vc-x64-v4` (`build-win-v4.cmd` also builds the v4 executable). The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP. The release Windows executables use the profile-guided targets (`vc-pgo-x64-v4`, `vc-pgo-x64-v3`, `vc-pgo-x64`, and `vc-pgo-x86-sse` and `vc-pgo-x86` from an x86 prompt) except ARM64. The v4.5.5-nikque.4 executables were built with Visual Studio 2022 (MSVC 19.44) for Windows, gcc 11.4 on Ubuntu 22.04 (WSL) for Linux and NDK r27d for Android; the macOS executable was built by the release-binaries workflow. The 32-bit Linux build (`lEdax-x86`) links libatomic statically for the atomic operations of the parallel book code, so it needs an i486 or later CPU.
 
 The upstream 32-bit macOS `mEdax-x86` is deliberately omitted. Current Xcode SDKs lack the i386 libraries needed to link a corrected binary; including the upstream executable would leave this fork's fixes absent from that file.
 
