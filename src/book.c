@@ -876,7 +876,6 @@ static void book_test_count(const unsigned long long n)
 static int position_search_with(Position *position, Search *search);
 static int position_search_planned(Position *position, Book *book);
 static struct BookPlan *book_plan = NULL; /**< searches done ahead of book_add_board() (book-store-tasks); NULL: none */
-static struct BookPlan *book_early = NULL; /**< searches done while the games to learn are played (see book_early_begin) */
 
 static void position_search(Position *position, Book *book)
 {
@@ -4633,8 +4632,6 @@ typedef struct PlanWorker {
 
 #define plan_slot(board, mask) ((unsigned int) (board_get_hash_code(board) >> 24) & (mask))
 
-static void plan_board(BookPlan*, const Book*, const Board*);
-
 /** Add an item to a hash table of the plan (growing it if needed). */
 static bool plan_index_add(BookPlan *plan, int **index, unsigned int *mask, const int n, const bool is_job)
 {
@@ -4781,18 +4778,7 @@ bool book_plan_begin(Book *book)
  */
 void book_plan_board(Book *book, const Board *board)
 {
-	plan_board(book_plan, book, board);
-}
-
-/**
- * @brief Plan the search that book_add_board() will do for a board, in a given plan.
- *
- * @param plan Plan.
- * @param book Opening book (not changed).
- * @param board Board that book_add_board() will get.
- */
-static void plan_board(BookPlan *plan, const Book *book, const Board *board)
-{
+	BookPlan *plan = book_plan;
 	Board unique;
 	PlanNode *node, new_node;
 	unsigned long long links;
@@ -4851,149 +4837,6 @@ static void plan_board(BookPlan *plan, const Book *book, const Board *board)
 	}
 }
 
-/**
- * @brief Do a planned search.
- *
- * The search starts with empty hash tables, on one thread: its result only depends on the
- * board, on the excluded moves and on the level, not on the searches done before.
- *
- * @param job Planned search.
- * @param search Search (with one thread).
- */
-static void plan_job_run(PlanJob *job, Search *search)
-{
-	Position p;
-	Link link;
-	unsigned long long links = job->links;
-	int x;
-
-	position_init(&p);
-	p.board = job->board;
-	p.level = job->level;
-	link.score = -SCORE_INF; // the search does not use the scores of the links
-	foreach_bit(x, links) {
-		link.move = (unsigned char) x;
-		position_add_link(&p, &link);
-	}
-	if (job->pass) {
-		link.move = PASS;
-		position_add_link(&p, &link);
-	}
-	search_cleanup(search);
-	if (position_search_with(&p, search) & 2) {
-		job->leaf = p.leaf;
-		job->done = true;
-	}
-	position_free(&p);
-}
-
-/*
- * Searches done while the games to learn are played (play_learn_games).
- *
- * The games of a group do not last the same time. A thread that has played its game plans
- * the searches of this game alone, with the book as it is, and adds them to a list; the
- * threads without a game do these searches. When every game is played, the searches of all
- * the games are planned together as usual (book_plan_board); most of them are the same
- * searches (same board, same excluded moves, same level), so their result is taken from the
- * list (book_plan_search). The searches of the list that the plan does not need are lost.
- * The results are the same as without this list, since the result of a planned search only
- * depends on what it searches.
- */
-
-/**
- * @brief Start the list of the searches done while the games are played.
- *
- * @param book Opening book (only read until book_early_end).
- * @param n_games Number of games.
- * @return false if the list cannot be allocated (the searches are done after the games).
- */
-bool book_early_begin(Book *book, const int n_games)
-{
-	BookPlan *early = (BookPlan*) calloc(1, sizeof *early);
-	const int size = n_games * 128;
-	unsigned int mask = 1023;
-
-	if (early == NULL) return false;
-	while (mask < (unsigned int) size * 4) mask = mask * 2 + 1; // the hash table never grows
-	early->book = book;
-	early->job = (PlanJob*) malloc(size * sizeof (PlanJob));
-	early->job_index = (int*) calloc(mask + 1, sizeof (int));
-	if (early->job == NULL || early->job_index == NULL) {
-		free(early->job); free(early->job_index); free(early);
-		return false;
-	}
-	early->job_size = size;
-	early->job_mask = mask;
-	lock_init(early);
-	book_early = early;
-	return true;
-}
-
-/**
- * @brief Plan the searches of the positions of a played game, and add them to the list.
- *
- * Several threads can call it at the same time (the book is only read).
- *
- * @param board Boards of the game, as book_add_board() will get them.
- * @param n Number of boards.
- */
-void book_early_boards(const Board *board, const int n)
-{
-	BookPlan *early = book_early, plan;
-	unsigned int j;
-	int i;
-
-	if (early == NULL) return;
-	memset(&plan, 0, sizeof plan);
-	plan.book = early->book;
-	for (i = 0; i < n; ++i) plan_board(&plan, early->book, board + i);
-
-	lock(early);
-	for (i = 0; i < plan.n_job && early->n_job < early->job_size; ++i) {
-		const PlanJob *job = plan.job + i;
-		if (plan_job_find(early, &job->board, job->links, job->pass, job->level)) continue;
-		early->job[early->n_job] = *job;
-		for (j = plan_slot(&job->board, early->job_mask); early->job_index[j]; j = (j + 1) & early->job_mask) ;
-		early->job_index[j] = ++early->n_job;
-	}
-	unlock(early);
-	free(plan.job); free(plan.node); free(plan.job_index); free(plan.node_index);
-}
-
-/**
- * @brief Do one of the searches of the list, if one is waiting.
- *
- * @param search Search (with one thread).
- * @return false if no search is waiting.
- */
-bool book_early_search(Search *search)
-{
-	BookPlan *early = book_early;
-	int i;
-
-	if (early == NULL) return false;
-	lock(early);
-	i = early->next < early->n_job ? early->next++ : -1;
-	unlock(early);
-	if (i < 0) return false;
-	plan_job_run(early->job + i, search);
-	return true;
-}
-
-/**
- * @brief Free the list of the searches done while the games were played.
- */
-void book_early_end(void)
-{
-	BookPlan *early = book_early;
-
-	if (early == NULL) return;
-	book_early = NULL;
-	lock_free(early);
-	free(early->job); free(early->job_index);
-	free(early);
-}
-
 /** Thread doing the planned searches. */
 static void* plan_worker_run(void *v)
 {
@@ -5002,14 +4845,37 @@ static void* plan_worker_run(void *v)
 	long long next = real_clock() + 1000;
 
 	for (;;) {
-		int i, n_done;
+		PlanJob *job;
+		Position p;
+		Link link;
+		unsigned long long links;
+		int i, x, n_done;
 
 		lock(plan);
 		i = plan->next < plan->n_job ? plan->next++ : -1;
 		unlock(plan);
 		if (i < 0) break;
 
-		if (!plan->job[i].done) plan_job_run(plan->job + i, w->search);
+		job = plan->job + i;
+		position_init(&p);
+		p.board = job->board;
+		p.level = job->level;
+		link.score = -SCORE_INF; // the search does not use the scores of the links
+		links = job->links;
+		foreach_bit(x, links) {
+			link.move = (unsigned char) x;
+			position_add_link(&p, &link);
+		}
+		if (job->pass) {
+			link.move = PASS;
+			position_add_link(&p, &link);
+		}
+		search_cleanup(w->search); // empty hash tables: the result does not depend on the searches done before
+		if (position_search_with(&p, w->search) & 2) {
+			job->leaf = p.leaf;
+			job->done = true;
+		}
+		position_free(&p);
 
 		lock(plan);
 		n_done = ++plan->n_done;
@@ -5029,26 +4895,10 @@ void book_plan_search(Book *book)
 	BookPlan *plan = book_plan;
 	PlanWorker w[MAX_THREADS];
 	Search **search;
-	int i, n, n_left;
+	int i, n;
 
 	if (plan == NULL || plan->failed || plan->n_job == 0) return;
-	n_left = plan->n_job;
-	if (book_early) { // the searches done while the games were played
-		for (i = 0; i < plan->n_job; ++i) {
-			PlanJob *job = plan->job + i;
-			const PlanJob *early = plan_job_find(book_early, &job->board, job->links, job->pass, job->level);
-			if (early && early->done) {
-				job->leaf = early->leaf;
-				job->done = true;
-				--n_left;
-			}
-		}
-#ifdef BOOK_TEST_STORE
-		fprintf(stderr, "<book early: %d searches done, %d of the %d planned searches>\n", book_early->next, plan->n_job - n_left, plan->n_job);
-#endif
-	}
-	if (n_left == 0) return;
-	n = MIN(book_store_thread_count(), n_left);
+	n = MIN(book_store_thread_count(), plan->n_job);
 	search = store_pool_get(store_pool, n, 1, book_store_hash_bits(book, 1));
 	if (search == NULL) { error("cannot allocate the searches"); return; }
 
