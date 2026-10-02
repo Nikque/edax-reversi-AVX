@@ -180,6 +180,40 @@ Edaxをほかのプログラムから呼び出せるライブラリ（libedax）
 | `libedax.universal.dylib` | macOS（Apple silicon と Intel の両用）。 |
 | `libedax-arm64-v8a.so`・`libedax-armeabi-v7a.so` | Android（ARM64・32ビットARMv7）。アプリに入れるときは `libedax.so` に名前を変えて、ABIごとのフォルダ（`jniLibs/arm64-v8a` など）に置きます。ビルドの確認だけで、実機での動作は確かめていません。 |
 
+**ほかのプログラムから使うには**（[edax_runner](https://github.com/Nikque/edax_runner) のほか、自作のGUIや解析ツールなどから）：
+
+1. 配布ZIPの `bin/` から、お使いのOS・CPU用のライブラリ（上の表）と `data/eval.dat`（必須）を取り出し、プログラムと同じフォルダに置きます（`data/book.dat` と `config.ini` は必要に応じて）。
+2. C・C++ からは `src/libedax.h` を取り込みます。ほかの言語からは、その言語の外部関数呼び出し（FFI）でライブラリを読み込みます（Dart には [libedax4dart](https://pub.dev/packages/libedax4dart) があります。Python の ctypes、C# の P/Invoke などでも同じ関数を呼べます）。
+3. 最初に `libedax_initialize` を呼び（設定を読みます）、`edax_init` で対局を始め、最後に `libedax_terminate` を呼びます。関数は edax のコマンドに対応しています（`edax_play`・`edax_go`・`edax_hint`・`edax_book_*` など。一覧は `src/libedax.h`、使い方の例は全関数を呼ぶ `tests/libedax_test.c`）。
+4. 同時に使えるEdaxは、1つのプロセスにつき1つです（元のlibedaxと同じ）。関数は1つのスレッドから順に呼んでください（`edax_stop` と `edax_book_stop_count_bestpath` は、実行中の処理を止めるために別のスレッドから呼べます）。
+
+短い例（`tests/libedax_example.c`。Windows と Linux でビルドして動作を確認しています）：
+
+```c
+#include <stdio.h>
+#include "libedax.h"
+
+int main(void)
+{
+	char *args[] = {"", "-eval-file", "data/eval.dat", "-book-file", "data/book.dat", "-level", "12", "-n-tasks", "2"};
+	char moves[] = "f5d6c3";
+	static LibedaxHintList hints;
+	LibedaxMove last;
+	int i;
+
+	libedax_initialize(9, args);  /* edax.ini, config.ini, then these arguments */
+	edax_init();                  /* new game */
+	edax_play(moves);
+	edax_hint(2, &hints);         /* the 2 best moves: hint[1] to hint[n_hints] */
+	for (i = 1; i <= hints.n_hints; ++i)
+		printf("%c%c %+d\n", 'a' + hints.hint[i].move % 8, '1' + hints.hint[i].move / 8, hints.hint[i].score);
+	edax_go();                    /* Edax plays a move */
+	edax_get_last_move(&last);    /* squares: A1 = 0, B1 = 1, ..., H8 = 63 */
+	libedax_terminate();
+	return 0;
+}
+```
+
 - **関数と、呼び出し側とやり取りするデータの並びは元のlibedaxと同じです**（`src/libedax.h`）。Edax 4.5 で内部の構造が変わっているので、内部のデータをそのまま渡さず、元の並びのデータに詰め替えて渡します。
 - **設定**は、作業フォルダの `edax.ini`、`config.ini`、`libedax_initialize` の引数の順に読みます（後のものが優先）。書き方と項目は edax 本体と同じです。
 - 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`（`book deviate2`・`deviate3`）、`libedax_cpu_level`（CPUが動かせる版を返します。`libedax-x64.dll` に問い合わせてから、v3・v4 を読み込む使い方ができます）、`edax_book_store_games`（複数の棋譜をまとめて対局・学習します。上の `book learn` と同じ処理で、棋譜は1行に1局の文字列で渡します）、`edax_book_store_tasks`（同時に学習する棋譜の数を返します。`book-store-tasks` が `auto` なら `n-tasks` の値）。

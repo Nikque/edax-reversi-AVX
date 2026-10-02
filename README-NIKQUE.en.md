@@ -180,6 +180,40 @@ The 93 functions of [libedax by lavox](https://github.com/lavox/edax-reversi) ([
 | `libedax.universal.dylib` | macOS (both Apple silicon and Intel). |
 | `libedax-arm64-v8a.so`, `libedax-armeabi-v7a.so` | Android (ARM64, 32-bit ARMv7). In an application, rename it to `libedax.so` in the folder of its ABI (`jniLibs/arm64-v8a`, ...). Only the build was checked: they were not run on a device. |
 
+**To use it from another program** ([edax_runner](https://github.com/Nikque/edax_runner), or your own GUI, analysis tool, ...):
+
+1. Take from `bin/` of the release ZIP the library of your OS and CPU (table above) and `data/eval.dat` (required), and put them next to your program (`data/book.dat` and `config.ini` if you need them).
+2. In C or C++, include `src/libedax.h`. In another language, load the library with its foreign function interface (Dart has [libedax4dart](https://pub.dev/packages/libedax4dart); ctypes of Python, P/Invoke of C#, ... call the same functions).
+3. Call `libedax_initialize` first (it reads the settings), `edax_init` to start a game, and `libedax_terminate` at the end. The functions are the commands of edax (`edax_play`, `edax_go`, `edax_hint`, `edax_book_*`, ...): they are listed in `src/libedax.h`, and `tests/libedax_test.c` calls every one of them.
+4. A process has one Edax (as with the original libedax). Call the functions from one thread, one after the other (`edax_stop` and `edax_book_stop_count_bestpath` can be called from another thread to stop what is running).
+
+A short example (`tests/libedax_example.c`; built and run on Windows and Linux):
+
+```c
+#include <stdio.h>
+#include "libedax.h"
+
+int main(void)
+{
+	char *args[] = {"", "-eval-file", "data/eval.dat", "-book-file", "data/book.dat", "-level", "12", "-n-tasks", "2"};
+	char moves[] = "f5d6c3";
+	static LibedaxHintList hints;
+	LibedaxMove last;
+	int i;
+
+	libedax_initialize(9, args);  /* edax.ini, config.ini, then these arguments */
+	edax_init();                  /* new game */
+	edax_play(moves);
+	edax_hint(2, &hints);         /* the 2 best moves: hint[1] to hint[n_hints] */
+	for (i = 1; i <= hints.n_hints; ++i)
+		printf("%c%c %+d\n", 'a' + hints.hint[i].move % 8, '1' + hints.hint[i].move / 8, hints.hint[i].score);
+	edax_go();                    /* Edax plays a move */
+	edax_get_last_move(&last);    /* squares: A1 = 0, B1 = 1, ..., H8 = 63 */
+	libedax_terminate();
+	return 0;
+}
+```
+
 - **The functions and the layout of the data exchanged with the caller are those of the original libedax** (`src/libedax.h`). The structures of Edax changed in 4.5, so they are not passed as they are: the data are copied to structures with the original layout.
 - **Settings** are read from `edax.ini` and `config.ini` of the current folder, then from the arguments of `libedax_initialize` (the last one wins). The syntax and the settings are those of the edax program.
 - New functions: `edax_book_deviate2` and `edax_book_deviate3` (`book deviate2` and `deviate3`), `libedax_cpu_level` (which build the CPU can run: a program can ask `libedax-x64.dll`, then load the v3 or v4 library), `edax_book_store_games` (play and learn several games together, as `book learn` above does; the games are given as a string, one game per line) and `edax_book_store_tasks` (the number of games learned at the same time: `n-tasks` when `book-store-tasks` is `auto`).
