@@ -46,16 +46,18 @@ static wchar_t* lib_to_wide(const char *s, const unsigned int code_page)
 	return w;
 }
 
+/** code pages of a file name, in the order they are tried */
+static const unsigned int lib_code_page[2] = {CP_UTF8, CP_ACP};
+
 /** @brief fopen with a file name in UTF-8 (or ANSI). */
 static FILE* lib_fopen(const char *path, const char *mode)
 {
-	static const unsigned int code_page[2] = {CP_UTF8, CP_ACP};
 	wchar_t *wmode = lib_to_wide(mode, CP_ACP);
 	FILE *f = NULL;
 	int i;
 
 	for (i = 0; i < 2 && f == NULL && wmode != NULL; ++i) {
-		wchar_t *wpath = lib_to_wide(path, code_page[i]);
+		wchar_t *wpath = lib_to_wide(path, lib_code_page[i]);
 		if (wpath) {
 			f = _wfopen(wpath, wmode);
 			free(wpath);
@@ -68,11 +70,10 @@ static FILE* lib_fopen(const char *path, const char *mode)
 /** @brief remove with a file name in UTF-8 (or ANSI). */
 static int lib_remove(const char *path)
 {
-	static const unsigned int code_page[2] = {CP_UTF8, CP_ACP};
 	int r = -1, i;
 
 	for (i = 0; i < 2 && r != 0; ++i) {
-		wchar_t *wpath = lib_to_wide(path, code_page[i]);
+		wchar_t *wpath = lib_to_wide(path, lib_code_page[i]);
 		if (wpath) {
 			r = _wremove(wpath);
 			free(wpath);
@@ -84,13 +85,12 @@ static int lib_remove(const char *path)
 /** @brief MoveFileEx with file names in UTF-8 (or ANSI). */
 static BOOL lib_move_file(const char *from, const char *to, const DWORD flags)
 {
-	static const unsigned int code_page[2] = {CP_UTF8, CP_ACP};
 	BOOL r = FALSE;
 	int i;
 
 	for (i = 0; i < 2 && !r; ++i) {
-		wchar_t *wfrom = lib_to_wide(from, code_page[i]);
-		wchar_t *wto = lib_to_wide(to, code_page[i]);
+		wchar_t *wfrom = lib_to_wide(from, lib_code_page[i]);
+		wchar_t *wto = lib_to_wide(to, lib_code_page[i]);
 		if (wfrom && wto) r = MoveFileExW(wfrom, wto, flags);
 		free(wfrom);
 		free(wto);

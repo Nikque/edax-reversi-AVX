@@ -141,14 +141,14 @@ static void write_file(const char *file, const char *text)
 
 /** functions added to the original api: NULL with the original libedax */
 typedef void (*Deviate)(int, int);
-static Deviate optional(const char *dll, const char *name)
+static void* optional(const char *dll, const char *name)
 {
 #ifdef _WIN32
 	HMODULE h = GetModuleHandleA(dll);
-	return h ? (Deviate) (void*) GetProcAddress(h, name) : NULL;
+	return h ? (void*) GetProcAddress(h, name) : NULL;
 #else
 	(void) dll;
-	return (Deviate) dlsym(RTLD_DEFAULT, name);
+	return dlsym(RTLD_DEFAULT, name);
 #endif
 }
 
@@ -181,8 +181,8 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	deviate2 = optional(dll, "edax_book_deviate2");
-	deviate3 = optional(dll, "edax_book_deviate3");
+	deviate2 = (Deviate) optional(dll, "edax_book_deviate2");
+	deviate3 = (Deviate) optional(dll, "edax_book_deviate3");
 	original = !(deviate2 && deviate3);
 	printf("%s: %s\n", dll, original ? "original libedax" : "libedax of Edax 4.5.5");
 	if (!original) {
