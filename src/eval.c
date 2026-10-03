@@ -724,7 +724,9 @@ void eval_open(const char* file)
 	}
 
 	info("<Evaluation function weights version %u.%u.%u loaded>\n", version, release, build);
-	if (EVAL_HAS_MOBILITY) info("<Mobility weights loaded>\n");
+	if (EVAL_HAS_MOBILITY) {
+		info("<Mobility weights loaded>\n");
+	}
 
 	// f = fopen("eval.bin", "wb");
 	// fwrite(*EVAL_WEIGHT, sizeof(Eval_weight), EVAL_N_PLY, f);
