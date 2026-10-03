@@ -684,13 +684,19 @@ void ui_loop_edax(UI *ui)
 
 				// import an opening book (text format)
 				} else if (strcmp(book_cmd, "import") == 0) {
-					book_free(book);
+					Book next = {0};
 					parse_word(book_param, book_file, FILENAME_MAX);
-					book_import(book, book_file);
-					book_link(book);
-					book_fix(book);
-					book_negamax(book);
-					book_sort(book);
+					next.search = book->search;
+					if (book_import(&next, book_file)) { // as book load: the current book is kept when nothing is imported
+						book_free(book);
+						*book = next;
+						book_link(book);
+						book_fix(book);
+						book_negamax(book);
+						book_sort(book);
+					} else {
+						warn("Book %s was not imported; current book retained\n", book_file);
+					}
 
 				// export an opening book (text format)
 				} else if (strcmp(book_cmd, "export") == 0) {

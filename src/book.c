@@ -27,6 +27,8 @@
 #include <time.h>
 #include <stdarg.h>
 #include <limits.h>
+#include <stdint.h>
+#include <errno.h>
 #ifdef _WIN32
 #include <io.h>
 #else
@@ -244,6 +246,13 @@ static bool position_check(const Position *position, const bool verbose)
 	if (((position->board.player | position->board.opponent) & 0x0000001818000000ULL) != 0x0000001818000000ULL) {
 		if (verbose) warn("Board is illegal: Empty center?\n");
 		if (verbose) board_print(&position->board, BLACK, stderr);
+		return false;
+	}
+
+	// a level above 60 does not exist (damaged file): it would index LEVEL[][] out of bounds
+	if (position->level > 60) {
+		if (verbose) warn("level %d is wrong\n", position->level);
+		if (verbose) position_print(position, &position->board, stdout);
 		return false;
 	}
 
@@ -2151,6 +2160,55 @@ void book_set_startup_depth(Book *book)
 }
 
 /**
+ * Book file that exists but could not be loaded (damaged, truncated, another version, or not
+ * readable). Edax then works with a new book: when this book is saved to the same file, the
+ * file that could not be loaded is kept under another name instead of being replaced.
+ */
+static char *book_unread_file = NULL;
+
+static void book_unread_set(const char *file)
+{
+	free(book_unread_file);
+	book_unread_file = file ? string_duplicate(file) : NULL;
+}
+
+/**
+ * @brief Keep a file that could not be loaded under another name ("<file>.damaged").
+ *
+ * @param file File name.
+ * @return true if the file was renamed or does not exist any more.
+ */
+static bool book_set_aside(const char *file)
+{
+	char *name = (char*) malloc(strlen(file) + 32);
+	FILE *f;
+	bool ok = false;
+	int i;
+
+	if (name == NULL) return false;
+	errno = 0;
+	if ((f = fopen(file, "rb")) == NULL) { // nothing to keep, or not a file that can be read (a directory, a locked file): left as it is
+		free(name);
+		return errno == ENOENT;
+	}
+	fclose(f);
+	for (i = 0; i < 100 && !ok; ++i) {
+		if (i) sprintf(name, "%s.damaged.%d", file, i); else sprintf(name, "%s.damaged", file);
+		if ((f = fopen(name, "rb")) != NULL) { fclose(f); continue; } // never replace a file kept before
+#ifdef _WIN32
+		if (MoveFileExA(file, name, 0)) {
+#else
+		if (rename(file, name) == 0) {
+#endif
+			warn("%s could not be loaded: it is kept as %s\n", file, name);
+			ok = true;
+		}
+	}
+	free(name);
+	return ok;
+}
+
+/**
  * @brief Load the opening book.
  *
  * @param book Opening book.
@@ -2158,7 +2216,22 @@ void book_set_startup_depth(Book *book)
  */
 bool book_load(Book *book, const char *file)
 {
-	FILE *f = fopen(file, "rb");
+	FILE *f;
+
+	errno = 0;
+	f = fopen(file, "rb");
+	if (f == NULL && errno != ENOENT) { // the file exists (or may exist) but cannot be opened: not a new book
+		error("Cannot open opening book %s", file);
+		book_unread_set(file);
+		book->array = NULL;
+		book->n = book->n_nodes = 0;
+		book->pool = NULL;
+		book->todo_list.item = NULL;
+		book->todo_list.n = book->todo_list.size = 0;
+		book->todo_list.valid = false;
+		book->need_saving = false;
+		return false;
+	}
 	if (f) {
 		Book loaded = {0};
 		BookStream stream = {0};
@@ -2219,7 +2292,8 @@ bool book_load(Book *book, const char *file)
 		// A saved book lists its positions bucket by bucket: store them contiguously
 		// in one pool, exactly sized (no per-bucket block, no spare capacity).
 		// Positions out of bucket order fall back to the usual growing arrays.
-		pool = (expected > 0) ? (Position*) malloc((size_t) expected * sizeof (Position)) : NULL;
+		// (32-bit builds: the size of the pool must fit a size_t, or a smaller block would be allocated)
+		pool = (expected > 0 && expected <= SIZE_MAX / sizeof (Position)) ? (Position*) malloc((size_t) expected * sizeof (Position)) : NULL;
 		loaded.pool = pool;
 		pooling = (pool != NULL);
 		for (i = 0; i < expected; ++i) {
@@ -2263,6 +2337,10 @@ bool book_load(Book *book, const char *file)
 				}
 			}
 			if (book_add(&loaded, &p) <= 0) position_free(&p); // duplicated position: the count check below fails
+			if (loaded.failed) { // out of memory: stop here (every other position would fail too)
+				error("Not enough memory to load %s (position %u/%u)", file, i, expected);
+				goto book_load_failed;
+			}
 		}
 
 		if (pool && used < expected) { // release the unused part of the pool (in place only)
@@ -2282,12 +2360,14 @@ bool book_load(Book *book, const char *file)
 
 		info("done\n");
 		fclose(f);
+		if (book_unread_file && strcmp(file, book_unread_file) == 0) book_unread_set(NULL);
 		*book = loaded;
 		return true;
 
 book_load_failed:
 		book_stream_close(&stream);
 		fclose(f);
+		book_unread_set(file); // a save to this file keeps it under another name (see book_save)
 		if (loaded.array) book_free(&loaded);
 		book->array = NULL;
 		book->n = book->n_nodes = 0;
@@ -2309,16 +2389,18 @@ book_load_failed:
  * After the book is imported, it is needed to
  * relink & negamax it.
  *
- * @param book Opening book.
+ * @param book Opening book (not initialized; left as it is when nothing is imported).
  * @param file File name.
+ * @return true if a book was imported; false if the file cannot be opened or holds no position.
  */
-void book_import(Book *book, const char *file)
+bool book_import(Book *book, const char *file)
 {
 	FILE *f = fopen(file, "r");
 	if (f) {
 		PositionArray *a;
 		Position *p, position;
 		int n_empties;
+		Search *const search = book->search;
 
 		book_init(book);
 		while (position_import(&position, f)) {
@@ -2326,6 +2408,15 @@ void book_import(Book *book, const char *file)
 			if (book->n_nodes % BOOK_INFO_RESOLUTION == 0) bprint("importing book from %s... %u positions\r", file, book->n_nodes);
 		}
 		bprint("importing book from %s... %u positions", file, book->n_nodes);
+		if (book->n_nodes == 0) {
+			bprint("\n");
+			error("no position found in \"%s\"\n", file);
+			fclose(f);
+			book_free(book);
+			memset(book, 0, sizeof *book);
+			book->search = search;
+			return false;
+		}
 
 		book->options.n_empties = 60;
 		book->options.level = 0;
@@ -2340,9 +2431,10 @@ void book_import(Book *book, const char *file)
 
 		bprint("...done\n");
 		fclose(f);
+		return true;
 	} else {
 		error("cannot open \"%s\" to import the opening book\n", file);
-		book_new(book, options.level, 61 - get_book_depth(options.level));
+		return false;
 	}
 }
 
@@ -2444,6 +2536,16 @@ bool book_save(Book *book, const char *file)
 		remove(tmp_file);
 		free(tmp_file);
 		return false;
+	}
+	// the file could not be loaded: its content is not in this book, so it is kept under another name
+	if (book_unread_file && strcmp(file, book_unread_file) == 0) {
+		if (!book_set_aside(file)) {
+			error("\nCannot keep the book that could not be loaded; %s was not replaced", file);
+			remove(tmp_file);
+			free(tmp_file);
+			return false;
+		}
+		book_unread_set(NULL);
 	}
 #ifdef _WIN32
 	if (!MoveFileExA(tmp_file, file, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
@@ -3536,12 +3638,12 @@ static Search** book_expand_searches(const int n, const int n_tasks, const int h
 		Search **s = (Search**) realloc(expand_pool.search, n * sizeof *s);
 		if (s == NULL) return NULL;
 		expand_pool.search = s;
+		// all the searches or none: search_init_with() would stop the program if a table cannot be allocated
+		if (!search_memory_available(hash_bits, n - expand_pool.n)) return NULL;
 		for (; expand_pool.n < n; ++expand_pool.n) {
 			Search *search = (Search*) mm_malloc(sizeof (Search));
 			if (search == NULL) return NULL;
-			search_init(search);
-			search_set_task_number(search, n_tasks);
-			search_set_hash_size(search, hash_bits);
+			search_init_with(search, n_tasks, hash_bits); // (not search_init() then a resize: no table of the size of the options is allocated first)
 			expand_pool.search[expand_pool.n] = search;
 		}
 		expand_pool.n_tasks = n_tasks;
@@ -3570,7 +3672,8 @@ static int book_expand_task_count(const Book *book)
 	return MAX(1, MIN(n, options.n_task));
 }
 
-static void book_expand_concurrent(Book *book, const char *action, const char *tmp_file, const int n_workers)
+/** @return false if the searches cannot be allocated (nothing was done: the positions are then expanded one by one). */
+static bool book_expand_concurrent(Book *book, const char *action, const char *tmp_file, const int n_workers)
 {
 	ExpandShared shared;
 	ExpandWorker *w = (ExpandWorker*) calloc(n_workers, sizeof *w);
@@ -3578,7 +3681,11 @@ static void book_expand_concurrent(Book *book, const char *action, const char *t
 	Search **search = book_expand_searches(n_workers, n_tasks, options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size);
 	int i;
 
-	if (w == NULL || search == NULL) { error("cannot allocate the expansion threads"); free(w); book->failed = true; return; }
+	if (w == NULL || search == NULL) {
+		free(w);
+		book_expand_release(); // give back the memory of the searches that were created
+		return false;
+	}
 	shared.book = book; shared.next = 0; shared.n_done = 0; shared.action = action; shared.tmp_file = tmp_file;
 	shared.t = real_clock(); shared.stop = false;
 	lock_init(&shared);
@@ -3595,6 +3702,7 @@ static void book_expand_concurrent(Book *book, const char *action, const char *t
 	lock_free(&shared);
 	free(w);
 	bprint("%s...%d/%lld done: %lld positions, %lld links\n", action, shared.n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+	return true;
 }
 
 /**
@@ -3617,8 +3725,10 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 
 	if (book_expand_task_count(book) > 1 && book->todo_list.valid && book->todo_list.n > 1) {
 		qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
-		book_expand_concurrent(book, action, tmp_file, (int) MIN(book_expand_task_count(book), book->todo_list.n));
-		return;
+		static bool warned = false;
+		if (book_expand_concurrent(book, action, tmp_file, (int) MIN(book_expand_task_count(book), book->todo_list.n))) return;
+		if (!warned) warn("not enough memory to expand several positions at the same time: one position after the other\n");
+		warned = true;
 	}
 
 	// Visit the todo positions in bucket order: either from the list recorded
@@ -4331,7 +4441,7 @@ void book_info(Book *book)
 	foreach_position(p, a, book) {
 		n_links += p->n_link;
 		if (p->leaf.move != NOMOVE) ++n_leaves;
-		++n_level[p->level];
+		if (p->level <= 60) ++n_level[p->level]; // else: damaged position (book fix recomputes it)
 		if (p->level != book->options.level) {
 			position_print(p, &p->board, stdout);
 		}
@@ -4550,7 +4660,9 @@ static Search** store_pool_get(StorePool *pool, const int n, const int n_tasks, 
 		pool->n_tasks = n_tasks;
 		pool->hash_bits = hash_bits;
 		for (; pool->n < n; ++pool->n) {
-			Search *search = (Search*) mm_malloc(sizeof (Search));
+			Search *search;
+			if (!search_memory_available(hash_bits, 1)) return NULL; // search_init_with() would stop the program
+			search = (Search*) mm_malloc(sizeof (Search));
 			if (search == NULL) return NULL;
 			search_init_with(search, n_tasks, hash_bits);
 			search->options.verbosity = 0;
@@ -4607,7 +4719,11 @@ static int book_store_hash_bits(const Book *book, const int n_tasks)
 Search** book_store_searches(const Book *book, const int n, const int n_tasks)
 {
 	// with one thread each, they are the searches of the positions
-	return store_pool_get(store_pool + (n_tasks > 1), n, n_tasks, book_store_hash_bits(book, n_tasks));
+	StorePool *pool = store_pool + (n_tasks > 1);
+	Search **search = store_pool_get(pool, n, n_tasks, book_store_hash_bits(book, n_tasks));
+
+	if (search == NULL) store_pool_release(pool); // give back the memory of the searches that were created
+	return search;
 }
 
 /**

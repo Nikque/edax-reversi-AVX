@@ -68,6 +68,7 @@
 
 #include <assert.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
 
@@ -392,6 +393,34 @@ void search_alloc_thread_hash(Search *search)
 void search_init(Search *search)
 {
 	search_init_with(search, options.n_task, options.hash_table_size);
+}
+
+/**
+ * @brief Check that the memory of one more search can be allocated.
+ *
+ * search_init() stops the program when a hash table cannot be allocated. The searches that are
+ * only used to go faster (several book positions or games at the same time) are not required:
+ * their creation is given up when this test fails, and the work is done with the searches that
+ * exist. This happens with a 32-bit program (2 to 4 GB of address space) and many threads.
+ *
+ * @param hash_bits Size of the main hash table (in number of bits).
+ * @param n_search Number of searches.
+ * @return true if blocks as large as the tables of these searches can be allocated now.
+ */
+bool search_memory_available(const int hash_bits, const int n_search)
+{
+	const unsigned long long n = 1ULL << hash_bits;
+	// main table + pv & shallow tables (1/16 each), thread table, the search itself and its small blocks
+	const unsigned long long bytes = (n + n / 8 + (1ULL << THREAD_LOCAL_HASH_SIZE) + 64) * sizeof (Hash) + sizeof (Search) + (4ULL << 20);
+	void *block[MAX_THREADS];
+	int i, n_block;
+
+	if (bytes > (unsigned long long) SIZE_MAX || n_search > MAX_THREADS) return false;
+	for (n_block = 0; n_block < n_search; ++n_block) {
+		if ((block[n_block] = malloc((size_t) bytes)) == NULL) break;
+	}
+	for (i = 0; i < n_block; ++i) free(block[i]);
+	return n_block == n_search;
 }
 
 /**

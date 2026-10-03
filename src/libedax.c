@@ -1513,13 +1513,21 @@ LIBEDAX_API void edax_book_import(const char *import_file)
 	if (g_ui == NULL) return;
 	book = lib_book_begin_change();
 
-	// import an opening book (text format)
-	book_free(book);
-	book_import(book, import_file);
-	book_link(book);
-	book_fix(book);
-	book_negamax(book);
-	book_sort(book);
+	// import an opening book (text format); as book load, the current book is kept when nothing is imported
+	{
+		Book next = {0};
+		next.search = book->search;
+		if (book_import(&next, import_file)) {
+			book_free(book);
+			*book = next;
+			book_link(book);
+			book_fix(book);
+			book_negamax(book);
+			book_sort(book);
+		} else {
+			warn("Book %s was not imported; current book retained\n", import_file);
+		}
+	}
 
 	lib_book_end(book);
 }
