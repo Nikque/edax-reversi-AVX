@@ -394,6 +394,9 @@ void search_init(Search *search)
 	search_init_with(search, options.n_task, options.hash_table_size);
 }
 
+/** searches created by search_init_with() and not freed yet (they share search_log) */
+static int search_log_users = 0;
+
 /**
  * @brief Init a *main* search with its own number of threads and size of hash tables.
  *
@@ -484,6 +487,7 @@ void search_init_with(Search *search, const int n_task, const int hash_bits)
 	search->options.multipv_depth = MULTIPV_DEPTH;
 
 	log_open(search_log, options.search_log_file);
+	++search_log_users;
 }
 
 /**
@@ -508,7 +512,12 @@ void search_free(Search *search)
 	spin_free(search->result);
 	free(search->result);
 
-	log_close(search_log);
+	// the log is shared: the searches that the book functions create and release (book-store-tasks,
+	// book-expand-tasks) must not close the log of the main search
+	if (--search_log_users <= 0) {
+		search_log_users = 0;
+		log_close(search_log);
+	}
 }
 
 /**
