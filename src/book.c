@@ -3559,14 +3559,69 @@ static void* book_expand_worker(void *v)
 	return NULL;
 }
 
+#ifdef BOOK_TEST_POOL_MAX
+static int book_test_pool_searches = 0; /* test builds: searches created by the book functions and not released yet */
+#endif
+
 /**
- * @brief Expand the todo positions on several threads (book-expand-tasks > 1).
+ * @brief Check that a search with hash tables of this size can be created.
  *
- * @param book opening book.
- * @param action String with a description of current action.
- * @param tmp_file Temporary file name.
- * @param n_workers Number of positions expanded at the same time.
+ * search_init_with() ends the program when the memory is exhausted, and the book in memory is lost.
+ * The searches that the book functions create to search several positions at the same time are not
+ * needed to go on: the memory of their hash tables is asked first, and without it the caller works
+ * with fewer searches, or with the main search only (a 32-bit program cannot hold as many searches
+ * as threads at a high level).
+ *
+ * @param hash_bits Size of the main hash table (in number of bits).
+ * @return true if the memory is available.
  */
+static bool book_search_memory_available(const int hash_bits)
+{
+	const size_t n_main = (size_t) 1 << hash_bits, n_other = (n_main > 16 ? n_main >> 4 : 1);
+	void *main_table, *other_tables;
+	bool ok;
+
+#ifdef BOOK_TEST_POOL_MAX
+	if (book_test_pool_searches >= BOOK_TEST_POOL_MAX) return false; // test builds: as if the memory was exhausted
+#endif
+	main_table = malloc((n_main + 8) * sizeof (Hash));
+	other_tables = malloc(2 * (n_other + 8) * sizeof (Hash)); // pv and shallow tables
+	ok = (main_table != NULL && other_tables != NULL);
+	free(main_table); free(other_tables);
+	return ok;
+}
+
+/**
+ * @brief Create a search for the book functions.
+ *
+ * @param n_tasks Threads of the search.
+ * @param hash_bits Size of its main hash table (in number of bits).
+ * @return the search, NULL if the memory is not available.
+ */
+static Search* book_search_create(const int n_tasks, const int hash_bits)
+{
+	Search *search;
+
+	if (!book_search_memory_available(hash_bits)) return NULL;
+	search = (Search*) mm_malloc(sizeof (Search));
+	if (search == NULL) return NULL;
+	search_init_with(search, n_tasks, hash_bits);
+#ifdef BOOK_TEST_POOL_MAX
+	++book_test_pool_searches;
+#endif
+	return search;
+}
+
+/** @brief Release a search created by book_search_create(). */
+static void book_search_release(Search *search)
+{
+	search_free(search);
+	mm_free(search);
+#ifdef BOOK_TEST_POOL_MAX
+	--book_test_pool_searches;
+#endif
+}
+
 /** searches of the concurrent expansion, kept from one book_expand to the next of a learning command */
 static struct {
 	Search **search;
@@ -3579,10 +3634,7 @@ static struct {
 static void book_expand_release(void)
 {
 	int i;
-	for (i = 0; i < expand_pool.n; ++i) {
-		search_free(expand_pool.search[i]);
-		mm_free(expand_pool.search[i]);
-	}
+	for (i = 0; i < expand_pool.n; ++i) book_search_release(expand_pool.search[i]);
 	free(expand_pool.search);
 	expand_pool.search = NULL;
 	expand_pool.n = 0;
@@ -3594,27 +3646,24 @@ static void book_expand_release(void)
  * @param n Number of searches.
  * @param n_tasks Threads of each search.
  * @param hash_bits Hash table size of each search.
- * @return the searches, NULL if they cannot be allocated.
+ * @return the number of searches available in expand_pool.search (less than n if the memory is exhausted).
  */
-static Search** book_expand_searches(const int n, const int n_tasks, const int hash_bits)
+static int book_expand_searches(const int n, const int n_tasks, const int hash_bits)
 {
 	if (expand_pool.n && (expand_pool.n_tasks != n_tasks || expand_pool.hash_bits != hash_bits)) book_expand_release();
 	if (expand_pool.n < n) {
 		Search **s = (Search**) realloc(expand_pool.search, n * sizeof *s);
-		if (s == NULL) return NULL;
+		if (s == NULL) return expand_pool.n;
 		expand_pool.search = s;
-		for (; expand_pool.n < n; ++expand_pool.n) {
-			Search *search = (Search*) mm_malloc(sizeof (Search));
-			if (search == NULL) return NULL;
-			search_init(search);
-			search_set_task_number(search, n_tasks);
-			search_set_hash_size(search, hash_bits);
-			expand_pool.search[expand_pool.n] = search;
-		}
 		expand_pool.n_tasks = n_tasks;
 		expand_pool.hash_bits = hash_bits;
+		for (; expand_pool.n < n; ++expand_pool.n) {
+			Search *search = book_search_create(n_tasks, hash_bits);
+			if (search == NULL) break;
+			expand_pool.search[expand_pool.n] = search;
+		}
 	}
-	return expand_pool.search;
+	return MIN(n, expand_pool.n);
 }
 
 /**
@@ -3639,22 +3688,34 @@ static int book_expand_task_count(const Book *book)
 	return MAX(1, MIN(n, options.n_task));
 }
 
-static void book_expand_concurrent(Book *book, const char *action, const char *tmp_file, const int n_workers)
+/**
+ * @brief Expand the todo positions on several threads (book-expand-tasks > 1).
+ *
+ * @param book opening book.
+ * @param action String with a description of current action.
+ * @param tmp_file Temporary file name.
+ * @param n_workers Number of positions expanded at the same time.
+ * @return false if the memory for at least two searches is not available (nothing was done:
+ * the positions are then expanded one after the other, with the main search).
+ */
+static bool book_expand_concurrent(Book *book, const char *action, const char *tmp_file, int n_workers)
 {
 	ExpandShared shared;
-	ExpandWorker *w = (ExpandWorker*) calloc(n_workers, sizeof *w);
+	ExpandWorker *w;
 	const int n_tasks = MAX(1, options.n_task / book_expand_task_count(book));
-	Search **search = book_expand_searches(n_workers, n_tasks, options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size);
 	int i;
 
-	if (w == NULL || search == NULL) { error("cannot allocate the expansion threads"); free(w); book->failed = true; return; }
+	n_workers = book_expand_searches(n_workers, n_tasks, options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size);
+	if (n_workers < 2) return false;
+	w = (ExpandWorker*) calloc(n_workers, sizeof *w);
+	if (w == NULL) return false;
 	shared.book = book; shared.next = 0; shared.n_done = 0; shared.action = action; shared.tmp_file = tmp_file;
 	shared.t = real_clock(); shared.stop = false;
 	lock_init(&shared);
 
 	for (i = 0; i < n_workers; ++i) {
 		w[i].shared = &shared;
-		w[i].search = search[i];
+		w[i].search = expand_pool.search[i];
 		w[i].search->options.verbosity = book->search->options.verbosity;
 		w[i].search->options.header = book->search->options.header;
 		w[i].search->options.separator = book->search->options.separator;
@@ -3664,6 +3725,7 @@ static void book_expand_concurrent(Book *book, const char *action, const char *t
 	lock_free(&shared);
 	free(w);
 	bprint("%s...%d/%lld done: %lld positions, %lld links\n", action, shared.n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+	return true;
 }
 
 /**
@@ -3686,8 +3748,8 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 
 	if (book_expand_task_count(book) > 1 && book->todo_list.valid && book->todo_list.n > 1) {
 		qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
-		book_expand_concurrent(book, action, tmp_file, (int) MIN(book_expand_task_count(book), book->todo_list.n));
-		return;
+		if (book_expand_concurrent(book, action, tmp_file, (int) MIN(book_expand_task_count(book), book->todo_list.n))) return;
+		// (not enough memory for the searches: one position after the other, below)
 	}
 
 	// Visit the todo positions in bucket order: either from the list recorded
@@ -4600,15 +4662,21 @@ static StorePool store_pool[2]; /**< [0]: one thread each, for the positions; [1
 static void store_pool_release(StorePool *pool)
 {
 	int i;
-	for (i = 0; i < pool->n; ++i) {
-		search_free(pool->search[i]);
-		mm_free(pool->search[i]);
-	}
+	for (i = 0; i < pool->n; ++i) book_search_release(pool->search[i]);
 	free(pool->search);
 	pool->search = NULL;
 	pool->n = 0;
 }
 
+/**
+ * @brief Get searches of a pool.
+ *
+ * @param pool Pool.
+ * @param n Number of searches.
+ * @param n_tasks Threads of each search.
+ * @param hash_bits Hash table size of each search.
+ * @return the n searches, NULL if the memory is exhausted (the searches created so far stay in the pool).
+ */
 static Search** store_pool_get(StorePool *pool, const int n, const int n_tasks, const int hash_bits)
 {
 	if (pool->n && (pool->n_tasks != n_tasks || pool->hash_bits != hash_bits)) store_pool_release(pool);
@@ -4619,9 +4687,8 @@ static Search** store_pool_get(StorePool *pool, const int n, const int n_tasks, 
 		pool->n_tasks = n_tasks;
 		pool->hash_bits = hash_bits;
 		for (; pool->n < n; ++pool->n) {
-			Search *search = (Search*) mm_malloc(sizeof (Search));
+			Search *search = book_search_create(n_tasks, hash_bits);
 			if (search == NULL) return NULL;
-			search_init_with(search, n_tasks, hash_bits);
 			search->options.verbosity = 0;
 			pool->search[pool->n] = search;
 		}
@@ -5136,8 +5203,12 @@ void book_plan_search(Book *book)
 	for (i = 0; i < n; ++i) {
 		bool left;
 		search = store_pool_get(store_pool, i + 1, 1, bits);
-		if (search == NULL) {
-			if (i == 0) { error("cannot allocate the searches"); plan->worker = NULL; return; }
+		if (search == NULL) { // not enough memory
+			if (i == 0) { // no search at all: the positions are searched as usual, when they are added
+				warn("not enough memory to search the positions at the same time\n");
+				plan->worker = NULL;
+				return;
+			}
 			break; // the workers already started do all the searches
 		}
 		w[i].plan = plan;

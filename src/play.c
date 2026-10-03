@@ -1202,7 +1202,8 @@ static void* learn_lane_run(void *v)
  * search (n-tasks / book-store-tasks threads), reading the book as it was before the call;
  * then all the games are stored: their positions are searched at the same time, and the book
  * is linked, negamaxed and saved (to <book-file>.store) once. The game of the user interface
- * is not changed.
+ * is not changed. (If the memory for the searches of these games is not available, the games
+ * are learned one after the other, as with book-store-tasks = 1.)
  *
  * @param play Play.
  * @param moves First moves of each game.
@@ -1217,13 +1218,31 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 	const int book_randomness = options.book_randomness;
 	const int n_lanes = MIN(book_store_task_count(), n);
 	const int verbosity = play->search.options.verbosity;
+	LearnGame *game = NULL;
+	char *buffer = NULL;
+	LearnLane *lane = NULL;
+	Search **search = NULL;
 	int i, n_learned = 0;
 	char file[FILENAME_MAX + 1];
 
 	if (n <= 0) return 0;
 	play_stop_pondering(play);
 
-	if (book_store_task_count() <= 1) {
+	if (book_store_task_count() > 1) {
+		const int n_tasks = MAX(1, book_store_thread_count() / n_lanes);
+
+		game = (LearnGame*) calloc(n, sizeof *game);
+		buffer = (char*) malloc((size_t) n * LEARN_MOVES_SIZE);
+		lane = (LearnLane*) calloc(n_lanes, sizeof *lane);
+		if (game && buffer && lane) search = book_store_searches(book, n_lanes, n_tasks);
+		if (search == NULL) { // not enough memory to play the games at the same time: one game after the other
+			warn("not enough memory to play %d games at the same time: they are learned one after the other\n", n_lanes);
+			free(game); free(buffer); free(lane);
+			game = NULL;
+		}
+	}
+
+	if (game == NULL) {
 		for (i = 0; i < n; ++i) {
 			char copy[LEARN_MOVES_SIZE], played[256];
 			int j, k;
@@ -1260,20 +1279,8 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 	}
 
 	{
-		LearnGame *game = (LearnGame*) calloc(n, sizeof *game);
-		char *buffer = (char*) malloc((size_t) n * 256);
-		LearnLane *lane = (LearnLane*) calloc(n_lanes, sizeof *lane);
-		const int n_tasks = MAX(1, book_store_thread_count() / n_lanes);
-		Search **search = book_store_searches(book, n_lanes, n_tasks);
 		LearnShared shared;
 		Board initial_board;
-
-		if (game == NULL || buffer == NULL || lane == NULL || search == NULL) {
-			error("cannot allocate the games to learn");
-			free(game); free(buffer); free(lane);
-			if (status) for (i = 0; i < n; ++i) status[i] = 1;
-			return 0;
-		}
 
 		// play the games
 		for (i = 0; i < n; ++i) {
