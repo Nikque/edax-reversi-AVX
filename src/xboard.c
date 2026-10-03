@@ -356,8 +356,8 @@ static void xboard_analyze(Play *play)
 		play->state = IS_ANALYZING;
 		search_cleanup(&play->search);
 		log_print(xboard_log, "edax (analyze)> start\n");
-		thread_create(&play->ponder.thread, play_ponder_run, play);
-		play->ponder.launched = true;
+		if (thread_create(&play->ponder.thread, play_ponder_run, play)) play->ponder.launched = true;
+		else play->state = IS_WAITING; // no thread (memory exhausted): no analysis (its end was waited for, for ever)
 	}
 }
 

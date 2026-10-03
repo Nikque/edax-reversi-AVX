@@ -367,8 +367,9 @@ static inline void win_spin_unlock(volatile long *s)
 
 #endif
 
-void thread_create(Thread*, void* (*f)(void*), void*);
+bool thread_create(Thread*, void* (*f)(void*), void*);
 void thread_join(Thread);
+void thread_run_workers(void* (*f)(void*), void*, const size_t, const int, const bool, const bool);
 void thread_set_cpu(Thread, int);
 bool thread_cpu_bound(void);
 Thread thread_self(void);

@@ -928,7 +928,7 @@ void search_set_task_number(Search *search, const int n)
 {
 	assert(n > 0 && n < MAX_THREADS);
 	task_stack_resize(search->tasks, n);
-	search->allow_node_splitting = (n > 1);
+	search->allow_node_splitting = (search->tasks->n > 1); // (fewer tasks than n if their threads cannot be created)
 }
 
 /**

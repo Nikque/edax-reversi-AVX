@@ -931,20 +931,44 @@ char* file_add_ext(const char *base, const char *ext, char *file)
 	return file;
 }
 
+#ifdef BOOK_TEST_THREAD_MAX
+/* test builds: thread_create() fails, as if the memory was exhausted, while BOOK_TEST_THREAD_MAX threads that it
+ * created are not joined yet */
+static volatile long thread_test_count = 0;
+
+static bool thread_test_add(const long n)
+{
+#if defined(_MSC_VER)
+	return _InterlockedExchangeAdd(&thread_test_count, n) + n <= BOOK_TEST_THREAD_MAX;
+#else
+	return __atomic_add_fetch(&thread_test_count, n, __ATOMIC_SEQ_CST) <= BOOK_TEST_THREAD_MAX;
+#endif
+}
+#endif
+
 /**
  * @brief Create a thread.
  *
  * @param thread Thread.
  * @param function Function to run in parallel.
  * @param data Data for the function.
+ * @return false if the thread cannot be created (memory exhausted): the function is not run, and
+ * there is no thread to join.
  */
-void thread_create(Thread *thread, void* (*function)(void*), void *data)
+bool thread_create(Thread *thread, void* (*function)(void*), void *data)
 {
+#ifdef BOOK_TEST_THREAD_MAX
+	if (!thread_test_add(1)) {
+		thread_test_add(-1);
+		return false;
+	}
+#endif
 #if defined(__unix__) || (defined(_WIN32) && defined(USE_PTHREAD)) || defined(__APPLE__)
-	pthread_create(thread, NULL, function, data);
+	return pthread_create(thread, NULL, function, data) == 0;
 #elif defined(_WIN32)
 	DWORD id;
 	*thread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)(void (*)(void)) function, data, 0, &id);
+	return *thread != NULL;
 #endif
 }
 
@@ -964,7 +988,45 @@ void thread_join(Thread thread)
 	WaitForSingleObject(thread, INFINITE);
 	CloseHandle(thread);
 #endif
+#ifdef BOOK_TEST_THREAD_MAX
+	thread_test_add(-1);
+#endif
 }
+
+/**
+ * @brief Run a function on each worker of an array, at the same time.
+ *
+ * Each worker gets its own thread, except the first one when main_works is set: the calling
+ * thread runs it. A worker whose thread cannot be created (memory exhausted) is run by the calling
+ * thread, after its own worker: the work is done anyway, with fewer threads. (Such a thread used to
+ * be waited for although it did not exist, and its work was not done.)
+ *
+ * @param function Function to run on each worker (it must not need the other workers to be running).
+ * @param worker Array of workers.
+ * @param size Size of a worker.
+ * @param n Number of workers (MAX_THREADS at most).
+ * @param main_works The calling thread runs the first worker (else it only waits for the threads).
+ * @param set_cpu Give its own cpu to each thread: cpu i to the worker i (see thread_set_cpu).
+ */
+void thread_run_workers(void* (*function)(void*), void *worker, const size_t size, const int n, const bool main_works, const bool set_cpu)
+{
+	Thread thread[MAX_THREADS];
+	bool created[MAX_THREADS];
+	const int first = main_works ? 1 : 0;
+	int i;
+
+	assert(n <= MAX_THREADS);
+	for (i = first; i < n; ++i) {
+		created[i] = thread_create(thread + i, function, (char*) worker + i * size);
+		if (created[i] && set_cpu) thread_set_cpu(thread[i], i);
+	}
+	if (main_works && n > 0) function(worker);
+	for (i = first; i < n; ++i) {
+		if (created[i]) thread_join(thread[i]);
+		else function((char*) worker + i * size);
+	}
+}
+
 /**
  * @brief Current thread.
  *

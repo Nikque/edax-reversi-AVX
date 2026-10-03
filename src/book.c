@@ -80,21 +80,21 @@ void book_print(const char *format, ...)
 }
 
 /**
- * @brief Create a thread of the book functions (negamax, fix, link, sort, deviate walks).
+ * @brief Run the threads of a book function (negamax, fix, link, sort, deviate walks).
  *
+ * The calling thread runs the first worker, the others get their own threads (see thread_run_workers).
  * With the cpu option, each of them gets its own cpu, as the threads of a search do: where the option
  * binds the threads (linux), a new thread would else stay on the cpu of the main thread, and all the
  * threads of the book functions would share cpu 0.
  *
- * @param thread Thread.
- * @param function Function to run.
- * @param data Data for the function.
- * @param cpu Cpu of the thread (its rank among the threads working together).
+ * @param function Function to run on each worker.
+ * @param worker Array of workers.
+ * @param size Size of a worker.
+ * @param n Number of workers.
  */
-static void book_thread_create(Thread *thread, void* (*function)(void*), void *data, const int cpu)
+static void book_run_workers(void* (*function)(void*), void *worker, const size_t size, const int n)
 {
-	thread_create(thread, function, data);
-	if (options.cpu_affinity) thread_set_cpu(*thread, cpu);
+	thread_run_workers(function, worker, size, n, true, options.cpu_affinity);
 }
 
 /**
@@ -1304,7 +1304,6 @@ typedef struct NegamaxWorker {
 	Book *book;
 	Position *root;
 	int id;
-	Thread thread;
 } NegamaxWorker;
 
 static void* negamax_worker(void *v)
@@ -1333,9 +1332,7 @@ static void book_negamax_position(Position *root, Book *book)
 	for (i = 0; i < n; ++i) {
 		w[i].book = book; w[i].root = root; w[i].id = i;
 	}
-	for (i = 1; i < n; ++i) book_thread_create(&w[i].thread, negamax_worker, w + i, i);
-	negamax_worker(w);
-	for (i = 1; i < n; ++i) thread_join(w[i].thread);
+	book_run_workers(negamax_worker, w, sizeof *w, n);
 }
 
 
@@ -2584,7 +2581,6 @@ typedef struct BookTask {
 	long long n, size;
 	bool oom;
 	void (*run)(struct BookTask*);
-	Thread thread;
 	volatile long long done;     /**< positions scanned so far (progress display only) */
 	volatile bool finished;      /**< the task is over (progress display only) */
 } BookTask;
@@ -2641,10 +2637,16 @@ static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task
 		task[i].done = 0; task[i].finished = false;
 	}
 	if (progress && book_verbose) {
+		Thread thread[MAX_THREADS];
+		bool created[MAX_THREADS];
 		long long next = real_clock() + 1000;
 		bool finished = false;
 		int n_wait = 0;
-		for (i = 0; i < n; ++i) book_thread_create(&task[i].thread, book_task_main, task + i, i);
+		for (i = 0; i < n; ++i) {
+			created[i] = thread_create(thread + i, book_task_main, task + i);
+			if (!created[i]) book_task_main(task + i); // no thread (memory exhausted): this one does the task
+			else if (options.cpu_affinity) thread_set_cpu(thread[i], i); // (see book_run_workers)
+		}
 		while (!finished) {
 			long long done = 0;
 			relax(++n_wait <= 20 ? 1 : 50); // the scan of a small book is over at once
@@ -2652,11 +2654,9 @@ static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task
 			for (i = 0; i < n; ++i) { done += task[i].done; if (!task[i].finished) finished = false; }
 			if (!finished && book_progress_due(&next)) bprint("%s...%lld/%u positions checked\r", progress, done, book->n_nodes);
 		}
-		for (i = 0; i < n; ++i) thread_join(task[i].thread);
+		for (i = 0; i < n; ++i) if (created[i]) thread_join(thread[i]);
 	} else {
-		for (i = 1; i < n; ++i) book_thread_create(&task[i].thread, book_task_main, task + i, i);
-		run(task);
-		for (i = 1; i < n; ++i) thread_join(task[i].thread);
+		book_run_workers(book_task_main, task, sizeof *task, n);
 	}
 	return n;
 }
@@ -3469,7 +3469,6 @@ typedef struct ExpandShared {
 typedef struct ExpandWorker {
 	ExpandShared *shared;
 	Search *search;
-	Thread thread;
 } ExpandWorker;
 
 /**
@@ -3720,8 +3719,7 @@ static bool book_expand_concurrent(Book *book, const char *action, const char *t
 		w[i].search->options.header = book->search->options.header;
 		w[i].search->options.separator = book->search->options.separator;
 	}
-	for (i = 0; i < n_workers; ++i) thread_create(&w[i].thread, book_expand_worker, w + i);
-	for (i = 0; i < n_workers; ++i) thread_join(w[i].thread);
+	thread_run_workers(book_expand_worker, w, sizeof *w, n_workers, false, false); // (each worker in its own thread, as before)
 	lock_free(&shared);
 	free(w);
 	bprint("%s...%d/%lld done: %lld positions, %lld links\n", action, shared.n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
@@ -3904,7 +3902,6 @@ typedef struct DeviateWorker {
 	long long n, size, n_todo;
 	bool oom;
 	volatile bool *conflict;
-	Thread thread;
 } DeviateWorker;
 
 static void deviate_worker_todo(DeviateWorker *w, Position *p)
@@ -4050,9 +4047,7 @@ static bool book_deviate_total_by_loss(Book *book, Position *root, const int mod
 				lw[i].first = cur.n * i / m; lw[i].last = cur.n * (i + 1) / m;
 				lw[i].same.n = 0;
 			}
-			for (i = 1; i < m; ++i) book_thread_create(&lw[i].w.thread, loss_worker_run, lw + i, i);
-			loss_worker_run(lw);
-			for (i = 1; i < m; ++i) thread_join(lw[i].w.thread);
+			book_run_workers(loss_worker_run, lw, sizeof *lw, m);
 			cur.n = 0;
 			for (i = 0; i < m && ok; ++i) {
 				if (lw[i].w.oom) ok = false;
@@ -4163,9 +4158,7 @@ static bool book_deviate_by_depth(Book *book, Position *root, const int player_d
 			lw[i].first = cur.n * i / m; lw[i].last = cur.n * (i + 1) / m;
 			lw[i].same.n = 0;
 		}
-		for (i = 1; i < m; ++i) book_thread_create(&lw[i].w.thread, depth_worker_run, lw + i, i);
-		depth_worker_run(lw);
-		for (i = 1; i < m; ++i) thread_join(lw[i].w.thread);
+		book_run_workers(depth_worker_run, lw, sizeof *lw, m);
 		next.n = 0;
 		for (i = 0; i < m && ok; ++i) {
 			if (lw[i].w.oom) ok = false;
@@ -5184,6 +5177,7 @@ void book_plan_search(Book *book)
 	PlanWorker w[MAX_THREADS];
 	Search **search;
 	int i, n, n_tasks, bits;
+	bool self = false; // the last worker has no thread: this thread did its searches
 
 	if (plan == NULL || plan->failed || plan->n_job == 0) return;
 #ifndef BOOK_TEST_ONE_THREAD
@@ -5223,11 +5217,15 @@ void book_plan_search(Book *book)
 		plan->n_worker = i + 1;
 		left = (plan->next < plan->n_job);
 		unlock(plan);
-		thread_create(&w[i].thread, plan_worker_run, w + i);
+		if (!thread_create(&w[i].thread, plan_worker_run, w + i)) { // no thread (memory exhausted):
+			plan_worker_run(w + i); // this thread does the searches of this worker, and no other worker is started
+			self = true;
+			break;
+		}
 		if (!left) break; // the searches are short: no more worker is needed
 	}
 	n = plan->n_worker;
-	for (i = 0; i < n; ++i) thread_join(w[i].thread);
+	for (i = 0; i < (self ? n - 1 : n); ++i) thread_join(w[i].thread);
 	for (i = 0; i < n; ++i) { // back to the state of the pool
 		if (w[i].n_tasks != 1) search_set_task_number(w[i].search, 1);
 		w[i].search->options.keep_date = false;

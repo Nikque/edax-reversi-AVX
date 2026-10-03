@@ -563,8 +563,8 @@ void play_ponder(Play *play)
 		play->ponder.board.player = play->ponder.board.opponent = 0;
 		play->state = IS_PONDERING;
 		info("\n[start ponderation]\n");
-		thread_create(&play->ponder.thread, play_ponder_run, play);
-		play->ponder.launched = true;
+		if (thread_create(&play->ponder.thread, play_ponder_run, play)) play->ponder.launched = true;
+		else play->state = IS_WAITING; // no thread (memory exhausted): no pondering (its end was waited for, for ever)
 	}
 }
 
@@ -1057,7 +1057,6 @@ typedef struct LearnLane {
 	LearnShared *shared;
 	Search *search;
 	Random random;             /**< to choose among the book moves */
-	Thread thread;
 	bool progress;             /**< this one shows the progress */
 } LearnLane;
 
@@ -1297,9 +1296,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			random_seed(&lane[i].random, random_get(&book->random));
 		}
 		book_print("Playing games...\r");
-		for (i = 1; i < n_lanes; ++i) thread_create(&lane[i].thread, learn_lane_run, lane + i);
-		learn_lane_run(lane);
-		for (i = 1; i < n_lanes; ++i) thread_join(lane[i].thread);
+		thread_run_workers(learn_lane_run, lane, sizeof *lane, n_lanes, true, false); // (this thread runs the first lane)
 		lock_free(&shared);
 		book_print("Playing games...%d done\n", n);
 

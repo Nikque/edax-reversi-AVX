@@ -629,7 +629,15 @@ void task_stack_init(TaskStack *stack, const int n)
 			if (i) {
 				task_init(stack->task + i);
 				stack->task[i].loop = true;
-				thread_create(&stack->task[i].thread, task_loop, stack->task + i);
+				if (!thread_create(&stack->task[i].thread, task_loop, stack->task + i)) {
+					// no thread for this task (memory exhausted): the search works with the tasks created so far.
+					// (The task used to be given moves to search, and its master waited for it for ever.)
+					warn("cannot create a thread: the search uses %d threads instead of %d\n", i, stack->n);
+					stack->task[i].loop = false; // (there is no thread to join)
+					task_free(stack->task + i);
+					stack->n = i;
+					break;
+				}
 				if (options.cpu_affinity) thread_set_cpu(stack->task[i].thread, i); /* CPU 0 to n - 1 */
 			}
 			stack->task[i].container = stack;
