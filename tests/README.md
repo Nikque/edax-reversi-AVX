@@ -18,4 +18,6 @@ tests\regression.exe core 4
 
 v4.5.5-nikque.3 adds `missinglink` (a link to a missing position is skipped by negamax and removed by `book fix`), `mergefile` (a truncated merge source leaves the destination unchanged; a complete one is merged), and `linkstore` (links move between in-place and heap storage without loss).
 
+The final audit of v4.5.5-nikque.8 adds `mergetwice` (a second merge does not take the positions of the first one for duplicated positions; a merge that fails only removes what it added), `negamaxloop` (a link of a damaged book that leads back to its own position does not make the negamax with threads endless) and `learnline` (the first moves of a game to learn are copied without their spaces: a long line is not cut).
+
 Additional case names are listed in `tests/regression.c`. Some cases write small `audit-*` files in the current directory. Run them from a disposable checkout if you want to keep the source directory clean.

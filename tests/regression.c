@@ -76,6 +76,27 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
  else if(!strcmp(t,"missinglink")){Search s;init_search(&s,1);Book b={0};if(!book_load(&b,"tests/merge-complete-fixture.dat")||b.n_nodes!=2)return 2;b.search=&s;Position *root=book_root(&b),*child=NULL,*p;PositionArray *a;Book *bp=&b;foreach_position(p,a,bp)if(p!=root)child=p;if(!root||!child||root->n_link==0)return 2;Position copy=*child;book_remove(&b,&copy);book_clean(&b);position_negamax(book_root(&b),&b);book_fix(&b);root=book_root(&b);printf("MISSING LINK nodes=%d root_links_after_fix=%d\n",b.n_nodes,root->n_link);if(b.n_nodes!=1||root->n_link!=0)return 2;book_free(&b);search_free(&s);}
  else if(!strcmp(t,"mergefile")){FILE *in=fopen("tests/merge-complete-fixture.dat","rb"),*out=fopen("audit-merge-truncated.dat","wb");fseek(in,0,SEEK_END);long n=ftell(in);rewind(in);for(long i=0;i<n-1;++i)fputc(fgetc(in),out);fclose(in);fclose(out);Book d={0};book_init(&d);int ok=book_merge_file(&d,"audit-merge-truncated.dat");printf("MERGE truncated_source accepted=%d destination_nodes=%d\n",ok,d.n_nodes);if(ok||d.n_nodes!=0)return 2;ok=book_merge_file(&d,"tests/merge-complete-fixture.dat");printf("MERGE complete_source accepted=%d destination_nodes=%d\n",ok,d.n_nodes);if(!ok||d.n_nodes!=2)return 2;book_free(&d);}
  else if(!strcmp(t,"linkstore")){Position p;Link l;int i,ok;position_init(&p);for(i=0;i<7;++i){l.move=(unsigned char)i;l.score=(signed char)i;position_add_link(&p,&l);}ok=p.n_link==7&&position_links(&p)[6].move==6;{Link keep[3]={{1,1},{3,3},{5,5}};position_set_links(&p,keep,3);}ok=ok&&p.n_link==3&&position_links(&p)[2].move==5;for(i=10;i<13;++i){l.move=(unsigned char)i;l.score=0;position_add_link(&p,&l);}ok=ok&&p.n_link==6&&position_links(&p)[0].move==1&&position_links(&p)[5].move==12;position_free(&p);printf("LINK storage inline/heap ok=%d\n",ok);if(!ok)return 2;}
+ else if(!strcmp(t,"mergetwice")){ /* a second merge must not take the positions of the first one for duplicated positions; a merge that fails must only remove what it added */
+  Book s={0},d={0};Position p;Board b;FILE *f;long n;unsigned char *data;unsigned int count=2;int ok;
+  book_init(&s);board_init(&b);position_init(&p);board_unique(&b,&p.board);p.level=1;if(book_add(&s,&p)<=0)return 2;
+  b=late_board(40);position_init(&p);board_unique(&b,&p.board);p.level=1;if(book_add(&s,&p)<=0)return 2; /* a position out of reach from the root */
+  if(!book_save(&s,"audit-merge-a.dat"))return 2;book_free(&s);
+  book_init(&s);b=late_board(38);position_init(&p);board_unique(&b,&p.board);p.level=1;if(book_add(&s,&p)<=0)return 2;if(!book_save(&s,"audit-merge-one.dat"))return 2;book_free(&s);
+  f=fopen("audit-merge-one.dat","rb");if(f==NULL)return 2;fseek(f,0,SEEK_END);n=ftell(f);rewind(f);data=malloc(n);if(fread(data,1,n,f)!=(size_t)n)return 2;fclose(f);
+  memcpy(data+38,&count,4);f=fopen("audit-merge-dup.dat","wb");fwrite(data,1,n,f);fwrite(data+42,1,n-42,f);fclose(f);free(data); /* the same position twice */
+  book_init(&d);
+  ok=book_merge_file(&d,"audit-merge-a.dat");printf("MERGE first accepted=%d nodes=%u\n",ok,d.n_nodes);if(!ok||d.n_nodes!=2)return 2;
+  ok=book_merge_file(&d,"audit-merge-a.dat");printf("MERGE same book again accepted=%d nodes=%u\n",ok,d.n_nodes);if(!ok||d.n_nodes!=2)return 2;
+  ok=book_merge_file(&d,"audit-merge-dup.dat");printf("MERGE book with a duplicated position accepted=%d nodes=%u\n",ok,d.n_nodes);if(ok||d.n_nodes!=2)return 2;
+  book_free(&d);remove("audit-merge-a.dat");remove("audit-merge-one.dat");remove("audit-merge-dup.dat");}
+ else if(!strcmp(t,"negamaxloop")){ /* damaged book: a link that leads back to its own position must not make the negamax with threads endless */
+  Book b={0};Position p;Board board;Link l={0,PASS};
+  book_init(&b);board_init(&board);position_init(&p);board_unique(&board,&p.board);p.level=1;position_add_link(&p,&l);if(book_add(&b,&p)<=0)return 2;
+  options.n_task=4;book_negamax(&b);printf("NEGAMAX with a link that leads back: done, nodes=%u\n",b.n_nodes);book_free(&b);}
+ else if(!strcmp(t,"learnline")){ /* the first moves of a game to learn are copied without their spaces: a long line is not cut between two moves */
+  char line[400],copy[LEARN_MOVES_SIZE];int i,ok;
+  strcpy(line,"F5d6");for(i=4;i<253;++i)line[i]=' ';strcpy(line+253,"c3g5");
+  learn_moves_copy(copy,line);ok=!strcmp(copy,"f5d6c3g5");printf("LEARN line of %d bytes copied as \"%s\" ok=%d\n",(int)strlen(line),copy,ok);if(!ok)return 2;}
  else return 1;
  return 0;
 }
