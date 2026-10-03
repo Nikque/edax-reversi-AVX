@@ -42,31 +42,15 @@ static const int BOOK_INFO_RESOLUTION = 100000;
 bool book_verbose = false;
 
 /**
- * @brief print a message on stdout.
+ * @brief print a message about the book on stdout, if the book is verbose.
  * @param format Format string.
  * @param ... variable arguments.
  */
 #if defined(__GNUC__)
-static void bprint(const char *format, ...) __attribute__((format(printf, 1, 2)));
+void book_print(const char *format, ...) __attribute__((format(printf, 1, 2)));
 #endif
-static void bprint(const char *format, ...)
-{
-	if (book_verbose) {
-		va_list args;
+#define bprint book_print /* (the name used in this file) */
 
-		va_start(args, format);
-		vprintf(format, args);
-		va_end(args);
-		fflush (stdout);
-
-	}
-}
-
-/**
- * @brief print a message about the book on stdout (as the functions of this file do).
- * @param format Format string.
- * @param ... variable arguments.
- */
 void book_print(const char *format, ...)
 {
 	if (book_verbose) {
@@ -907,6 +891,22 @@ static int position_search_with(Position *position, Search *search);
 static int position_search_planned(Position *position, Book *book);
 static struct BookPlan *book_plan = NULL; /**< searches done ahead of book_add_board() (book-store-tasks); NULL: none */
 
+/**
+ * @brief Tell if the leaf of a position has to be searched.
+ *
+ * It has when a move of the position is not a link. A position without any move (a pass, or the end
+ * of the game) is searched once, to get its score. The plan (book_plan_board, book_link_plan) applies
+ * the same rule as the functions that search.
+ *
+ * @param n_link Number of links of the position.
+ * @param n_moves Number of moves of its board.
+ * @param no_score The position has no score yet (-SCORE_INF).
+ */
+static inline bool leaf_search_needed(const int n_link, const int n_moves, const bool no_score)
+{
+	return n_link < n_moves || (n_link == 0 && n_moves == 0 && no_score);
+}
+
 static void position_search(Position *position, Book *book)
 {
 	const int r = book_plan ? position_search_planned(position, book) : position_search_with(position, book->search);
@@ -937,7 +937,7 @@ static int position_search_with(Position *position, Search *search)
 		r = 1;
 	}
 
-	if (position->n_link < n_moves || (position->n_link == 0 && n_moves == 0 && position->score.value == -SCORE_INF)) {
+	if (leaf_search_needed(position->n_link, n_moves, position->score.value == -SCORE_INF)) {
 		search_set_board(search, &position->board, BLACK);
 		search_set_level(search, position->level, search->eval.n_empties);
 
@@ -1959,6 +1959,39 @@ static void book_remove(Book *book, const Position *p)
 	}
 }
 
+/** @return the place of a position in the book: bucket << 32 | index in the bucket. */
+static inline unsigned long long position_key(const Book *book, const Position *p)
+{
+	const unsigned long long i = board_get_hash_code(&p->board) & (book->n - 1);
+	return (i << 32) | (unsigned long long) (p - book->array[i].positions);
+}
+
+/** @return the position at a place of the book (see position_key). */
+static inline Position* book_position(const Book *book, const unsigned long long key)
+{
+	return book->array[key >> 32].positions + (int) (key & 0xffffffffu);
+}
+
+/**
+ * @brief Add the place of a position to the list of the positions to expand.
+ *
+ * @param book Opening book.
+ * @param key Place of the position (see position_key).
+ * @return false if the memory is exhausted: the list is no longer valid (the whole book is scanned instead).
+ */
+static bool book_todo_push(Book *book, const unsigned long long key)
+{
+	if (book->todo_list.n == book->todo_list.size) {
+		const long long size = book->todo_list.size + book->todo_list.size / 2 + 1024;
+		unsigned long long *item = (unsigned long long*) realloc(book->todo_list.item, size * sizeof *item);
+		if (item == NULL) { book->todo_list.valid = false; return false; }
+		book->todo_list.item = item;
+		book->todo_list.size = size;
+	}
+	book->todo_list.item[book->todo_list.n++] = key;
+	return true;
+}
+
 /**
  * @brief Mark a position to be expanded and remember where it is.
  *
@@ -1972,17 +2005,7 @@ static void book_remove(Book *book, const Position *p)
 static void book_mark_todo(Book *book, Position *p)
 {
 	position_set_todo(p, book);
-	if (book->todo_list.valid) {
-		const unsigned long long i = board_get_hash_code(&p->board) & (book->n - 1);
-		if (book->todo_list.n == book->todo_list.size) {
-			const long long size = book->todo_list.size + book->todo_list.size / 2 + 1024;
-			unsigned long long *item = (unsigned long long*) realloc(book->todo_list.item, size * sizeof *item);
-			if (item == NULL) { book->todo_list.valid = false; return; } // fall back to a full scan
-			book->todo_list.item = item;
-			book->todo_list.size = size;
-		}
-		book->todo_list.item[book->todo_list.n++] = (i << 32) | (unsigned long long) (p - book->array[i].positions);
-	}
+	if (book->todo_list.valid) book_todo_push(book, position_key(book, p));
 }
 
 static int todo_item_cmp(const void *a, const void *b)
@@ -2677,12 +2700,34 @@ static void book_tasks_free(BookTask *task, const int n)
 #define TASK_INDEX(item) ((int) (((item) >> 8) & 0xffffff))
 #define TASK_MOVE(item) ((int) ((item) & 0xff))
 #define TASK_NO_LINK 0xff /* the position has no new link but its leaf must be searched */
+#define TASK_KEY(item) (((unsigned long long) TASK_BUCKET(item) << 32) | (unsigned long long) TASK_INDEX(item)) /* place of the position (see position_key) */
+#define TASK_POSITION(book, item) ((book)->array[TASK_BUCKET(item)].positions + TASK_INDEX(item))
 
 static bool position_has_link(const Position *position, const int x)
 {
 	const Link *l;
 	foreach_link(l, position) if (l->move == x) return true;
 	return false;
+}
+
+/**
+ * @brief Links of a position as a set of moves (the form that the plan of the searches uses).
+ *
+ * @param position Position.
+ * @param pass Set to true if the pass is a link.
+ * @return the moves that are links, as a bitboard.
+ */
+static unsigned long long position_link_set(const Position *position, bool *pass)
+{
+	unsigned long long links = 0;
+	const Link *l;
+
+	*pass = false;
+	foreach_link(l, position) {
+		if (l->move == PASS) *pass = true;
+		else if (l->move <= H8) links |= x_to_bit(l->move);
+	}
+	return links;
 }
 
 /*
@@ -2719,7 +2764,7 @@ static void changed_set_index(ChangedSet *set, const Book *book)
 	}
 	set->mask = size - 1;
 	for (i = 0; i < set->n; ++i) {
-		const Position *p = book->array[set->list[i] >> 32].positions + (int) (set->list[i] & 0xffffffffu);
+		const Position *p = book_position(book, set->list[i]);
 		const unsigned long long code = board_get_hash_code(&p->board) | 1;
 		for (j = changed_set_slot(set, code); set->code[j]; j = (j + 1) & set->mask) ;
 		set->code[j] = code; set->key[j] = set->list[i];
@@ -2753,7 +2798,7 @@ static void book_link_refresh(BookTask *task)
 					unsigned long long j;
 					for (j = changed_set_slot(set, code); set->code[j]; j = (j + 1) & set->mask) {
 						if (set->code[j] == code && set->key[j] < key) {
-							const Position *child = book->array[set->key[j] >> 32].positions + (int) (set->key[j] & 0xffffffffu);
+							const Position *child = book_position(book, set->key[j]);
 							if (board_equal(&child->board, &unique)) { l->score = -child->score.value; break; }
 						}
 					}
@@ -2933,18 +2978,13 @@ static void book_link_plan(Book *book, const BookTask *task, const int n)
 	for (i = 0; i < n; ++i) {
 		for (j = 0; j < task[i].n; ) {
 			const unsigned long long key = task[i].item[j] >> 8;
-			const Position *p = book->array[TASK_BUCKET(task[i].item[j])].positions + TASK_INDEX(task[i].item[j]);
-			const MergeHint *hint = merge_hint_find(((unsigned long long) TASK_BUCKET(task[i].item[j]) << 32) | (unsigned long long) TASK_INDEX(task[i].item[j]));
+			const Position *p = TASK_POSITION(book, task[i].item[j]);
+			const MergeHint *hint = merge_hint_find(TASK_KEY(task[i].item[j]));
 			const int n_moves = get_mobility(p->board.player, p->board.opponent);
-			unsigned long long links = 0;
-			bool pass = false, no_leaf = (p->leaf.move == NOMOVE);
+			bool pass, no_leaf = (p->leaf.move == NOMOVE);
+			unsigned long long links = position_link_set(p, &pass);
 			int value = p->score.value, n_link;
-			const Link *l;
 
-			foreach_link(l, p) {
-				if (l->move == PASS) pass = true;
-				else if (l->move <= H8) links |= x_to_bit(l->move);
-			}
 			for (; j < task[i].n && (task[i].item[j] >> 8) == key; ++j) { // the new links of this position
 				const int x = TASK_MOVE(task[i].item[j]);
 				if (x == TASK_NO_LINK) continue;
@@ -2956,7 +2996,7 @@ static void book_link_plan(Book *book, const BookTask *task, const int n)
 			if (hint && hint->level == p->level && hint->leaf.move != NOMOVE
 			 && !(hint->leaf.move == PASS ? pass : (hint->leaf.move <= H8 && (links & x_to_bit(hint->leaf.move)) != 0))) continue;
 			n_link = bit_count(links) + pass;
-			if (n_link < n_moves || (n_link == 0 && n_moves == 0 && value == -SCORE_INF)) plan_job_add(book_plan, &p->board, links, pass, p->level);
+			if (leaf_search_needed(n_link, n_moves, value == -SCORE_INF)) plan_job_add(book_plan, &p->board, links, pass, p->level);
 		}
 	}
 }
@@ -3009,35 +3049,35 @@ static void book_link_tasks(Book *book, const bool exact)
 		for (j = 0; j < task[i].n; ++j) {
 			if ((++i_item & 15) == 0 && book_progress_due(&next)) bprint("Linking book...%lld/%lld positions linked\r", i_item, n_items);
 			const unsigned long long item = task[i].item[j];
-			Position *p = book->array[TASK_BUCKET(item)].positions + TASK_INDEX(item);
+			Position *p = TASK_POSITION(book, item);
 			const int x = TASK_MOVE(item);
 			const bool last = (j + 1 == task[i].n || (task[i].item[j + 1] >> 8) != (item >> 8));
 			if (first) value = p->score.value; // score before the first item of this position
 			first = last;
 			if (x != TASK_NO_LINK) {
-				Board next;
+				Board target;
 				Position *child;
 				Link link;
-				if (x == PASS) { next.player = p->board.opponent; next.opponent = p->board.player; }
-				else board_next(&p->board, x, &next);
-				child = book_probe(book, &next);
+				if (x == PASS) { target.player = p->board.opponent; target.opponent = p->board.player; }
+				else board_next(&p->board, x, &target);
+				child = book_probe(book, &target);
 				link.score = -child->score.value;
 				link.move = x;
 				if (position_add_link(p, &link)) ++book->stats.n_links;
 			}
 			if (last && p->leaf.move == NOMOVE) {
-				const MergeHint *hint = merge_hint_find(((unsigned long long) TASK_BUCKET(item) << 32) | (unsigned long long) TASK_INDEX(item));
+				const MergeHint *hint = merge_hint_find(TASK_KEY(item));
 				const int n_moves = get_mobility(p->board.player, p->board.opponent);
 				if (hint && hint->level == p->level && hint->leaf.move != NOMOVE && !position_has_link(p, hint->leaf.move)) {
 					// the source book already searched this position with a subset of these links
 					p->leaf = hint->leaf;
 					if (p->leaf.score > p->score.value) p->score.value = p->leaf.score;
 					book->need_saving = true;
-				} else if (p->n_link < n_moves || (p->n_link == 0 && n_moves == 0 && p->score.value == -SCORE_INF)) {
+				} else if (leaf_search_needed(p->n_link, n_moves, p->score.value == -SCORE_INF)) {
 					position_search(p, book);
 				}
 			}
-			if (last && exact && p->score.value != value) changed.list[changed.n++] = ((unsigned long long) TASK_BUCKET(item) << 32) | (unsigned long long) TASK_INDEX(item);
+			if (last && exact && p->score.value != value) changed.list[changed.n++] = TASK_KEY(item);
 		}
 	}
 	if (plan) book_plan_end(book);
@@ -3333,7 +3373,7 @@ void book_fix(Book *book)
 					book_fix_one_by_one(book, TASK_BUCKET(item), TASK_INDEX(item), &n_fix, &n_missing);
 					i = n; break;
 				}
-				position_remove_links(book->array[TASK_BUCKET(item)].positions + TASK_INDEX(item), book);
+				position_remove_links(TASK_POSITION(book, item), book);
 				++n_missing;
 				++n_fix;
 			}
@@ -3513,8 +3553,7 @@ static void* book_expand_worker(void *v)
 
 		lock(s);
 		while (!s->stop && s->next < book->todo_list.n) {
-			const unsigned long long item = book->todo_list.item[s->next++];
-			Position *p = book->array[item >> 32].positions + (int) (item & 0xffffffffu);
+			Position *p = book_position(book, book->todo_list.item[s->next++]);
 			if (!position_is_todo(p, book)) continue;
 			if (p->leaf.move != NOMOVE) { q = p; break; }
 			bprint("%s...%d/%lld done: %lld positions, %lld links\r", s->action, ++s->n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
@@ -3759,22 +3798,20 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 
 	bprint("%s...\r", action);
 
+	// The todo positions are visited in bucket order: either from the list recorded
+	// while marking them, or by scanning the whole book.
+	if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+
 	if (book_expand_task_count(book) > 1 && book->todo_list.valid && book->todo_list.n > 1) {
-		qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
 		if (book_expand_concurrent(book, action, tmp_file, (int) MIN(book_expand_task_count(book), book->todo_list.n))) return;
 		// (not enough memory for the searches: one position after the other, below)
 	}
 
-	// Visit the todo positions in bucket order: either from the list recorded
-	// while marking them, or by scanning the whole book.
-	if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
 	a = book->array; k = 0;
 	for (j = 0; ; ++j) {
 		if (book->todo_list.valid) {
-			unsigned long long item;
 			if (j == book->todo_list.n) break;
-			item = book->todo_list.item[j];
-			p = book->array[item >> 32].positions + (int) (item & 0xffffffffu); // do not keep p across expansions: a->positions may change!
+			p = book_position(book, book->todo_list.item[j]); // do not keep p across expansions: a->positions may change!
 		} else {
 			while (a < book->array + book->n && k == a->n) { ++a; k = 0; }
 			if (a == book->array + book->n) break;
@@ -3910,7 +3947,6 @@ void book_fill(Book *book, const int depth)
 
 typedef struct DeviateWorker {
 	Book *book;
-	int id;
 	int mode;                  /**< 0: deviate, 2: deviate2, 3: deviate3 */
 	int a, b, lower, upper;    /**< deviate: player & opponent deviations, window. deviate2/3: move & total loss */
 	unsigned long long *item;  /**< todo positions (bucket << 32 | index) */
@@ -3931,10 +3967,7 @@ static void deviate_worker_todo(DeviateWorker *w, Position *p)
 		if (item == NULL) { w->oom = true; return; }
 		w->item = item; w->size = size;
 	}
-	{
-		const unsigned long long i = board_get_hash_code(&p->board) & (book->n - 1);
-		w->item[w->n++] = (i << 32) | (unsigned long long) (p - book->array[i].positions);
-	}
+	w->item[w->n++] = position_key(book, p);
 }
 
 /*
@@ -3971,6 +4004,18 @@ typedef struct LossWorker {
 	long long first, last;
 	int level;
 } LossWorker;
+
+/** Append the positions that the threads of a walk marked to the todo list of the book. */
+static void deviate_workers_todo(Book *book, const LossWorker *lw, const int n)
+{
+	int i;
+	long long j;
+
+	for (i = 0; i < n; ++i) {
+		book->stats.n_todo += lw[i].w.n_todo;
+		for (j = 0; j < lw[i].w.n; ++j) if (!book_todo_push(book, lw[i].w.item[j])) break;
+	}
+}
 
 /** @return true if the position can be walked (same tests as position_deviate_total). */
 static inline bool deviate_total_walkable(const Book *book, const Position *p)
@@ -4045,7 +4090,7 @@ static bool book_deviate_total_by_loss(Book *book, Position *root, const int mod
 	if (level == NULL) return false;
 	for (i = 0; i < n; ++i) {
 		memset(lw + i, 0, sizeof lw[i]);
-		lw[i].w.book = book; lw[i].w.id = i; lw[i].w.mode = mode; lw[i].w.a = move_loss; lw[i].w.b = total_loss;
+		lw[i].w.book = book; lw[i].w.mode = mode; lw[i].w.a = move_loss; lw[i].w.b = total_loss;
 		lw[i].next = (PositionList*) calloc(total_loss + 1, sizeof (PositionList));
 		if (lw[i].next == NULL) ok = false;
 	}
@@ -4080,20 +4125,7 @@ static bool book_deviate_total_by_loss(Book *book, Position *root, const int mod
 		}
 	}
 
-	if (ok) {
-		for (i = 0; i < n && ok; ++i) {
-			book->stats.n_todo += lw[i].w.n_todo;
-			for (j = 0; j < lw[i].w.n; ++j) {
-				if (book->todo_list.n == book->todo_list.size) {
-					const long long size = book->todo_list.size + book->todo_list.size / 2 + 1024;
-					unsigned long long *item = (unsigned long long*) realloc(book->todo_list.item, size * sizeof *item);
-					if (item == NULL) { book->todo_list.valid = false; break; }
-					book->todo_list.item = item; book->todo_list.size = size;
-				}
-				book->todo_list.item[book->todo_list.n++] = lw[i].w.item[j];
-			}
-		}
-	}
+	if (ok) deviate_workers_todo(book, lw, n);
 
 	for (i = 0; i < n; ++i) {
 		if (lw[i].next) { for (j = 0; j <= total_loss; ++j) free(lw[i].next[j].item); free(lw[i].next); }
@@ -4162,7 +4194,7 @@ static bool book_deviate_by_depth(Book *book, Position *root, const int player_d
 	if (!book->todo_list.valid) return false;
 	for (i = 0; i < n; ++i) {
 		memset(lw + i, 0, sizeof lw[i]);
-		lw[i].w.book = book; lw[i].w.id = i; lw[i].w.conflict = &conflict;
+		lw[i].w.book = book; lw[i].w.conflict = &conflict;
 		lw[i].w.a = player_deviation; lw[i].w.b = opponent_deviation; lw[i].w.lower = lower; lw[i].w.upper = upper;
 	}
 	ok = position_list_push(&cur, root);
@@ -4184,18 +4216,7 @@ static bool book_deviate_by_depth(Book *book, Position *root, const int player_d
 	if (conflict || !ok) {
 		ok = false;
 	} else {
-		for (i = 0; i < n && ok; ++i) {
-			book->stats.n_todo += lw[i].w.n_todo;
-			for (j = 0; j < lw[i].w.n; ++j) {
-				if (book->todo_list.n == book->todo_list.size) {
-					const long long size = book->todo_list.size + book->todo_list.size / 2 + 1024;
-					unsigned long long *item = (unsigned long long*) realloc(book->todo_list.item, size * sizeof *item);
-					if (item == NULL) { book->todo_list.valid = false; break; }
-					book->todo_list.item = item; book->todo_list.size = size;
-				}
-				book->todo_list.item[book->todo_list.n++] = lw[i].w.item[j];
-			}
-		}
+		deviate_workers_todo(book, lw, n);
 	}
 	for (i = 0; i < n; ++i) { free(lw[i].same.item); free(lw[i].w.item); }
 	free(cur.item); free(next.item);
@@ -4281,7 +4302,48 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 }
 
 /**
- * @brief Deviate a book while limiting cumulative move losses.
+ * @brief Deviate a book while limiting cumulative move losses (book deviate2 and book deviate3).
+ *
+ * @param book opening book.
+ * @param board Position to start from.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ * @param skip_solved deviate2: the leaf of a solved position is not expanded. deviate3: it is.
+ */
+static void book_deviate_total(Book *book, Board *board, const int move_loss, const int total_loss, const bool skip_solved)
+{
+	const char *name = skip_solved ? "Book deviate2" : "Book deviate3";
+	Position *root = book_probe(book, board);
+	if (root) {
+		long long n_diffs;
+		int rounds_since_save = 0;
+		char file[FILENAME_MAX + 1];
+
+		file_add_ext(options.book_file, skip_solved ? ".dev2" : ".dev3", file);
+		book_clean(book);
+		book_negamax_position(root, book);
+
+		do {
+			bprint("%s %d %d:\n", name, move_loss, total_loss);
+			book_clean(book);
+			book_select_deviate_total(book, root, move_loss, total_loss, skip_solved);
+			bprint("%s %lld todo\n", name, book->stats.n_todo);
+
+			book_expand(book, name, file);
+			n_diffs = book->stats.n_nodes + book->stats.n_links;
+
+			root = book_probe(book, board);
+			book_clean(book);
+			book_negamax_position(root, book);
+			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
+		} while (n_diffs && !book->failed); // stop if a position cannot be added
+		bprint("%s %d %d...finished\n", name, move_loss, total_loss);
+	}
+	search_pool_release(&expand_pool);
+}
+
+/**
+ * @brief Deviate a book while limiting cumulative move losses, without expanding the solved positions.
  *
  * @param book opening book.
  * @param board Position to start from.
@@ -4290,64 +4352,20 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
  */
 void book_deviate2(Book *book, Board *board, const int move_loss, const int total_loss)
 {
-	Position *root = book_probe(book, board);
-	if (root) {
-		long long n_diffs;
-		int rounds_since_save = 0;
-		char file[FILENAME_MAX + 1];
-
-		file_add_ext(options.book_file, ".dev2", file);
-		book_clean(book);
-		book_negamax_position(root, book);
-
-		do {
-			bprint("Book deviate2 %d %d:\n", move_loss, total_loss);
-			book_clean(book);
-			book_select_deviate_total(book, root, move_loss, total_loss, true);
-			bprint("Book deviate2 %lld todo\n", book->stats.n_todo);
-
-			book_expand(book, "Book deviate2", file);
-			n_diffs = book->stats.n_nodes + book->stats.n_links;
-
-			root = book_probe(book, board);
-			book_clean(book);
-			book_negamax_position(root, book);
-			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
-		} while (n_diffs && !book->failed); // stop if a position cannot be added
-		bprint("Book deviate2 %d %d...finished\n", move_loss, total_loss);
-	}
-	search_pool_release(&expand_pool);
+	book_deviate_total(book, board, move_loss, total_loss, true);
 }
 
+/**
+ * @brief Deviate a book while limiting cumulative move losses (the solved positions are expanded too).
+ *
+ * @param book opening book.
+ * @param board Position to start from.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ */
 void book_deviate3(Book *book, Board *board, const int move_loss, const int total_loss)
 {
-	Position *root = book_probe(book, board);
-	if (root) {
-		long long n_diffs;
-		int rounds_since_save = 0;
-		char file[FILENAME_MAX + 1];
-
-		file_add_ext(options.book_file, ".dev3", file);
-		book_clean(book);
-		book_negamax_position(root, book);
-
-		do {
-			bprint("Book deviate3 %d %d:\n", move_loss, total_loss);
-			book_clean(book);
-			book_select_deviate_total(book, root, move_loss, total_loss, false);
-			bprint("Book deviate3 %lld todo\n", book->stats.n_todo);
-
-			book_expand(book, "Book deviate3", file);
-			n_diffs = book->stats.n_nodes + book->stats.n_links;
-
-			root = book_probe(book, board);
-			book_clean(book);
-			book_negamax_position(root, book);
-			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
-		} while (n_diffs && !book->failed); // stop if a position cannot be added
-		bprint("Book deviate3 %d %d...finished\n", move_loss, total_loss);
-	}
-	search_pool_release(&expand_pool);
+	book_deviate_total(book, board, move_loss, total_loss, false);
 }
 
 /**
@@ -4962,14 +4980,13 @@ void book_plan_board(Book *book, const Board *board)
 	node = plan_node_find(plan, &unique);
 	if (node == NULL) {
 		const Position *p = position_array_probe(book->array + (board_get_hash_code(&unique) & (book->n - 1)), &unique);
-		const Link *l;
 
 		new_node.board = unique;
 		if (p == NULL) { // a new position: linked and searched as it is given, then added
 			links = plan_links(plan, book, board, &pass);
 			n_link = bit_count(links) + pass;
 			n_moves = get_mobility(board->player, board->opponent);
-			if (n_link < n_moves || (n_link == 0 && n_moves == 0)) plan_job_add(plan, board, links, pass, book->options.level);
+			if (leaf_search_needed(n_link, n_moves, true)) plan_job_add(plan, board, links, pass, book->options.level); // (a new position has no score)
 			new_node.links = plan_links(plan, book, &unique, &new_node.pass);
 			new_node.leaf = PLAN_LEAF_UNKNOWN;
 			new_node.level = (unsigned char) book->options.level;
@@ -4977,12 +4994,7 @@ void book_plan_board(Book *book, const Board *board)
 			plan_node_add(plan, &new_node);
 			return;
 		}
-		new_node.links = 0;
-		new_node.pass = false;
-		foreach_link(l, p) {
-			if (l->move == PASS) new_node.pass = true;
-			else if (l->move <= H8) new_node.links |= x_to_bit(l->move);
-		}
+		new_node.links = position_link_set(p, &new_node.pass);
 		new_node.leaf = p->leaf.move;
 		new_node.level = p->level;
 		new_node.no_score = (p->score.value == -SCORE_INF);
@@ -5001,7 +5013,7 @@ void book_plan_board(Book *book, const Board *board)
 	if (node->leaf == NOMOVE) {
 		n_link = bit_count(node->links) + node->pass;
 		n_moves = get_mobility(unique.player, unique.opponent);
-		if (n_link < n_moves || (n_link == 0 && n_moves == 0 && node->no_score)) {
+		if (leaf_search_needed(n_link, n_moves, node->no_score)) {
 			plan_job_add(plan, &unique, node->links, node->pass, node->level);
 			node->leaf = PLAN_LEAF_UNKNOWN;
 			node->no_score = false;
@@ -5233,17 +5245,11 @@ static int position_search_planned(Position *position, Book *book)
 		r = 1;
 	}
 
-	if (position->n_link < n_moves || (position->n_link == 0 && n_moves == 0 && position->score.value == -SCORE_INF)) {
-		unsigned long long links = 0;
-		bool pass = false;
-		const Link *l;
-		const PlanJob *job;
+	if (leaf_search_needed(position->n_link, n_moves, position->score.value == -SCORE_INF)) {
+		bool pass;
+		const unsigned long long links = position_link_set(position, &pass);
+		const PlanJob *job = (plan->book == book) ? plan_job_find(plan, &position->board, links, pass, position->level) : NULL;
 
-		foreach_link(l, position) {
-			if (l->move == PASS) pass = true;
-			else if (l->move <= H8) links |= x_to_bit(l->move);
-		}
-		job = (plan->book == book) ? plan_job_find(plan, &position->board, links, pass, position->level) : NULL;
 		if (job && job->done) {
 			position->leaf = job->leaf;
 			if (position->leaf.score > position->score.value) {
