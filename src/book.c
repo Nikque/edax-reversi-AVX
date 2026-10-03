@@ -3038,14 +3038,18 @@ void book_sort_parallel(Book *book)
 	bprint("done>\n");
 }
 
-#define MERGE_MARK (POSITION_TODO | POSITION_BUSY) /* state of the positions added by book_merge_file (epoch 0: never current) */
-
 /**
  * @brief Merge a book file into the current book without loading it.
  *
  * The file is read twice: first to check that it is a complete book, then to
  * add the positions missing from the destination (same rules as book_merge()).
  * On any error the destination book is left unchanged.
+ *
+ * The positions that the merge adds are the ones 'done' at the current epoch (as every new
+ * position: see position_array_add). The merge starts a new epoch, so that no other position is.
+ * (Up to v4.5.5-nikque.8 the added positions kept a mark of their own until negamax reached them:
+ * after a merge that added positions out of reach from the root, the next merge of a book holding
+ * one of them failed with "duplicated position", and removed all of them if it had added something.)
  *
  * @param dest Destination opening book.
  * @param file Source book file.
@@ -3075,6 +3079,9 @@ bool book_merge_file(Book *dest, const char *file)
 	} }
 	if (!book_stream_open(&stream, f)) { fclose(f); return false; }
 
+	book_clean(dest); // no position of the destination is 'done' at the new epoch
+	merge_hint_free(); // (hints of a merge that was not followed by book_link_parallel)
+
 	for (pass = 0; pass < 2; ++pass) {
 		const long long start = 8 + 2 + sizeof dest->date + sizeof dest->options + sizeof expected;
 		if (pass) book_grow_buckets(dest, (long long) dest->n_nodes + expected); // the source is valid: prepare the destination
@@ -3099,10 +3106,10 @@ bool book_merge_file(Book *dest, const char *file)
 					PositionArray *a = dest->array + b;
 					position_merge(&merged, &p);
 					if (dest->n_nodes == UINT_MAX || position_array_add(a, &merged, dest->epoch) <= 0) { position_free(&p); error("cannot add a position to the book"); goto merge_end; }
-					a->positions[a->n - 1].state = MERGE_MARK;
 					++dest->n_nodes; ++dest->stats.n_nodes; ++n_added;
-				} else if (q->state != MERGE_MARK) { // remember the source leaf (see book_link_parallel)
-					if (use_hints && p.leaf.move != NOMOVE && (p.leaf.move != q->leaf.move || p.n_link != q->n_link)) {
+				} else if (!position_is_done(q, dest)) { // a position of the destination: remember the source leaf (see book_link_parallel)
+					// (a board of the file that is not the unique one has its leaf in another orientation: no hint)
+					if (use_hints && p.leaf.move != NOMOVE && board_equal(&p.board, &q->board) && (p.leaf.move != q->leaf.move || p.n_link != q->n_link)) {
 						const unsigned long long b = board_get_hash_code(&q->board) & (dest->n - 1);
 						if (!merge_hint_add((b << 32) | (unsigned long long) (q - dest->array[b].positions), &p.leaf, p.level)) { merge_hint_free(); use_hints = false; }
 					}
@@ -3129,7 +3136,7 @@ merge_end:
 	if (!ok && n_added) { // remove what was added: the destination is left unchanged
 		PositionArray *a;
 		for (a = dest->array; a < dest->array + dest->n; ++a)
-		for (k = 0; k < a->n; ++k) if (a->positions[k].state == MERGE_MARK) { book_remove(dest, a->positions + k); --k; }
+		for (k = 0; k < a->n; ++k) if (position_is_done(a->positions + k, dest)) { book_remove(dest, a->positions + k); --k; }
 	}
 	if (ok) dest->need_saving = dest->need_saving || n_added > 0;
 	bprint("Merging book %s...%lld positions added\n", file, n_added);
