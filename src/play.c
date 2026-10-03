@@ -92,7 +92,7 @@ bool play_load(Play *play, const char *file)
 
 	l = strlen(file);
 	if (l < 4) {
-		sprintf(play->error_message, "Unknown game format extension: %s\n", file);
+		snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Unknown game format extension: %s\n", file);
 		return false;
 	}
 	strcpy(ext, file + l - 4); string_to_lowercase(ext);
@@ -107,13 +107,13 @@ bool play_load(Play *play, const char *file)
 	}
 	f = fopen(file, load == game_read ? "rb" : "r");
 	if (f == NULL) {
-		sprintf(play->error_message, "Cannot open file %s\n", file);
+		snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Cannot open file %s\n", file); // the name can be longer than the message
 		return false;
 	}
 
 	if (load == game_read) {
 		if (!game_read_checked(&game, f)) {
-			sprintf(play->error_message, "Incomplete game file %s\n", file);
+			snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Incomplete game file %s\n", file);
 			fclose(f);
 			return false;
 		}
@@ -1157,6 +1157,29 @@ static void* learn_lane_run(void *v)
 }
 
 /**
+ * @brief Copy the first moves of a game without the spaces between them.
+ *
+ * A line of moves can be longer than the buffer because of its spaces only: a game has less
+ * than 128 moves.
+ *
+ * @param dst Buffer.
+ * @param src Moves.
+ * @param size Size of the buffer.
+ * @return false if the moves do not fit in the buffer (such a line is not a game).
+ */
+static bool learn_copy_moves(char *dst, const char *src, const int size)
+{
+	int n = 0;
+
+	for (; *src && n + 1 < size; ++src) {
+		if (*src != ' ') dst[n++] = *src;
+	}
+	dst[n] = '\0';
+	while (*src == ' ') ++src;
+	return *src == '\0';
+}
+
+/**
  * @brief Play games and store them into the opening book.
  *
  * For each game: play its first moves from the initial position, let Edax play both sides to
@@ -1203,7 +1226,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			play_force_init(play, "F5");
 			play_new(play);
 			// play
-			strncpy(buffer, moves[i], sizeof buffer - 1); buffer[sizeof buffer - 1] = '\0';
+			const bool fit = learn_copy_moves(buffer, moves[i], sizeof buffer);
 			string_to_lowercase(buffer);
 			play_game(play, buffer);
 			for (j = k = 0; j < play->n_game; ++j) {
@@ -1211,9 +1234,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			}
 			played[k] = '\0';
 			string_to_lowercase(played);
-			for (j = k = 0; buffer[j]; ++j) if (buffer[j] != ' ') buffer[k++] = buffer[j];
-			buffer[k] = '\0';
-			if (strcmp(played, buffer) != 0) { // Edax ignores an illegal move and the following ones: such a game is not learned
+			if (!fit || strcmp(played, buffer) != 0) { // Edax ignores an illegal move and the following ones: such a game is not learned
 				if (status) status[i] = 1;
 				continue;
 			}
@@ -1248,7 +1269,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 
 		// play the games
 		for (i = 0; i < n; ++i) {
-			strncpy(buffer + i * 256, moves[i], 255); buffer[i * 256 + 255] = '\0';
+			if (!learn_copy_moves(buffer + i * 256, moves[i], 256)) strcpy(buffer + i * 256, "?"); // too long: not learned
 			string_to_lowercase(buffer + i * 256);
 			game[i].moves = buffer + i * 256;
 			game[i].randomness = randomness ? randomness[i] : book_randomness;
