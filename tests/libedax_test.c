@@ -701,6 +701,9 @@ int main(int argc, char **argv)
 
 	section("stop & termination");
 	edax_stop();
+	edax_init();
+	edax_go(); // a stop when nothing runs does not stop the next search
+	CHECK_STR(moves(), "F5");
 	edax_disable_book_verbose();
 	libedax_terminate();
 	if (!original) libedax_terminate(); // ignored

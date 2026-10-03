@@ -51,6 +51,31 @@ static struct {
 	LibedaxBenchResult *result;
 } lib_bench;
 
+/**
+ * A command which changes the book is running. edax_stop() does not stop it: a stopped search
+ * would give its unfinished result to the book (the book commands do not look at the stop).
+ */
+static struct {
+	Lock lock;
+	bool running;
+} lib_book_change;
+
+/**
+ * @brief Tell if a command which changes the book is running.
+ * @param running New state.
+ * @return previous state.
+ */
+static bool lib_book_change_set(const bool running)
+{
+	bool previous;
+
+	lock(&lib_book_change); // edax_stop() checks the state and stops under this lock
+	previous = lib_book_change.running;
+	lib_book_change.running = running;
+	unlock(&lib_book_change);
+	return previous;
+}
+
 /*
  * Conversion to the structures of the api
  */
@@ -534,6 +559,7 @@ LIBEDAX_API void libedax_initialize(int argc, char **argv)
 	} else {
 		lib_default_options = options;
 		lock_init(&lib_bench);
+		lock_init(&lib_book_change);
 		lib_is_started = true;
 	}
 
@@ -617,8 +643,10 @@ static void lib_auto_go(void)
 			/* automatic rules after a game over*/
 			if (play_is_game_over(play)) {
 				if (options.auto_store) {
+					const bool running = lib_book_change_set(true);
 					lib_bestpath_free();
 					play_store(play);
+					lib_book_change_set(running);
 				}
 				if (options.auto_swap && g_ui->mode < 2) g_ui->mode = !g_ui->mode;
 				if (options.repeat && repeat > 1) {
@@ -1232,7 +1260,9 @@ LIBEDAX_API void edax_stop(void)
 	if (g_ui == NULL) return;
 	// stop thinking
 	g_ui->mode = 3;
-	play_stop(g_ui->play);
+	lock(&lib_book_change);
+	if (!lib_book_change.running) play_stop(g_ui->play);
+	unlock(&lib_book_change);
 }
 
 /**
@@ -1322,6 +1352,7 @@ static void lib_book_end(Book *book)
 {
 	book->options.verbosity = book->search->options.verbosity;
 	book->search->options.verbosity = options.verbosity;
+	lib_book_change_set(false);
 }
 
 /**
@@ -1330,8 +1361,11 @@ static void lib_book_end(Book *book)
  */
 static Book* lib_book_begin_change(void)
 {
+	Book *book = lib_book_begin(); // stops the pondering, which reads the book
+
+	lib_book_change_set(true);
 	lib_bestpath_free();
-	return lib_book_begin();
+	return book;
 }
 
 /**
@@ -2065,6 +2099,7 @@ LIBEDAX_API void edax_book_add_board_pre_process(void)
 	if (g_ui == NULL) return;
 	book = lib_book_begin_change();
 	book_clean(book);
+	lib_book_change_set(false); // edax_book_add_board sets it: the caller may never call the post-process
 }
 
 /**
@@ -2083,12 +2118,15 @@ LIBEDAX_API void edax_book_add_board_post_process(void)
 LIBEDAX_API void edax_book_add_board(const LibedaxBoard *board)
 {
 	Board b;
+	bool running;
 	if (g_ui == NULL || board == NULL) return;
 	play_stop_pondering(g_ui->play);
+	running = lib_book_change_set(true); // also when edax_book_add_board_pre_process was not called
 	lib_bestpath_free();
 	b.player = board->player;
 	b.opponent = board->opponent;
 	book_add_board(g_ui->play->book, &b);
+	lib_book_change_set(running);
 }
 
 /*
