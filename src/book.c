@@ -3633,48 +3633,51 @@ static void book_search_release(Search *search)
 #endif
 }
 
-/** searches of the concurrent expansion, kept from one book_expand to the next of a learning command */
-static struct {
+/** searches that the book functions use to search several positions at the same time, kept from a call to the next */
+typedef struct SearchPool {
 	Search **search;
-	int n, n_tasks, hash_bits;
-} expand_pool;
+	int n, n_tasks, hash_bits; /**< number of searches; threads and hash table size of each one */
+} SearchPool;
 
-/**
- * @brief Release the searches of the concurrent expansion (at the end of a learning command).
- */
-static void book_expand_release(void)
+static SearchPool expand_pool;   /**< concurrent expansion: kept from one book_expand to the next of a learning command */
+static SearchPool store_pool[2]; /**< to learn games (see book_store_release). [0]: one thread each, for the positions; [1]: for the games played at the same time */
+
+/** @brief Release the searches of a pool. */
+static void search_pool_release(SearchPool *pool)
 {
 	int i;
-	for (i = 0; i < expand_pool.n; ++i) book_search_release(expand_pool.search[i]);
-	free(expand_pool.search);
-	expand_pool.search = NULL;
-	expand_pool.n = 0;
+	for (i = 0; i < pool->n; ++i) book_search_release(pool->search[i]);
+	free(pool->search);
+	pool->search = NULL;
+	pool->n = 0;
 }
 
 /**
- * @brief Get the searches of the concurrent expansion.
+ * @brief Get searches of a pool.
  *
+ * @param pool Pool.
  * @param n Number of searches.
  * @param n_tasks Threads of each search.
  * @param hash_bits Hash table size of each search.
- * @return the number of searches available in expand_pool.search (less than n if the memory is exhausted).
+ * @return the number of searches available in pool->search: n, or fewer if the memory is exhausted.
  */
-static int book_expand_searches(const int n, const int n_tasks, const int hash_bits)
+static int search_pool_get(SearchPool *pool, const int n, const int n_tasks, const int hash_bits)
 {
-	if (expand_pool.n && (expand_pool.n_tasks != n_tasks || expand_pool.hash_bits != hash_bits)) book_expand_release();
-	if (expand_pool.n < n) {
-		Search **s = (Search**) realloc(expand_pool.search, n * sizeof *s);
-		if (s == NULL) return expand_pool.n;
-		expand_pool.search = s;
-		expand_pool.n_tasks = n_tasks;
-		expand_pool.hash_bits = hash_bits;
-		for (; expand_pool.n < n; ++expand_pool.n) {
+	if (pool->n && (pool->n_tasks != n_tasks || pool->hash_bits != hash_bits)) search_pool_release(pool);
+	if (pool->n < n) {
+		Search **s = (Search**) realloc(pool->search, n * sizeof *s);
+		if (s == NULL) return pool->n;
+		pool->search = s;
+		pool->n_tasks = n_tasks;
+		pool->hash_bits = hash_bits;
+		for (; pool->n < n; ++pool->n) {
 			Search *search = book_search_create(n_tasks, hash_bits);
 			if (search == NULL) break;
-			expand_pool.search[expand_pool.n] = search;
+			search->options.verbosity = 0; // (the concurrent expansion sets its own)
+			pool->search[pool->n] = search;
 		}
 	}
-	return MIN(n, expand_pool.n);
+	return MIN(n, pool->n);
 }
 
 /**
@@ -3716,7 +3719,7 @@ static bool book_expand_concurrent(Book *book, const char *action, const char *t
 	const int n_tasks = MAX(1, options.n_task / book_expand_task_count(book));
 	int i;
 
-	n_workers = book_expand_searches(n_workers, n_tasks, options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size);
+	n_workers = search_pool_get(&expand_pool, n_workers, n_tasks, options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size);
 	if (n_workers < 2) return false;
 	w = (ExpandWorker*) calloc(n_workers, sizeof *w);
 	if (w == NULL) return false;
@@ -3852,7 +3855,7 @@ void book_play(Book *book)
 		}
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	bprint("Book play... finished\n");
-	book_expand_release();
+	search_pool_release(&expand_pool);
 }
 
 /**
@@ -4274,7 +4277,7 @@ void book_deviate(Book *book, Board *board, const int relative_error, const int 
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book deviate %d %d...finished\n", relative_error, absolute_error);
 	}
-	book_expand_release();
+	search_pool_release(&expand_pool);
 }
 
 /**
@@ -4313,7 +4316,7 @@ void book_deviate2(Book *book, Board *board, const int move_loss, const int tota
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book deviate2 %d %d...finished\n", move_loss, total_loss);
 	}
-	book_expand_release();
+	search_pool_release(&expand_pool);
 }
 
 void book_deviate3(Book *book, Board *board, const int move_loss, const int total_loss)
@@ -4344,7 +4347,7 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book deviate3 %d %d...finished\n", move_loss, total_loss);
 	}
-	book_expand_release();
+	search_pool_release(&expand_pool);
 }
 
 /**
@@ -4446,7 +4449,7 @@ void book_enhance(Book *book, Board *board, const int midgame_error, const int e
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book enhance %d %d...finished\n", midgame_error, endcut_error);
 	}
-	book_expand_release();
+	search_pool_release(&expand_pool);
 }
 
 /**
@@ -4656,58 +4659,13 @@ void book_get_game_stats(Book *book, const Board *board, GameStats *stat)
  * The book is changed by the third step only, in the same order as without a plan.
  */
 
-/** searches used to learn games, kept from a call to the next (see book_store_release) */
-typedef struct StorePool {
-	Search **search;
-	int n, n_tasks, hash_bits;
-} StorePool;
-
-static StorePool store_pool[2]; /**< [0]: one thread each, for the positions; [1]: for the games played at the same time */
-
-static void store_pool_release(StorePool *pool)
-{
-	int i;
-	for (i = 0; i < pool->n; ++i) book_search_release(pool->search[i]);
-	free(pool->search);
-	pool->search = NULL;
-	pool->n = 0;
-}
-
 /**
- * @brief Get searches of a pool.
- *
- * @param pool Pool.
- * @param n Number of searches.
- * @param n_tasks Threads of each search.
- * @param hash_bits Hash table size of each search.
- * @return the n searches, NULL if the memory is exhausted (the searches created so far stay in the pool).
- */
-static Search** store_pool_get(StorePool *pool, const int n, const int n_tasks, const int hash_bits)
-{
-	if (pool->n && (pool->n_tasks != n_tasks || pool->hash_bits != hash_bits)) store_pool_release(pool);
-	if (pool->n < n) {
-		Search **s = (Search**) realloc(pool->search, n * sizeof *s);
-		if (s == NULL) return NULL;
-		pool->search = s;
-		pool->n_tasks = n_tasks;
-		pool->hash_bits = hash_bits;
-		for (; pool->n < n; ++pool->n) {
-			Search *search = book_search_create(n_tasks, hash_bits);
-			if (search == NULL) return NULL;
-			search->options.verbosity = 0;
-			pool->search[pool->n] = search;
-		}
-	}
-	return pool->search;
-}
-
-/**
- * @brief Release the searches used to learn games.
+ * @brief Release the searches used to learn games (store_pool).
  */
 void book_store_release(void)
 {
-	store_pool_release(store_pool);
-	store_pool_release(store_pool + 1);
+	search_pool_release(store_pool);
+	search_pool_release(store_pool + 1);
 }
 
 /**
@@ -4748,13 +4706,15 @@ static int book_store_hash_bits(const Book *book, const int n_tasks)
 Search** book_store_searches(const Book *book, const int n, const int n_tasks)
 {
 	// with one thread each, they are the searches of the positions
-	StorePool *pool = store_pool + (n_tasks > 1);
-	Search **search = store_pool_get(pool, n, n_tasks, book_store_hash_bits(book, n_tasks));
+	SearchPool *pool = store_pool + (n_tasks > 1);
 
-	// not all of them: the games are played one after the other, without these searches. The ones that were
-	// created are released (they kept their memory, that the searches of the positions then lacked)
-	if (search == NULL) store_pool_release(pool);
-	return search;
+	if (search_pool_get(pool, n, n_tasks, book_store_hash_bits(book, n_tasks)) < n) {
+		// not all of them: the games are played one after the other, without these searches. The ones that were
+		// created are released (they kept their memory, that the searches of the positions then lacked)
+		search_pool_release(pool);
+		return NULL;
+	}
+	return pool->search;
 }
 
 /**
@@ -5193,7 +5153,7 @@ void book_plan_search(Book *book)
 {
 	BookPlan *plan = book_plan;
 	PlanWorker w[MAX_THREADS];
-	Search **search;
+	Search *search;
 	int i, n, n_tasks, bits;
 	bool self = false; // the last worker has no thread: this thread did its searches
 
@@ -5214,8 +5174,7 @@ void book_plan_search(Book *book)
 	plan->n_worker = 0;
 	for (i = 0; i < n; ++i) {
 		bool left;
-		search = store_pool_get(store_pool, i + 1, 1, bits);
-		if (search == NULL) { // not enough memory
+		if (search_pool_get(store_pool, i + 1, 1, bits) <= i) { // not enough memory
 			if (i == 0) { // no search at all: the positions are searched as usual, when they are added
 				warn("not enough memory to search the positions at the same time\n");
 				plan->worker = NULL;
@@ -5223,13 +5182,14 @@ void book_plan_search(Book *book)
 			}
 			break; // the workers already started do all the searches
 		}
+		search = store_pool->search[i];
 		w[i].plan = plan;
-		w[i].search = search[i];
+		w[i].search = search;
 		w[i].progress = (i == 0);
-		w[i].n_tasks = search_count_tasks(search[i]);
+		w[i].n_tasks = search_count_tasks(search);
 		w[i].run_tasks = 0;
 		w[i].busy = true; // until it finds no job
-		search[i]->options.verbosity = 0;
+		search->options.verbosity = 0;
 		lock(plan);
 		w[i].want = n_tasks;
 		plan->n_worker = i + 1;
