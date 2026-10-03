@@ -770,6 +770,7 @@ static void position_print(const Position *position, const Board *board, FILE *f
  */
 static void position_get_random_move(const Position *position, const Board *board, Move *move, Random *r, const int randomness)
 {
+	const int margin = MIN(randomness, 2 * SCORE_MAX); // the scores differ by 2 * SCORE_MAX at most: no overflow with a huge randomness
 	MoveList movelist;
 	Move *m;
 	int i, n;
@@ -778,7 +779,7 @@ static void position_get_random_move(const Position *position, const Board *boar
 
 	n = 0;
 	foreach_best_move(m, movelist) {
-		if (position->score.value <= m->score + randomness) {
+		if (position->score.value <= m->score + margin) {
 			++n;
 		} else break;
 	}

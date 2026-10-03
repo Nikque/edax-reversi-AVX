@@ -493,6 +493,17 @@ int main(int argc, char **argv)
 	section("book files");
 	edax_book_save("libtest-book2.dat");
 	CHECK(file_size("libtest-book2.dat") > 100);
+	if (!original) { // book save that tells whether the book was saved
+		int (*save_to)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_save_to");
+		CHECK(save_to != NULL);
+		if (save_to) {
+			CHECK_INT(save_to("libtest-book3.dat"), 1);
+			CHECK_INT((int) file_size("libtest-book3.dat"), (int) file_size("libtest-book2.dat"));
+			CHECK_INT(save_to("libtest-no-such-folder/book.dat"), 0);
+			CHECK_INT(save_to(NULL), 0);
+			remove("libtest-book3.dat");
+		}
+	}
 	edax_book_export("libtest-book.txt");
 	CHECK(file_size("libtest-book.txt") > 100);
 	edax_book_new(4, 12);
@@ -665,6 +676,9 @@ int main(int argc, char **argv)
 				CHECK_INT(store_games(games, status), 2);
 				CHECK_STR(status, "101");
 			}
+			// the randomness of a line is any number, as the book-randomness setting
+			CHECK_INT(store_games("200,f5d6\n99999999999999999999,f5f6\n-1,f5f4\n", status), 2);
+			CHECK_STR(status, "110");
 
 			// several games at the same time
 			edax_set_option("n-tasks", "4");

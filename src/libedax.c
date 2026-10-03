@@ -1364,7 +1364,8 @@ LIBEDAX_API int edax_book_store_tasks(void)
  * "<book randomness>,<moves>" ("2,f5d6c3"). Without randomness, the book-randomness setting is used.
  * Empty lines, lines that start with '#' and lines with "//" are not games.
  * @param status A character for each line (out parameter): '1' learned, '0' not learned (illegal move,
- * or not a game), then a '\0'. A buffer of (number of lines + 1) characters, or NULL.
+ * or not a game), '2' not learned because of a failure (not enough memory: the line is still to be
+ * learned), then a '\0'. A buffer of (number of lines + 1) characters, or NULL.
  * @return number of learned games.
  */
 LIBEDAX_API int edax_book_store_games(const char *games, char *status)
@@ -1399,8 +1400,16 @@ LIBEDAX_API int edax_book_store_games(const char *games, char *status)
 			book = lib_book_begin_change();
 			n_learned = play_learn_games(g_ui->play, (const char *const*) moves, randomness, n, result);
 			lib_book_end(book);
-			if (status) for (i = 0; i < n; ++i) if (result[i] == 0) status[index[i]] = '1';
+			if (status) for (i = 0; i < n; ++i) {
+				if (result[i] == 0) status[index[i]] = '1';
+				else if (result[i] != 1) status[index[i]] = '2'; // a position could not be added to the book
+			}
 		}
+	} else if (status) { // not enough memory to read the lines
+		if (i > 0 && games[i - 1] == '\n') --n_lines; // nothing after the last '\n'
+		if (games[0] == '\0') n_lines = 0;
+		memset(status, '2', n_lines);
+		status[n_lines] = '\0';
 	}
 	free(text); free(moves); free(randomness); free(result); free(index);
 	return n_learned;
@@ -1528,6 +1537,28 @@ LIBEDAX_API void edax_book_save(const char *book_file)
 	book_save(book, book_file);
 
 	lib_book_end(book);
+}
+
+/**
+ * @brief book save command, telling whether the book was saved.
+ *
+ * edax_book_save() returns nothing (as the original libedax): a book file that cannot be
+ * replaced (opened by another program, read-only, full disc...) only gives a message on stderr.
+ *
+ * @param book_file book file name to save.
+ * @return 1 if the book was saved, 0 otherwise.
+ */
+LIBEDAX_API int edax_book_save_to(const char *book_file)
+{
+	Book *book;
+	int saved;
+	if (g_ui == NULL || book_file == NULL) return 0;
+	book = lib_book_begin();
+
+	saved = book_save(book, book_file) ? 1 : 0;
+
+	lib_book_end(book);
+	return saved;
 }
 
 /**

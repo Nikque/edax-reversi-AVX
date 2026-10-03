@@ -1209,7 +1209,8 @@ static void* learn_lane_run(void *v)
  * @param moves First moves of each game.
  * @param randomness Randomness of the book moves of each game (NULL: the current setting).
  * @param n Number of games.
- * @param status Set for each game: 0 = learned, 1 = not learned (illegal move). Can be NULL.
+ * @param status Set for each game: 0 = learned, 1 = not learned (illegal move), 2 = not learned
+ * (failure: a position could not be added to the book, see Book.failed). Can be NULL.
  * @return number of learned games.
  */
 int play_learn_games(Play *play, const char *const *moves, const int *randomness, const int n, int *status)
@@ -1270,6 +1271,10 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			// book store
 			play->search.options.verbosity = verbosity; // as set by the book command (play_go() changed it)
 			play_store(play);
+			if (book->failed) { // a position could not be added: this game and the following ones are not learned
+				if (status) for (; i < n; ++i) status[i] = 2;
+				break;
+			}
 			if (status) status[i] = 0;
 			++n_learned;
 		}
@@ -1317,6 +1322,10 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			if (status) status[i] = game[i].legal ? 0 : 1;
 		}
 		book_plan_end(book);
+		if (book->failed) { // a position could not be added: which games are complete in the book is not known
+			if (status) for (i = 0; i < n; ++i) if (game[i].legal) status[i] = 2;
+			n_learned = 0;
+		}
 		if (book->stats.n_nodes + book->stats.n_links) {
 			book->need_saving = true; // also when links were added without any search
 			book_link(book);
@@ -1347,10 +1356,10 @@ char* play_learn_parse(char *line, int *randomness)
 	*e = '\0';
 	if (*s == '\0' || *s == '#' || strstr(s, "//")) return e;
 	if (isdigit((unsigned char) *s)) { // <book randomness>,<moves>
-		const long r = strtol(s, &e, 10);
+		const long long r = strtoll(s, &e, 10); // as the book-randomness setting: any number, INT_MAX if larger
 		e = parse_skip_spaces(e);
-		if (*e != ',' || r < 0 || r > 127) return NULL;
-		*randomness = (int) r;
+		if (*e != ',' || r < 0) return NULL;
+		*randomness = (r > INT_MAX) ? INT_MAX : (int) r;
 		s = parse_skip_spaces(e + 1);
 	}
 	if (*s == '\0') return NULL;
@@ -1409,7 +1418,8 @@ int play_learn_file(Play *play, const char *file)
 			n_learned += play_learn_games(play, (const char *const*) moves, randomness, n, status);
 			n_games += n;
 			for (i = 0; i < n; ++i) {
-				if (status[i]) warn("%s:%d: illegal move: the game was not learned\n", file, number[i]);
+				if (status[i] == 1) warn("%s:%d: illegal move: the game was not learned\n", file, number[i]);
+				else if (status[i]) warn("%s:%d: a position could not be added to the book: the game was not learned\n", file, number[i]);
 				free(moves[i]);
 			}
 			n = 0;

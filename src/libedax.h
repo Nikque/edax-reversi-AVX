@@ -217,6 +217,7 @@ LIBEDAX_API void edax_book_depth(const int);
 LIBEDAX_API void edax_book_new(const int, const int);
 LIBEDAX_API void edax_book_load(const char*);
 LIBEDAX_API void edax_book_save(const char*);
+LIBEDAX_API int edax_book_save_to(const char*);            /* nikque: book save; 1 if the book was saved, 0 otherwise */
 LIBEDAX_API void edax_book_import(const char*);
 LIBEDAX_API void edax_book_export(const char*);
 LIBEDAX_API void edax_book_merge(const char*);
