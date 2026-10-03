@@ -240,10 +240,17 @@ void node_wait_slaves(Node* node)
 	}
 
 	// wake-up master thread!
-	if (node->search->stop == STOP_PARALLEL_SEARCH && node->stop_point) {
-		node->search->stop = RUNNING;
+	// (the stop state is tested and changed under the lock of the search, as search_stop_all() does: without
+	// it, a stop asked by another thread between the test and the change was lost, the search went on
+	// while its slaves had been stopped, and could end "normally" with moves that were never searched)
+	if (node->stop_point) {
+		spin_lock(node->search);
+		if (node->search->stop == STOP_PARALLEL_SEARCH) {
+			node->search->stop = RUNNING;
+			YBWC_STATS(atomic_add(&statistics.n_wake_up, 1);)
+		}
+		spin_unlock(node->search);
 		node->stop_point = false;
-		YBWC_STATS(atomic_add(&statistics.n_wake_up, 1);)
 	}
 	unlock(node);
 }
@@ -405,9 +412,13 @@ void task_search(Task *task)
 			if (node->bestscore > node->alpha) {
 				node->alpha = node->bestscore;
 				if (node->alpha >= node->beta && node->search->stop == RUNNING) { // stop the master thread?
-					node->stop_point = true;
-					node->search->stop = STOP_PARALLEL_SEARCH;
-					YBWC_STATS(atomic_add(&statistics.n_stopped_master, 1);)
+					spin_lock(node->search); // (see node_wait_slaves)
+					if (node->search->stop == RUNNING) {
+						node->stop_point = true;
+						node->search->stop = STOP_PARALLEL_SEARCH;
+						YBWC_STATS(atomic_add(&statistics.n_stopped_master, 1);)
+					}
+					spin_unlock(node->search);
 				}
 			}
 		}
