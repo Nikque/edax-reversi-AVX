@@ -1061,6 +1061,28 @@ typedef struct LearnLane {
 	bool progress;             /**< this one shows the progress */
 } LearnLane;
 
+/** size of the copy of the first moves of a game: a game has 60 moves at most (120 characters) */
+#define LEARN_MOVES_SIZE 256
+
+/**
+ * @brief Copy the first moves of a game, in lower case and without the spaces.
+ *
+ * A line can hold any number of spaces between its moves: copied with them, a long line was cut,
+ * and when the cut fell between two moves the shorter game was learned instead.
+ * Without the spaces, what does not fit is beyond the 127th move: it cannot be played anyway.
+ *
+ * @param copy Copy (LEARN_MOVES_SIZE characters).
+ * @param moves First moves of the game.
+ */
+static void learn_moves_copy(char *copy, const char *moves)
+{
+	int k = 0;
+
+	for (; *moves && k < LEARN_MOVES_SIZE - 1; ++moves) if (*moves != ' ') copy[k++] = *moves;
+	copy[k] = '\0';
+	string_to_lowercase(copy);
+}
+
 /**
  * @brief Play the first moves of a game.
  *
@@ -1193,7 +1215,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 
 	if (book_store_task_count() <= 1) {
 		for (i = 0; i < n; ++i) {
-			char buffer[256], played[256];
+			char copy[LEARN_MOVES_SIZE], played[256];
 			int j, k;
 
 			if (randomness) options.book_randomness = randomness[i];
@@ -1203,17 +1225,14 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			play_force_init(play, "F5");
 			play_new(play);
 			// play
-			strncpy(buffer, moves[i], sizeof buffer - 1); buffer[sizeof buffer - 1] = '\0';
-			string_to_lowercase(buffer);
-			play_game(play, buffer);
+			learn_moves_copy(copy, moves[i]);
+			play_game(play, copy);
 			for (j = k = 0; j < play->n_game; ++j) {
 				if (play->game[j].x != PASS) { move_to_string(play->game[j].x, WHITE, played + k); k += 2; }
 			}
 			played[k] = '\0';
 			string_to_lowercase(played);
-			for (j = k = 0; buffer[j]; ++j) if (buffer[j] != ' ') buffer[k++] = buffer[j];
-			buffer[k] = '\0';
-			if (strcmp(played, buffer) != 0) { // Edax ignores an illegal move and the following ones: such a game is not learned
+			if (strcmp(played, copy) != 0) { // Edax ignores an illegal move and the following ones: such a game is not learned
 				if (status) status[i] = 1;
 				continue;
 			}
@@ -1248,9 +1267,8 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 
 		// play the games
 		for (i = 0; i < n; ++i) {
-			strncpy(buffer + i * 256, moves[i], 255); buffer[i * 256 + 255] = '\0';
-			string_to_lowercase(buffer + i * 256);
-			game[i].moves = buffer + i * 256;
+			learn_moves_copy(buffer + i * LEARN_MOVES_SIZE, moves[i]);
+			game[i].moves = buffer + i * LEARN_MOVES_SIZE;
 			game[i].randomness = randomness ? randomness[i] : book_randomness;
 		}
 		shared.book = book; shared.game = game; shared.n = n; shared.next = shared.n_done = 0;
