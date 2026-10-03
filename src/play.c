@@ -92,7 +92,7 @@ bool play_load(Play *play, const char *file)
 
 	l = strlen(file);
 	if (l < 4) {
-		sprintf(play->error_message, "Unknown game format extension: %s\n", file);
+		snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Unknown game format extension: %s\n", file);
 		return false;
 	}
 	strcpy(ext, file + l - 4); string_to_lowercase(ext);
@@ -107,13 +107,13 @@ bool play_load(Play *play, const char *file)
 	}
 	f = fopen(file, load == game_read ? "rb" : "r");
 	if (f == NULL) {
-		sprintf(play->error_message, "Cannot open file %s\n", file);
+		snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Cannot open file %s\n", file); // the name can be longer than the message
 		return false;
 	}
 
 	if (load == game_read) {
 		if (!game_read_checked(&game, f)) {
-			sprintf(play->error_message, "Incomplete game file %s\n", file);
+			snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Incomplete game file %s\n", file);
 			fclose(f);
 			return false;
 		}

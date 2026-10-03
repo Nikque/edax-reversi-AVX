@@ -117,7 +117,8 @@ typedef struct LibedaxPosition {
 	unsigned short n_player_bestpaths;    /**< count of best paths for player */
 	unsigned short n_opponent_bestpaths;  /**< count of best paths for opponent */
 	LibedaxLink *link;                    /**< linking moves (n_link moves). They stay valid
-	                                           until a few other positions are asked. */
+	                                           until 63 other positions are asked: copy them
+	                                           to keep them longer. */
 	unsigned int n_wins;                  /**< game win count */
 	unsigned int n_draws;                 /**< game draw count */
 	unsigned int n_losses;                /**< game loss count */
