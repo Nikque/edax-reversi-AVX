@@ -2370,7 +2370,7 @@ bool book_load(Book *book, const char *file)
 		// in one pool, exactly sized (no per-bucket block, no spare capacity).
 		// Positions out of bucket order fall back to the usual growing arrays.
 		// (32-bit builds: the size of the pool must fit a size_t, or a smaller block would be allocated)
-		pool = (expected > 0 && expected <= SIZE_MAX / sizeof (Position)) ? (Position*) malloc((size_t) expected * sizeof (Position)) : NULL;
+		pool = (expected > 0 && (unsigned long long) expected * sizeof (Position) <= SIZE_MAX) ? (Position*) malloc((size_t) expected * sizeof (Position)) : NULL;
 		loaded.pool = pool;
 		pooling = (pool != NULL);
 		for (i = 0; i < expected; ++i) {
@@ -3353,7 +3353,7 @@ bool book_merge_file(Book *dest, const char *file)
 					const unsigned long long b = board_get_hash_code(&p.board) & (dest->n - 1);
 					PositionArray *a = dest->array + b;
 					position_merge(&merged, &p);
-					if (dest->n_nodes == UINT_MAX || position_array_add(a, &merged, dest->epoch) <= 0) { position_free(&p); error("cannot add a position to the book"); goto merge_end; }
+					if (dest->n_nodes == UINT_MAX || position_array_add(a, &merged, dest->epoch) <= 0) { position_free(&p); error("cannot add a position to the book\n"); goto merge_end; }
 					++dest->n_nodes; ++dest->stats.n_nodes; ++n_added;
 				} else if (!position_is_done(q, dest)) { // a position of the destination: remember the source leaf (see book_link_parallel)
 					// (a board of the file that is not the unique one has its leaf in another orientation: no hint)
