@@ -6,7 +6,7 @@
 
 ## v4.5.5-nikque.9 の変更点
 
-v4.5.5-nikque.8 と edax_runner v5.3.0-nikque.2 の総点検で見つかった不具合を直しました。新しい機能はありません（libedaxに関数を1つ足しました）。評価データ `eval.dat`、bookのファイル形式、1スレッドの探索の結果とノード数は変わりません。動作が変わるところは、下の「動作が変わるところ」にまとめました。
+v4.5.5-nikque.8 と edax_runner v5.3.0-nikque.2 の総点検で見つかった不具合を直しました。新しい機能はありません（libedaxに関数を2つ足しました）。評価データ `eval.dat`、bookのファイル形式、1スレッドの探索の結果とノード数は変わりません。動作が変わるところは、下の「動作が変わるところ」にまとめました。
 
 ### 複数スレッドの探索の修正
 
@@ -54,14 +54,15 @@ v4.5.5-nikque.8 と edax_runner v5.3.0-nikque.2 の総点検で見つかった�
 
 ### libedax
 
-- **追加した関数 `edax_book_save_to`**：`edax_book_save` と同じ保存をして、保存できたら 1、できなかったら 0 を返します（`edax_book_save` は、元のlibedaxと同じく何も返しません。ほかのプログラムがbookファイルを開いている間などは、stderrにエラーが出るだけでした）。追加した関数は6個になり、エクスポートされる関数は99個（元のlibedaxと同じ93個＋追加6個）です。
+- **追加した関数 `edax_book_save_checked`**：`edax_book_save` と同じ保存をして、保存できたら 1、できなかったら 0 を返します（`edax_book_save` は、元のlibedaxと同じく何も返しません。ほかのプログラムがbookファイルを開いている間などは、stderrにエラーが出るだけでした）。
+- **追加した関数 `edax_book_failed`**：直前のbookの処理（`edax_book_store`・`edax_book_deviate`・`edax_book_add_board` など。どれも元のlibedaxと同じく何も返しません）が、メモリ不足で局面をbookに追加できなかったときに 1 を返します。bookの関数は始めにこの状態を消すので、確かめたい関数のすぐ後に呼びます。追加した関数は7個になり、エクスポートされる関数は100個（元のlibedaxと同じ93個＋追加7個）です。
 - **`edax_book_store_games` の状態の文字に `'2'` を足しました**：`'1'`＝学習した、`'0'`＝学習しない（打てない手・棋譜ではない行）、`'2'`＝失敗（メモリ不足で局面をbookに追加できなかった。その行はまだ学習されていません）。
 - **bookを変える処理の実行中は、`edax_stop` が探索を止めません**（mode を3にするだけです）。これまでは、打ち切られた探索の途中の結果が、そのままbookに入っていました（60手の棋譜を level 16 で保存中に `edax_stop` を40回呼ぶと、25局面中10局面が変わりました）。`edax_go`・`edax_hint` などは、従来どおり止まります。
 - 思考中（`ponder on`）にbookの処理・`edax_bench`・baseの処理を呼ぶと止まっていました（元のlibedaxは異常終了）。処理の前に先読みを止めます。
 - NULL を渡すと異常終了していた引数（52箇所のうち41箇所）は、すべて「何もしない」にしました（返り値のある関数は -1・0・NULL）。`edax_hint` に負の数、`edax_board_get_square_color` に盤外のマス、返す手がないときの `edax_get_bookmove` 系（空のリストを返します）も直しました。
 - `LibedaxPosition` の `link` は、次の63局面を取得するまで有効です（これまでは8局面）。
 - Linux と Android のライブラリを `-Bsymbolic` でリンクしました。ライブラリを使うプログラムに Edax と同じ名前の関数や変数（`board_init` など）があっても、ライブラリの中では自分のものを使います。エクスポートされる名前と API は同じです。Android版は、これまでと同じくビルドの確認だけで、実機では動かしていません。
-- 試験：`tests/libedax_test.c` は189項目になりました（Windows 3種とLinux 3種で合格）。
+- 試験：`tests/libedax_test.c` は191項目になりました（Windows 3種とLinux 3種で合格）。
 
 ### 動作が変わるところ（まとめ）
 
@@ -85,7 +86,7 @@ v4.5.5-nikque.8 と edax_runner v5.3.0-nikque.2 の総点検で見つかった�
 - bookの回帰試験（全bookコマンド。1スレッド・8スレッド、649万局面のbookを含む）：v4.5.5-nikque.8 と全ファイル一致（違うのは、日時の入るファイルと、上に書いたエラーの文・`book import` の表示だけ）。
 - 探索を1スレッドに固定した試験用ビルドで、「探索ごとにハッシュ表を空にして1つずつ処理した場合」とbookが完全に一致（壊した10種類のbook、棋譜の `book store`・`book add`・`book learn`、bookのmerge）。
 - 「止めて続ける」処理の `book fix` を32スレッドで240回、複数スレッドの `-solve` の繰り返し（誤った結果 0）、スレッドが作れない・探索の領域が確保できない試験用ビルド、32ビット版でメモリを使い切る試験、壊れたbook・書き込めない場所・設定の端の書き方の試験、ThreadSanitizer（Linux）。
-- libedax：API試験189項目、端の値・誤った呼び方81ケース、libedax4dart 7.67.0 のテスト（29件中28件。残る1件は v4.5.5-nikque.7 から同じ）。
+- libedax：API試験191項目、端の値・誤った呼び方81ケース、libedax4dart 7.67.0 のテスト（29件中28件。残る1件は v4.5.5-nikque.7 から同じ）。
 
 上流（okuhara/edax-reversi-AVX）の並列探索の不具合は、上流には連絡していません。
 
@@ -301,7 +302,7 @@ int main(void)
 
 - **関数と、呼び出し側とやり取りするデータの並びは元のlibedaxと同じです**（`src/libedax.h`）。Edax 4.5 で内部の構造が変わっているので、内部のデータをそのまま渡さず、元の並びのデータに詰め替えて渡します。
 - **設定**は、作業フォルダの `edax.ini`、`config.ini`、`libedax_initialize` の引数の順に読みます（後のものが優先）。書き方と項目は edax 本体と同じです。
-- 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`（`book deviate2`・`deviate3`）、`libedax_cpu_level`（CPUが動かせる版を返します。`libedax-x64.dll` に問い合わせてから、v3・v4 を読み込む使い方ができます）、`edax_book_store_games`（複数の棋譜をまとめて対局・学習します。上の `book learn` と同じ処理で、棋譜は1行に1局の文字列で渡します）、`edax_book_store_tasks`（同時に学習する棋譜の数を返します。`book-store-tasks` が `auto` なら `n-tasks` の値）。v4.5.5-nikque.9 で `edax_book_save_to`（bookを保存し、保存できたかどうかを返します）を足しました。
+- 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`（`book deviate2`・`deviate3`）、`libedax_cpu_level`（CPUが動かせる版を返します。`libedax-x64.dll` に問い合わせてから、v3・v4 を読み込む使い方ができます）、`edax_book_store_games`（複数の棋譜をまとめて対局・学習します。上の `book learn` と同じ処理で、棋譜は1行に1局の文字列で渡します）、`edax_book_store_tasks`（同時に学習する棋譜の数を返します。`book-store-tasks` が `auto` なら `n-tasks` の値）。v4.5.5-nikque.9 で `edax_book_save_checked`（bookを保存し、保存できたかどうかを返します）と `edax_book_failed`（直前のbookの処理が局面を追加できなかったかどうかを返します）を足しました。
 - 元のlibedax（Edax 4.4）との違い：
   - 既定のlevelは18です（元は21）。同じlevelでも、探索の評価値や手がEdax 4.4と違うことがあります。
   - `edax_book_merge` は、この版の `book merge` と同じく、リンクの再構築・修正・negamaxまで行います（元は局面を足すだけ）。
@@ -320,7 +321,7 @@ int main(void)
   | `libedax-x64-v4.dll` | 92 百万ノード/秒 | 82 MB |
 
   ライブラリと edax 本体（同じCPU向け）は、ノード数が一致し、速さも同じでした。
-- 試験：`tests/libedax_test.c` が全関数を呼び出します（147項目。v4.5.5-nikque.9 では189項目。Windows 3種とLinux 3種で合格。元のlibedaxでも、対応する項目は同じ結果）。libedax4dart 7.67.0 のテスト29件のうち28件が合格し、残る1件は探索の評価値の比較です（既定のlevelの違いと、直前の探索の状態によるもの。同じlevelで単独に探索すると、元のlibedaxと同じ評価値になります）。Edax 4.4 のlibedaxが保存したbookを読めること、この版が保存したbookをEdax 4.4のlibedaxが読めること（27万局面のbookで全局面一致）も確かめました。
+- 試験：`tests/libedax_test.c` が全関数を呼び出します（147項目。v4.5.5-nikque.9 では191項目。Windows 3種とLinux 3種で合格。元のlibedaxでも、対応する項目は同じ結果）。libedax4dart 7.67.0 のテスト29件のうち28件が合格し、残る1件は探索の評価値の比較です（既定のlevelの違いと、直前の探索の状態によるもの。同じlevelで単独に探索すると、元のlibedaxと同じ評価値になります）。Edax 4.4 のlibedaxが保存したbookを読めること、この版が保存したbookをEdax 4.4のlibedaxが読めること（27万局面のbookで全局面一致）も確かめました。
 - ビルド：Windowsは `nmake -f NMakefile vc-lib`（`vc-lib-x64`・`vc-lib-x64-v3`・`vc-lib-x64-v4`）、Linuxなどは `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`。Android用は `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib`（`src/libs-lib/<ABI>/libedax.so` ができます。NDK r27d で確認）。試験は `tests\build-libedax-test.cmd`。macOS用は、release-binaries ワークフローが arm64 と x86-64 のライブラリを作り、1つのファイル `libedax.universal.dylib`（libedax用のプログラムが読み込む名前）にまとめます。
 
 ### 不具合の修正：学習の後、終了時にbookが保存されないことがある

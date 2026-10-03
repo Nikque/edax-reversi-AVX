@@ -494,13 +494,18 @@ int main(int argc, char **argv)
 	edax_book_save("libtest-book2.dat");
 	CHECK(file_size("libtest-book2.dat") > 100);
 	if (!original) { // book save that tells whether the book was saved
-		int (*save_to)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_save_to");
+		int (*save_to)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_save_checked");
 		CHECK(save_to != NULL);
 		if (save_to) {
 			CHECK_INT(save_to("libtest-book3.dat"), 1);
 			CHECK_INT((int) file_size("libtest-book3.dat"), (int) file_size("libtest-book2.dat"));
 			CHECK_INT(save_to("libtest-no-such-folder/book.dat"), 0);
 			CHECK_INT(save_to(NULL), 0);
+			{	// no position failed to be added by the last book function
+				int (*failed)(void) = (int (*)(void)) optional(dll, "edax_book_failed");
+				CHECK(failed != NULL);
+				if (failed) CHECK_INT(failed(), 0);
+			}
 			remove("libtest-book3.dat");
 		}
 	}

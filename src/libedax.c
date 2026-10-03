@@ -1548,7 +1548,7 @@ LIBEDAX_API void edax_book_save(const char *book_file)
  * @param book_file book file name to save.
  * @return 1 if the book was saved, 0 otherwise.
  */
-LIBEDAX_API int edax_book_save_to(const char *book_file)
+LIBEDAX_API int edax_book_save_checked(const char *book_file)
 {
 	Book *book;
 	int saved;
@@ -1559,6 +1559,22 @@ LIBEDAX_API int edax_book_save_to(const char *book_file)
 
 	lib_book_end(book);
 	return saved;
+}
+
+/**
+ * @brief Tell whether the last book function failed to add a position to the book.
+ *
+ * The functions that add positions to the book (edax_book_store, edax_book_deviate,
+ * edax_book_add_board...) return nothing (as the original libedax): when the memory is
+ * exhausted they stop, with a message on stderr only. Each book function clears this state
+ * when it starts: call this function right after the one to check.
+ *
+ * @return 1 if a position could not be added, 0 otherwise.
+ */
+LIBEDAX_API int edax_book_failed(void)
+{
+	if (g_ui == NULL) return 0;
+	return g_ui->play->book->failed ? 1 : 0;
 }
 
 /**

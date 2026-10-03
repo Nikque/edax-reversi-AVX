@@ -4,7 +4,7 @@
 
 ## v4.5.5-nikque.9
 
-v4.5.5-nikque.8 と edax_runner v5.3.0-nikque.2 の総点検で見つかった不具合を直しました。新しい機能はありません（libedaxに関数を1つ足しました）。`eval.dat`、bookのファイル形式、1スレッドの探索の結果とノード数は変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+v4.5.5-nikque.8 と edax_runner v5.3.0-nikque.2 の総点検で見つかった不具合を直しました。新しい機能はありません（libedaxに関数を2つ足しました）。`eval.dat`、bookのファイル形式、1スレッドの探索の結果とノード数は変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
 探索：
 
@@ -38,12 +38,12 @@ book：
 
 libedax：
 
-- 追加した関数 `edax_book_save_to`（保存できたら 1、できなかったら 0 を返す `book save`）。`edax_book_store_games` の状態の文字に `'2'`（失敗。その行はまだ学習されていない）を足しました。
+- 追加した関数 `edax_book_save_checked`（保存できたら 1、できなかったら 0 を返す `book save`）と `edax_book_failed`（直前のbookの処理が、メモリ不足で局面を追加できなかったら 1）。`edax_book_store_games` の状態の文字に `'2'`（失敗。その行はまだ学習されていない）を足しました。
 - bookを変える処理の実行中は、`edax_stop` が探索を止めません（打ち切られた探索の途中の結果がbookに入っていました）。
 - 思考中（ponder）にbookの処理を呼ぶと止まる問題、NULL の引数での異常終了、`edax_hint` に負の数、返す手がないときの `edax_get_bookmove` 系を直しました。`LibedaxPosition` の `link` は、次の63局面まで有効です。
 - Linux と Android のライブラリを `-Bsymbolic` でリンクしました（プログラム側の同名の関数に取って代わられません）。
 
-確認：1スレッドの `-solve` の結果とノード数、bookの回帰試験（v4.5.5-nikque.8 と全ファイル一致）、探索を1スレッドに固定した試験用ビルドでの完全一致、「止めて続ける」処理の繰り返し、スレッド・メモリが足りない試験用ビルド、32ビット版、ThreadSanitizer、API試験189項目。
+確認：1スレッドの `-solve` の結果とノード数、bookの回帰試験（v4.5.5-nikque.8 と全ファイル一致）、探索を1スレッドに固定した試験用ビルドでの完全一致、「止めて続ける」処理の繰り返し、スレッド・メモリが足りない試験用ビルド、32ビット版、ThreadSanitizer、API試験191項目。
 
 ## v4.5.5-nikque.8
 

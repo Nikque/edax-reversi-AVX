@@ -4,7 +4,7 @@
 
 ## v4.5.5-nikque.9
 
-Fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2. No new feature (one function added to libedax). `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+Fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2. No new feature (two functions added to libedax). `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
 
 Search:
 
@@ -38,12 +38,12 @@ Settings and commands:
 
 libedax:
 
-- New function `edax_book_save_to` (`book save` that returns 1 if the book was saved, 0 otherwise). New status character `'2'` of `edax_book_store_games` (failure: the line is still to be learned).
+- New function `edax_book_save_checked` (`book save` that returns 1 if the book was saved, 0 otherwise) and `edax_book_failed` (1 if the last book function could not add a position, the memory being exhausted). New status character `'2'` of `edax_book_store_games` (failure: the line is still to be learned).
 - While a function that changes the book is running, `edax_stop` no longer stops the search (the partial result of the interrupted search went into the book).
 - Fixed: a hang when a book function is called while pondering, crashes on NULL arguments, a negative number for `edax_hint`, the `edax_get_bookmove` functions when there is no move. The `link` of a `LibedaxPosition` stays valid for the next 63 positions.
 - The Linux and Android libraries are linked with `-Bsymbolic` (functions of the same name in the program do not take the place of the ones of the library).
 
-Checked: single-thread `-solve` results and node counts; the book regression tests (every file as v4.5.5-nikque.8); identical books with the test build where every search keeps one thread; repeated runs of the "stop and go on" step; test builds without enough threads or memory; 32-bit builds; ThreadSanitizer; 189 API checks.
+Checked: single-thread `-solve` results and node counts; the book regression tests (every file as v4.5.5-nikque.8); identical books with the test build where every search keeps one thread; repeated runs of the "stop and go on" step; test builds without enough threads or memory; 32-bit builds; ThreadSanitizer; 191 API checks.
 
 ## v4.5.5-nikque.8
 
