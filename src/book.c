@@ -1092,7 +1092,8 @@ static int position_negamax(Position *position, Book *book)
  * same root; a thread computes a position after claiming it (done = epoch|0x80),
  * the others help by walking its children and then wait for it. Links always go
  * to a position with fewer empties (or to the passed position, that cannot pass
- * back), so waiting cannot deadlock.
+ * back), so waiting cannot deadlock (the links of a damaged book that do not are
+ * not followed: see negamax_link_target).
  */
 #define NEGAMAX_MAX_LINKS 64
 
@@ -1189,13 +1190,45 @@ static void position_negamax_compute(Position *position, Book *book, Position **
 	position->n_lines = (unsigned int) MIN(UINT_MAX, stat.n_lines);
 }
 
+/**
+ * @brief Position that a link leads to, for the parallel negamax.
+ *
+ * The threads walk the links without marking where they are, and wait for each other: a link of a
+ * damaged book that leads back to its own position, or to a position above it (a pass that is not
+ * one, a move on an occupied square), would be walked without end (stack overflow), where
+ * position_negamax() stops at the positions that it has already seen. So only the links that make the
+ * game progress are followed: a move that adds a disc, or the pass of a player who cannot move to a
+ * player who can. Every link of a valid book is one of them.
+ *
+ * @param position Position.
+ * @param link Link of the position.
+ * @param book Opening book.
+ * @return the position, or NULL if it is not in the book or if the link is not followed.
+ */
+static Position* negamax_link_target(const Position *position, const Link *link, const Book *book)
+{
+	const Board *board = &position->board;
+	Board target;
+
+	if (link->move <= H8) {
+		board_next(board, link->move, &target);
+		if (bit_count(target.player | target.opponent) <= bit_count(board->player | board->opponent)) return NULL;
+	} else if (link->move == PASS) {
+		if (can_move(board->player, board->opponent) || !can_move(board->opponent, board->player)) return NULL;
+		target.player = board->opponent;
+		target.opponent = board->player;
+	} else {
+		return NULL;
+	}
+	return book_probe(book, &target);
+}
+
 static void position_negamax_parallel(Position *position, Book *book, const int id)
 {
 	const unsigned char done = book->epoch | POSITION_DONE, busy = book->epoch | POSITION_BUSY;
 	const unsigned char d = atomic_load_uchar(&position->state);
 	Position *children[NEGAMAX_MAX_LINKS];
 	const Link *l;
-	Board target;
 	int i, n, first;
 	bool own;
 
@@ -1205,10 +1238,7 @@ static void position_negamax_parallel(Position *position, Book *book, const int 
 	n = position->n_link;
 	if (n > NEGAMAX_MAX_LINKS) fatal_error("too many links\n");
 	l = position_links(position);
-	for (i = 0; i < n; ++i) {
-		board_next(&position->board, l[i].move, &target);
-		children[i] = book_probe(book, &target);
-	}
+	for (i = 0; i < n; ++i) children[i] = negamax_link_target(position, l + i, book);
 	// threads start with different children to spread the work
 	first = n ? (id * 7 + board_count_empties(&position->board)) % n : 0;
 	for (i = 0; i < n; ++i) {
