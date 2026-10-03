@@ -4,6 +4,91 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.9
+
+This version fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2. There is no new feature (one function was added to libedax). The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. What behaves differently is listed under "What behaves differently" below.
+
+### Multi-thread search
+
+Two races of the parallel search, both inherited from upstream (v4.5.5), are fixed.
+
+- **A search that had been stopped could go on, and a helper thread could end without searching its move.** Nodes were then stored in the transposition table as "all moves searched" although a move had not been searched. In ordinary 32-thread searches: 1,294 such nodes in 4,000 solved endgame positions and 8,453 in 360 midgame positions at level 21 (0 in both after the fix). A wrong final result is rare (0 in 28,000 solved endgame positions with the old code).
+- **A request to stop a search could be lost** (3 out of 2.4 million requests). The "stop, add threads and go on" step of v4.5.5-nikque.8 (`book-store-tasks`) searches again with the transposition table of the stopped search, so it was more exposed to both races: a leaf of the book could get a move that is not the best one, with its score (in a test that sends stop requests all the time: 2 wrong results in 12,800 positions before the fix, 0 in 13,920 after).
+- Single-thread searches are unchanged (same results and node counts as v4.5.5-nikque.6 and v4.5.5-nikque.8). For multi-thread searches, with builds made the same way (without PGO), the time relative to v4.5.5-nikque.8 was 0.98 to 1.01 (solved endgames and midgame at levels 18 to 24, with 1, 2, 8 and 32 threads: 9 conditions, standard error 0.003 to 0.02): no condition can be said to be slower. The release builds will be measured before the release.
+
+### Book bugs
+
+- **A second `book merge` in the same run could fail** (since v4.5.5-nikque.3): after merging a book that holds positions unreachable from the root (for example games stored from a non-standard starting position), the next `book merge` failed with "duplicated position", and undoing that failed merge also removed the positions added by the previous merge from the book in memory.
+- **`book negamax` with several threads crashed on a damaged book** (since v4.5.5-nikque.3): with a link that leads back to its own position or to a position above, the stack was exhausted. The negamax with threads now follows only the links that add a disc and the passes (all the links of a correct book).
+- **A failed `book import` lost the current book** (from upstream; also `edax_book_import` of libedax): with a file that cannot be opened, the book was replaced by a new book of one position, which was then saved over the book file on exit. The current book is now kept when the file cannot be opened or holds no position. Lines that cannot be read are skipped (the reason is shown for the first 10).
+- **A book file that could not be read at startup was overwritten after learning**: a book file that is damaged, or that could not be read because another program had it open, is now renamed to `<name>.damaged` (`.damaged.1`, ... if it exists) before the book is saved under that name. A book that could not be read only because another program had it open is no longer taken for a missing file.
+- **`base complete` and `base correct` deleted a file that could not be loaded** (from upstream; also in libedax): the file is now deleted and saved only when it was loaded.
+- **`book new` with a level out of range** (not 0 to 60) read outside a table and could never return. It now warns and keeps the current book.
+- **A book file name that is too long** (more than `FILENAME_MAX - 8` characters: 252 on Windows) crashed the program. It is now ignored with a warning (the previous or the default name is kept).
+- **A book with positions at a level above 60 (a damaged file)**: `book info` wrote outside an array. `book fix` now rebuilds such positions. The level in the header of a book file is clamped to 0 to 60 (with a warning).
+- When `book store` only added links, the book was not saved to the book file on exit.
+- The search log (`-search-log-file`) was closed when the searches done at the same time were released.
+
+### Learning (`book learn`, `edax_book_store_games` of libedax)
+
+- **Lines longer than 255 bytes were cut** (since v4.5.5-nikque.7): for a line with many spaces between its moves, when the cut fell between two moves, the shorter game was "learned". The spaces are now removed first (a line of 128 moves or more is not a game and is not learned).
+- **With a time per game, the games played at the same time did not use up their time** (since v4.5.5-nikque.7): every move was searched as if the whole time was left (8 games at 10 seconds per side: 52.1 s → 19.5 s). Learning at a fixed level is unchanged.
+- **No upper limit for the randomness of a line (`<number>,<moves>`)**: it was limited to 127, and a line with 128 or more was "not a game". Any number is now accepted, as for the `book-randomness` setting (scores differ by 128 at most, so 128 or more always means "any move of the book").
+
+### When memory or threads are missing
+
+- **The program terminated when the memory for the searches done at the same time could not be allocated** (32-bit builds with `-h 25`, for example); what had been learned and not yet saved was lost. It now goes on with fewer searches at the same time (one after the other if none could be made). Warnings: `not enough memory to search the positions at the same time`, `not enough memory to play N games at the same time`.
+- **When a thread could not be created**, a search or a book command could hang for ever (the upstream search, and the book commands of v4.5.5-nikque.3 to nikque.7). It now goes on with the threads that were created (warning `cannot create a thread: the search uses N threads instead of M`).
+- 32-bit builds: 128 MB are kept free when the searches done at the same time are created. Loading a book of 89.47 million positions or more overflowed the computation of the size to allocate and wrote outside the block (now an error, and the current book is kept: a 32-bit build cannot load such a book).
+
+### Settings and commands
+
+- In `config.ini`, on the command line and in commands, **a value that is not a number, or not on/off** (`level = abc`, `n-tasks = 4x`, ...) is ignored with a warning (it was ignored silently or taken up to the first wrong character).
+- Lowering `n-tasks` while running no longer lowers `book-store-tasks` and `book-expand-tasks` (they were cut, and stayed cut when `n-tasks` was raised again).
+- When Edax is started by its name alone through the PATH and the working folder has no `config.ini`, a warning is shown (the defaults are used).
+- **With commands from a file (`edax < file`), `quit` is run in its turn** (the commands before `quit` could be dropped). Nothing changes for a terminal or a pipe.
+- Windows: a `book.dat.tmp.<number>` left by a killed run is removed at the next save.
+- `cores` and `memory` of xboard, `depth` of NBoard: clamped to their range.
+- `-cpu` on Linux: the threads of the book commands are also bound to one CPU each (they were all on CPU 0). With `-cpu`, the searches done at the same time (`book-store-tasks`, `book-expand-tasks`) are not used.
+- The error messages of book load, save and merge now end with a new line.
+
+### libedax
+
+- **New function `edax_book_save_to`**: it saves the book as `edax_book_save` does, and returns 1 if the book was saved, 0 otherwise (`edax_book_save` returns nothing, as in the original libedax: when another program had the book file open, for example, there was only a message on stderr). There are now 6 added functions; the library exports 99 functions (the 93 of the original libedax and these 6).
+- **`edax_book_store_games`: a new status character `'2'`**: `'1'` = learned, `'0'` = not learned (illegal move, or not a game), `'2'` = failure (not enough memory to add a position to the book: the line is still to be learned).
+- **While a function that changes the book is running, `edax_stop` no longer stops the search** (it only sets the mode to 3). The result of the interrupted search used to go into the book as it was (calling `edax_stop` 40 times while a game of 60 moves was stored at level 16 changed 10 positions out of 25). `edax_go`, `edax_hint`, ... are stopped as before.
+- Calling a book function, `edax_bench` or a base function while pondering (`ponder on`) hung (the original libedax crashed): the pondering is now stopped first.
+- NULL arguments that crashed (41 of 52 pointer arguments) now do nothing (functions with a result return -1, 0 or NULL). Also fixed: a negative number for `edax_hint`, a square outside the board for `edax_board_get_square_color`, and the `edax_get_bookmove` functions when there is no move to return (an empty list is returned).
+- The `link` of a `LibedaxPosition` stays valid until the next 63 positions are fetched (it was 8).
+- The Linux and Android libraries are linked with `-Bsymbolic`: if the program that uses the library has functions or variables with the same names as Edax (`board_init`, ...), the library still uses its own. The exported names and the API are the same. As before, the Android libraries were only built, not run on a device.
+- Tests: `tests/libedax_test.c` now has 189 checks (passed on 3 Windows and 3 Linux builds).
+
+### What behaves differently (summary)
+
+| Case | Up to v4.5.5-nikque.8 | v4.5.5-nikque.9 |
+|---|---|---|
+| Multi-thread search | nodes with unsearched moves could be stored | none. Results still vary from run to run |
+| `book negamax` with threads on a damaged book (links leading back) | crash | ends. Values can differ from a single thread (`book fix` repairs such a book) |
+| `book learn` with a time per game | every move searched with the whole time left | the remaining time is respected |
+| Learning lines longer than 255 bytes, or with a randomness of 128 or more | a shorter game learned / not learned | learned as written |
+| Saving under the name of a book file that could not be read | overwritten | the old file is kept as `.damaged` |
+| Failed `book import`, `book new` with a level out of range | the current book is lost / never returns | the current book is kept |
+| A setting that is not a number | no warning | ignored with a warning |
+| `quit` with `edax < file` | previous commands could be dropped | run in its turn |
+| `-cpu` on Linux and the searches done at the same time | threads piled up on the same CPUs | not used (as `book-store-tasks = 1`) |
+| libedax: `edax_stop` while the book is being changed | search interrupted, its partial result stored | not stopped |
+| libedax: NULL arguments | crash | nothing happens |
+
+### Checks
+
+- `-solve`: single-thread results and node counts equal to v4.5.5-nikque.8 (Windows x64 and 32-bit, Linux).
+- Book regression tests (all the book commands; 1 and 8 threads; including a book of 6.49 million positions): all files equal to v4.5.5-nikque.8 (except the files that hold a date, and the messages described above).
+- With the test build whose searches all use one thread, the books are identical to "one search after the other, with an empty hash table for each" (the ten damaged books, `book store`, `book add`, `book learn`, and merges).
+- 240 runs of `book fix` with 32 threads for the "stop and go on" step, repeated multi-thread `-solve` (no wrong result), test builds where threads cannot be created or the search memory cannot be allocated, the 32-bit build with its address space exhausted, damaged books, unwritable targets and odd settings, ThreadSanitizer (Linux).
+- libedax: 189 API checks, 81 cases of edge values and wrong calls, the tests of libedax4dart 7.67.0 (28 of 29; the remaining one is the same as in v4.5.5-nikque.7).
+
+The bugs of the upstream parallel search have not been reported upstream (okuhara/edax-reversi-AVX).
+
 ## Changes in v4.5.5-nikque.8
 
 `book-store-tasks = auto`, the default since v4.5.5-nikque.7, was **slower than v4.5.5-nikque.6 when few searches were needed or at a high level**. The way the threads are given to the searches done at the same time is fixed. This is the only change: the evaluation data `eval.dat`, the book file format, the search results and `book-store-tasks = 1` are unchanged. The books were not damaged: the books made with v4.5.5-nikque.7 can be used as they are.
@@ -216,12 +301,12 @@ int main(void)
 
 - **The functions and the layout of the data exchanged with the caller are those of the original libedax** (`src/libedax.h`). The structures of Edax changed in 4.5, so they are not passed as they are: the data are copied to structures with the original layout.
 - **Settings** are read from `edax.ini` and `config.ini` of the current folder, then from the arguments of `libedax_initialize` (the last one wins). The syntax and the settings are those of the edax program.
-- New functions: `edax_book_deviate2` and `edax_book_deviate3` (`book deviate2` and `deviate3`), `libedax_cpu_level` (which build the CPU can run: a program can ask `libedax-x64.dll`, then load the v3 or v4 library), `edax_book_store_games` (play and learn several games together, as `book learn` above does; the games are given as a string, one game per line) and `edax_book_store_tasks` (the number of games learned at the same time: `n-tasks` when `book-store-tasks` is `auto`).
+- New functions: `edax_book_deviate2` and `edax_book_deviate3` (`book deviate2` and `deviate3`), `libedax_cpu_level` (which build the CPU can run: a program can ask `libedax-x64.dll`, then load the v3 or v4 library), `edax_book_store_games` (play and learn several games together, as `book learn` above does; the games are given as a string, one game per line) and `edax_book_store_tasks` (the number of games learned at the same time: `n-tasks` when `book-store-tasks` is `auto`). v4.5.5-nikque.9 adds `edax_book_save_to` (saves the book and tells whether it was saved).
 - Differences from the original libedax (Edax 4.4):
   - The default level is 18 (it was 21). At the same level, the scores and moves of a search can differ from Edax 4.4.
   - `edax_book_merge` does what `book merge` does in this version: it also rebuilds the links, fixes and negamaxes the book (the original only added the positions).
   - The counts of the best paths (`edax_book_count_bestpath`, `edax_book_count_board_bestpath`) were kept in every position of the book by the original libedax; here they are kept beside the book, only while they are used (a book position still takes 48 bytes). They are counted again when the limits change or when the book changes.
-  - The `link` array of a `Position` stays valid until a few other positions are asked. The lock which followed the result of `edax_bench` is not used.
+  - The `link` array of a `Position` stays valid until 63 other positions are asked (8 up to v4.5.5-nikque.8). The lock which followed the result of `edax_bench` is not used.
   - Calls which crashed the original libedax (a second initialization or termination, `edax_get_last_move` before any move, `edax_book_show` on a position missing from the book, a read-only string given to `edax_get_bookmove_with_position_by_moves`) now do nothing or return an empty result.
   - On Windows, file names are read as UTF-8 (then as ANSI).
 - **The edax program is not affected.** The code of libedax is only compiled when the library is built. An edax built from the sources with libedax added is byte-identical to one built from the v4.5.5-nikque.6 sources (except the build time and the name of the source folder).
@@ -235,7 +320,7 @@ int main(void)
   | `libedax-x64-v4.dll` | 92 million nodes/s | 82 MB |
 
   The library and the edax program (for the same CPU) search the same number of nodes at the same speed.
-- Tests: `tests/libedax_test.c` calls every function (147 checks; passed by the 3 Windows and the 3 Linux libraries; the original libedax gives the same results on the checks it supports). 28 of the 29 tests of libedax4dart 7.67.0 pass; the other one compares a search score (it differs because of the default level and of the state left by the previous searches: a fresh search at the same level gives the same score as the original libedax). The books saved by the libedax of Edax 4.4 are read by this version, and the books saved by this version are read by the libedax of Edax 4.4 (all the positions of a 270,000-position book are the same).
+- Tests: `tests/libedax_test.c` calls every function (147 checks, 189 in v4.5.5-nikque.9; passed by the 3 Windows and the 3 Linux libraries; the original libedax gives the same results on the checks it supports). 28 of the 29 tests of libedax4dart 7.67.0 pass; the other one compares a search score (it differs because of the default level and of the state left by the previous searches: a fresh search at the same level gives the same score as the original libedax). The books saved by the libedax of Edax 4.4 are read by this version, and the books saved by this version are read by the libedax of Edax 4.4 (all the positions of a 270,000-position book are the same).
 - Build: on Windows, `nmake -f NMakefile vc-lib` (`vc-lib-x64`, `vc-lib-x64-v3`, `vc-lib-x64-v4`); elsewhere, `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`. For Android: `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib` (it makes `src/libs-lib/<ABI>/libedax.so`; checked with NDK r27d). Test: `tests\build-libedax-test.cmd`. For macOS, the release-binaries workflow builds the arm64 and x86-64 libraries and joins them in one file, `libedax.universal.dylib` (the name loaded by the programs written for libedax).
 
 ### Bug fix: the book was sometimes not saved on exit after learning
