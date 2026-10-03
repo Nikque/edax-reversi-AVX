@@ -998,6 +998,24 @@ void thread_set_cpu(Thread thread, int i)
 #endif
 }
 
+/**
+ * @brief Tell if thread_set_cpu() binds a thread to its cpu.
+ *
+ * Where it does (linux), a new thread also starts on the cpu of the thread that creates it:
+ * with the cpu option, every thread created by the main thread stays on cpu 0 until it is given
+ * a cpu. (On Windows thread_set_cpu() only gives a preferred cpu.)
+ *
+ * @return true if thread_set_cpu() binds the thread.
+ */
+bool thread_cpu_bound(void)
+{
+#if defined(__linux__) && defined(CPU_SET)
+	return true;
+#else
+	return false;
+#endif
+}
+
 
 /**
  * @brief Get the number of cpus or cores on the machine.

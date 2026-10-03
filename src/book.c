@@ -79,6 +79,36 @@ void book_print(const char *format, ...)
 	}
 }
 
+/**
+ * @brief Create a thread of the book functions (negamax, fix, link, sort, deviate walks).
+ *
+ * With the cpu option, each of them gets its own cpu, as the threads of a search do: where the option
+ * binds the threads (linux), a new thread would else stay on the cpu of the main thread, and all the
+ * threads of the book functions would share cpu 0.
+ *
+ * @param thread Thread.
+ * @param function Function to run.
+ * @param data Data for the function.
+ * @param cpu Cpu of the thread (its rank among the threads working together).
+ */
+static void book_thread_create(Thread *thread, void* (*function)(void*), void *data, const int cpu)
+{
+	thread_create(thread, function, data);
+	if (options.cpu_affinity) thread_set_cpu(*thread, cpu);
+}
+
+/**
+ * @brief Tell if the searches of the book functions must be done one at a time.
+ *
+ * Where the cpu option binds the threads (linux), the threads of every search are bound to the cpus
+ * 0 to n-1: searches done at the same time (book-store-tasks, book-expand-tasks) would all run on
+ * the same cpus. They are done one after the other, with the main search, as Edax always did.
+ */
+static bool book_one_search_at_a_time(void)
+{
+	return options.cpu_affinity && thread_cpu_bound();
+}
+
 /** struct Link
  * @brief a move (with its score) linking to another Position.
  */
@@ -1303,7 +1333,7 @@ static void book_negamax_position(Position *root, Book *book)
 	for (i = 0; i < n; ++i) {
 		w[i].book = book; w[i].root = root; w[i].id = i;
 	}
-	for (i = 1; i < n; ++i) thread_create(&w[i].thread, negamax_worker, w + i);
+	for (i = 1; i < n; ++i) book_thread_create(&w[i].thread, negamax_worker, w + i, i);
 	negamax_worker(w);
 	for (i = 1; i < n; ++i) thread_join(w[i].thread);
 }
@@ -2614,7 +2644,7 @@ static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task
 		long long next = real_clock() + 1000;
 		bool finished = false;
 		int n_wait = 0;
-		for (i = 0; i < n; ++i) thread_create(&task[i].thread, book_task_main, task + i);
+		for (i = 0; i < n; ++i) book_thread_create(&task[i].thread, book_task_main, task + i, i);
 		while (!finished) {
 			long long done = 0;
 			relax(++n_wait <= 20 ? 1 : 50); // the scan of a small book is over at once
@@ -2624,7 +2654,7 @@ static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task
 		}
 		for (i = 0; i < n; ++i) thread_join(task[i].thread);
 	} else {
-		for (i = 1; i < n; ++i) thread_create(&task[i].thread, book_task_main, task + i);
+		for (i = 1; i < n; ++i) book_thread_create(&task[i].thread, book_task_main, task + i, i);
 		run(task);
 		for (i = 1; i < n; ++i) thread_join(task[i].thread);
 	}
@@ -3592,6 +3622,7 @@ static Search** book_expand_searches(const int n, const int n_tasks, const int h
  *
  * book-expand-tasks = n, or auto (0): each search gets 2 threads at level 18 and below
  * (the fastest in a level 18 test on a large book), 4 up to level 24 and 8 above.
+ * Always 1 with the cpu option where it binds the threads (see book_one_search_at_a_time).
  *
  * @param book Opening book.
  * @return the number of concurrent expansions (1 = one by one).
@@ -3600,6 +3631,7 @@ static int book_expand_task_count(const Book *book)
 {
 	int n = options.book_expand_tasks;
 
+	if (book_one_search_at_a_time()) return 1;
 	if (n <= 0) {
 		const int level = book->options.level;
 		n = options.n_task / (level <= 18 ? 2 : level <= 24 ? 4 : 8);
@@ -3956,7 +3988,7 @@ static bool book_deviate_total_by_loss(Book *book, Position *root, const int mod
 				lw[i].first = cur.n * i / m; lw[i].last = cur.n * (i + 1) / m;
 				lw[i].same.n = 0;
 			}
-			for (i = 1; i < m; ++i) thread_create(&lw[i].w.thread, loss_worker_run, lw + i);
+			for (i = 1; i < m; ++i) book_thread_create(&lw[i].w.thread, loss_worker_run, lw + i, i);
 			loss_worker_run(lw);
 			for (i = 1; i < m; ++i) thread_join(lw[i].w.thread);
 			cur.n = 0;
@@ -4069,7 +4101,7 @@ static bool book_deviate_by_depth(Book *book, Position *root, const int player_d
 			lw[i].first = cur.n * i / m; lw[i].last = cur.n * (i + 1) / m;
 			lw[i].same.n = 0;
 		}
-		for (i = 1; i < m; ++i) thread_create(&lw[i].w.thread, depth_worker_run, lw + i);
+		for (i = 1; i < m; ++i) book_thread_create(&lw[i].w.thread, depth_worker_run, lw + i, i);
 		depth_worker_run(lw);
 		for (i = 1; i < m; ++i) thread_join(lw[i].w.thread);
 		next.n = 0;
@@ -4651,6 +4683,7 @@ Search** book_store_searches(const Book *book, const int n, const int n_tasks)
  * @brief Number of games learned at the same time.
  *
  * book-store-tasks = n, or auto (0): each game gets 1 thread.
+ * Always 1 with the cpu option where it binds the threads (see book_one_search_at_a_time).
  *
  * @return the number of games learned at the same time; 1 = one position after the other, as
  * Edax always did.
@@ -4662,6 +4695,7 @@ int book_store_task_count(void)
 #else
 	int n = options.book_store_tasks;
 
+	if (book_one_search_at_a_time()) return 1;
 	if (n <= 0) n = options.n_task;
 	return MAX(1, MIN(n, options.n_task));
 #endif
