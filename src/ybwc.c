@@ -243,14 +243,16 @@ void node_wait_slaves(Node* node)
 	// (the stop state is tested and changed under the lock of the search, as search_stop_all() does: without
 	// it, a stop asked by another thread between the test and the change was lost, the search went on
 	// while its slaves had been stopped, and could end "normally" with moves that were never searched)
+	// Only the stop by the cut of this node is undone (STOP_PARALLEL_CUT): a stop that came meanwhile from
+	// a node above (STOP_PARALLEL_SEARCH), or from search_stop_all(), stays.
 	if (node->stop_point) {
 		spin_lock(node->search);
-		if (node->search->stop == STOP_PARALLEL_SEARCH) {
+		if (node->search->stop == STOP_PARALLEL_CUT) {
 			node->search->stop = RUNNING;
 			YBWC_STATS(atomic_add(&statistics.n_wake_up, 1);)
 		}
+		node->stop_point = false; // (under the lock of the search: the tasks that start read it, see task_search)
 		spin_unlock(node->search);
-		node->stop_point = false;
 	}
 	unlock(node);
 }
@@ -374,9 +376,32 @@ void task_search(Task *task)
 	Move *move = task->move;
 	Eval eval0;
 	Board board0;
+	Stop stop;
 	int i;
 
-	search_set_state(search, node->search->stop);
+	// The task takes the stop state of the search of its node, with two exceptions:
+	// - STOP_PARALLEL_CUT: that search only goes back to one of its nodes, where a cut was found, and runs
+	//   again from there. If the node of the task is above the node of the cut, it goes on: the move of the
+	//   task must be searched (the task used to end at once, and the move was never searched). Else (the node
+	//   of the cut, or a node below it) the task ends at once, as before.
+	// - the task was stopped (search_stop_all) between its creation and now: it stays stopped (it used to
+	//   take the state read just before, and to run although the search above it was stopped).
+	spin_lock(node->search); // (its stop state and the stop points of its nodes do not change meanwhile)
+	stop = node->search->stop;
+	if (stop == STOP_PARALLEL_CUT) {
+		const Node *n;
+		stop = RUNNING;
+		for (n = node; n && n->search == node->search; n = n->parent) {
+			if (n->stop_point) { // the cut is at this node or above it
+				stop = STOP_PARALLEL_SEARCH;
+				break;
+			}
+		}
+	}
+	spin_unlock(node->search);
+	spin_lock(search);
+	if (search->stop == STOP_END) search->stop = stop;
+	spin_unlock(search);
 
 	YBWC_STATS(++task->n_calls;)
 
@@ -415,7 +440,7 @@ void task_search(Task *task)
 					spin_lock(node->search); // (see node_wait_slaves)
 					if (node->search->stop == RUNNING) {
 						node->stop_point = true;
-						node->search->stop = STOP_PARALLEL_SEARCH;
+						node->search->stop = STOP_PARALLEL_CUT;
 						YBWC_STATS(atomic_add(&statistics.n_stopped_master, 1);)
 					}
 					spin_unlock(node->search);
