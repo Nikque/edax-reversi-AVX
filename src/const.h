@@ -91,6 +91,8 @@ typedef	unsigned char	NodeType;
 #define EVAL 0x4556414c
 #define XADE 0x58414445
 #define LAVE 0x4c415645
+#define MOBW 0x4d4f4257	// mobility weights in the evaluation file
+#define WBOM 0x57424f4d
 
 /**
  * Edax state.

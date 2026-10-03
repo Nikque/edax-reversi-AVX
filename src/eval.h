@@ -59,6 +59,8 @@ typedef struct Eval_weight {
 enum { EVAL_N_2PLY = 54 / 2 };	// decreased from 60 in 4.5.1
 
 extern Eval_weight (*EVAL_WEIGHT)[EVAL_N_2PLY - 1];	// for 2..53, interleaved
+extern short EVAL_MOBILITY[61][64];	// mobility weights for each ply: side to move [0..31], opponent [32..63]
+extern bool EVAL_HAS_MOBILITY;
 
 /* function declaration */
 void eval_open(const char*);

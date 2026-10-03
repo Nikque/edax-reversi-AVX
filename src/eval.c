@@ -480,6 +480,11 @@ Eval_weight (*EVAL_WEIGHT)[EVAL_N_2PLY - 1];	// for 2..53
 /** opponent feature */
 static unsigned short *OPPONENT_FEATURE;
 
+/** weights of the mobility (number of legal moves, 0..31) of the side to move [0..31] and of the opponent [32..63],
+    for each ply 0..60; optional part of the evaluation file (all zero when absent) */
+short EVAL_MOBILITY[61][64];
+bool EVAL_HAS_MOBILITY;
+
 /** evaluation function error coefficient parameters */
 static double EVAL_A, EVAL_B, EVAL_C, EVAL_a, EVAL_b, EVAL_c;
 
@@ -697,6 +702,18 @@ void eval_open(const char* file)
 		*(pe->S0) = w[EVAL_PACKED_OFS[12]];
 	}
 
+	// optional mobility weights, after the 61 plies of pattern weights: "MOBW" then 61 x 64 shorts
+	memset(EVAL_MOBILITY, 0, sizeof EVAL_MOBILITY);
+	EVAL_HAS_MOBILITY = false;
+	if (fseek(f, 5 * sizeof (int) + sizeof (double) + 61L * n_w * sizeof (short), SEEK_SET) == 0) {
+		unsigned int tag;
+		if (fread(&tag, sizeof tag, 1, f) == 1 && (tag == MOBW || tag == WBOM)) {
+			if (fread(EVAL_MOBILITY, sizeof (short), 61 * 64, f) != 61 * 64) fatal_error("Cannot read the mobility weights from %s\n", file);
+			if (tag == WBOM) for (ply = 0; ply < 61; ++ply) for (i = 0; i < 64; ++i) EVAL_MOBILITY[ply][i] = bswap_short(EVAL_MOBILITY[ply][i]);
+			EVAL_HAS_MOBILITY = true;
+		}
+	}
+
 	fclose(f);
 	free(w);
 	free(P);
@@ -707,6 +724,7 @@ void eval_open(const char* file)
 	}
 
 	info("<Evaluation function weights version %u.%u.%u loaded>\n", version, release, build);
+	if (EVAL_HAS_MOBILITY) info("<Mobility weights loaded>\n");
 
 	// f = fopen("eval.bin", "wb");
 	// fwrite(*EVAL_WEIGHT, sizeof(Eval_weight), EVAL_N_PLY, f);
