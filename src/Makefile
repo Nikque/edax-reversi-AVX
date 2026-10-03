@@ -252,6 +252,10 @@ endif
 # library: the api functions must stay visible, and the code must be position independent
 LIB_CFLAGS = $(filter-out -fwhole-program -mdynamic-no-pic -fno-pie -no-pie,$(CFLAGS)) -DLIB_BUILD -fPIC -shared
 LIB_EXT = so
+ifeq ($(OS),linux)
+	# the library calls its own functions, even when the program has functions with the same names
+	LIB_CFLAGS += -Wl,-Bsymbolic
+endif
 ifeq ($(OS),windows)
 	LIB_EXT = dll
 endif
