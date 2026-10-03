@@ -485,25 +485,6 @@ static void ui_free_libedax(UI *ui)
 }
 
 /**
- * @brief Refuse a name of the book file which is too long.
- *
- * The book commands save their progress to the book file name with an extension (".store",
- * ".dev2", ...), in buffers of FILENAME_MAX characters.
- *
- * @param previous Name to restore (a copy, freed or kept by this function), or NULL for the default name.
- */
-static void lib_check_book_file(char *previous)
-{
-	if (options.book_file && strlen(options.book_file) > FILENAME_MAX - 8) {
-		warn("the name of the book file is too long: ignored\n");
-		free(options.book_file);
-		options.book_file = previous; // NULL: options_bound() sets the default name
-	} else {
-		free(previous);
-	}
-}
-
-/**
  * @brief edax init function for library use.
  *
  * @param argc Number of arguments.
@@ -553,7 +534,6 @@ LIBEDAX_API void libedax_initialize(int argc, char **argv)
 		else if ((r = options_read(arg, i + 1 < argc ? argv[i + 1] : NULL)) > 0) i += r - 1;
 		else warn("unknown or incomplete option \"%s\" ignored\n", argv[i]);
 	}
-	lib_check_book_file(NULL);
 	options_bound();
 
 	// initialize
@@ -2237,14 +2217,11 @@ LIBEDAX_API void edax_base_unique(const char *base_file_from, const char *base_f
 LIBEDAX_API void edax_set_option(const char *option_name, const char *val)
 {
 	Play *play;
-	char *book_file;
 	if (g_ui == NULL) return;
 	play = g_ui->play;
 
 	/* edax options */
-	book_file = string_duplicate(options.book_file);
 	if (options_read(option_name, val)) {
-		lib_check_book_file(book_file);
 		options_bound();
 		// parallel search changes:
 		if (search_count_tasks(&play->search) != options.n_task) {
@@ -2252,8 +2229,6 @@ LIBEDAX_API void edax_set_option(const char *option_name, const char *val)
 			search_set_task_number(&play->search, options.n_task);
 		}
 		lib_auto_go();
-	} else {
-		free(book_file);
 	}
 }
 

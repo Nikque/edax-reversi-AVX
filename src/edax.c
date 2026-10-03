@@ -661,8 +661,12 @@ void ui_loop_edax(UI *ui)
 				} else if (strcmp(book_cmd, "new") == 0) {
 					val_1 = 21; book_param = parse_int(book_param, &val_1);
 					val_2 = 36;	book_param = parse_int(book_param, &val_2);
-					book_free(book) ;
-					book_new(book, val_1, 61 - val_2);
+					if (val_1 < 0 || val_1 > 60) { // such a level would read outside the table of the levels
+						warn("book new: level %d is out of range; current book retained\n", val_1);
+					} else {
+						book_free(book) ;
+						book_new(book, val_1, 61 - val_2);
+					}
 
 				// load an opening book (binary format) from the disc
 				} else if (strcmp(book_cmd, "load") == 0 || strcmp(book_cmd, "open") == 0) {
@@ -900,10 +904,11 @@ void ui_loop_edax(UI *ui)
 					int n_empties = 24;
 					base_param = parse_int(base_param, &n_empties);
 
-					base_load(&base, base_file);
-					base_analyze(&base, &play->search, n_empties, true);
-					remove(base_file);
-					base_save(&base, base_file);
+					if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+						base_analyze(&base, &play->search, n_empties, true);
+						remove(base_file);
+						base_save(&base, base_file);
+					}
 
 				// check erroneous games
 				} else if (strcmp(base_cmd, "check") == 0) {
@@ -915,10 +920,11 @@ void ui_loop_edax(UI *ui)
 
 				// terminate unfinished base
 				} else if (strcmp(base_cmd, "complete") == 0) {
-					base_load(&base, base_file);
-					base_complete(&base, &play->search);
-					remove(base_file);
-					base_save(&base, base_file);
+					if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+						base_complete(&base, &play->search);
+						remove(base_file);
+						base_save(&base, base_file);
+					}
 
 				// convert a base to another format
 				} else if (strcmp(base_cmd, "convert") == 0) {

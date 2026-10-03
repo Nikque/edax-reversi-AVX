@@ -240,7 +240,11 @@ int options_read(const char *option, const char *value)
 
 		else if (strcmp(option, "eval-file") == 0) options.eval_file = string_duplicate(value);	// 11/13/2015
 
-		else if (strcmp(option, "book-file") == 0) options.book_file = string_duplicate(value);
+		else if (strcmp(option, "book-file") == 0) {
+			// the book commands add an extension (".store", ".dev2", ...) to this name, in buffers of FILENAME_MAX characters
+			if (strlen(value) > FILENAME_MAX - 8) warn("the name of the book file is too long: ignored\n");
+			else options.book_file = string_duplicate(value);
+		}
 		else if (strcmp(option, "book-usage") == 0) parse_boolean(value, &options.book_allowed);
 		else if (strcmp(option, "book-randomness") == 0) parse_int(value, &options.book_randomness);
 
