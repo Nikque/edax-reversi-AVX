@@ -1131,6 +1131,7 @@ static void* learn_lane_run(void *v)
 		LearnGame *g;
 		Board board;
 		Move move;
+		long long left[2]; // time left to each player, as play->time[].left
 		int i, player, n_done;
 
 		lock(s);
@@ -1141,18 +1142,22 @@ static void* learn_lane_run(void *v)
 		g = s->game + i;
 		player = learn_game_start(g, &board);
 		search_cleanup(search); // as play_new()
+		left[0] = left[1] = options.time;
 		while (g->legal && g->n_game < 80 && !board_is_game_over(&board)) {
+			long long t_real = -real_clock();
+
 			move = MOVE_INIT;
 			if (g->n_game == 0) { // as play_force_go(): the first move is F5
 				board_get_move_flip(&board, F5, &move);
+				t_real += real_clock() + 1;
 			} else if (options.book_allowed && book_get_random_move_with(s->book, &board, &move, g->randomness, &lane->random) && move.x != NOMOVE) {
-				;
+				t_real += real_clock() + 1;
 			} else {
 				search->options.verbosity = 0;
 				search_set_board(search, &board, player);
 				search_set_level(search, play_level(), search->eval.n_empties);
 				if (options.play_type == EDAX_TIME_PER_MOVE) search_set_move_time(search, options.time);
-				else search_set_game_time(search, options.time);
+				else search_set_game_time(search, left[player]);
 				search_time_init(search);
 				search_run(search);
 #ifdef BOOK_TEST_NODES
@@ -1161,7 +1166,12 @@ static void* learn_lane_run(void *v)
 				if (!board_get_move_flip(&board, search->result->move, &move) && move.x != PASS) {
 					fatal_error("bad move found: %s\n", move_to_string(move.x, player, s_move));
 				}
+				t_real += real_clock() + 1;
+				if (options.nps > 0) t_real = search->result->time; // virtual clock (node count / nps), as used by the search
 			}
+			// as play_go(): with a time per game, the time of the move is taken from the time left to the player
+			// (up to v4.5.5-nikque.8 every move got the time of the whole game)
+			if (options.play_type != EDAX_TIME_PER_MOVE) left[player] -= t_real;
 			board_update(&board, &move);
 			g->game[g->n_game++] = move;
 			player ^= 1;
