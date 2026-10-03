@@ -527,6 +527,84 @@ int main(int argc, char **argv)
 	CHECK(info.n_nodes > 1);
 	edax_book_deepen();
 
+	if (!original) { // the original libedax crashes, or loses the book or the file
+		section("wrong calls");
+		// NULL instead of a pointer: nothing is done
+		edax_init();
+		play("f5d6");
+		edax_book_info(&info);
+		i = info.n_nodes;
+		edax_load(NULL); edax_save(NULL); edax_setboard(NULL); edax_setboard_from_obj(NULL, 0); edax_play(NULL); edax_force(NULL);
+		edax_bench(NULL, 1); edax_bench_get_result(NULL); edax_hint(2, NULL); edax_get_bookmove(NULL);
+		CHECK_INT(edax_get_bookmove_with_position(NULL, &position), -1);
+		CHECK_INT(edax_get_bookmove_with_position(movelist, NULL), -1);
+		CHECK_INT(edax_get_bookmove_with_position_by_moves(NULL, movelist, &position), -1);
+		CHECK_INT(edax_get_bookmove_with_position_by_moves("f5", NULL, &position), -1);
+		CHECK_INT(edax_get_bookmove_with_position_by_moves("f5", movelist, NULL), -1);
+		edax_hint_prepare(NULL); edax_hint_next(NULL); edax_hint_next_no_multipv_depth(NULL);
+		CHECK_INT(edax_move(NULL), 0);
+		edax_book_load(NULL); edax_book_save(NULL); edax_book_import(NULL); edax_book_export(NULL); edax_book_merge(NULL);
+		edax_book_show(NULL); edax_book_info(NULL); edax_book_count_bestpath(NULL, &position); edax_book_count_bestpath(&b, NULL);
+		edax_book_count_board_bestpath(NULL, &position, 0, 0, 0); edax_book_count_board_bestpath(&b, NULL, 0, 0, 0);
+		edax_book_add(NULL); edax_book_check(NULL); edax_book_extract(NULL); edax_book_add_board(NULL);
+		edax_base_problem(NULL, 50, "libtest-null.obf"); edax_base_problem("libtest-null.txt", 50, NULL);
+		edax_base_tofen(NULL, 50, "libtest-null.fen"); edax_base_tofen("libtest-null.txt", 50, NULL);
+		edax_base_correct(NULL, 4); edax_base_complete(NULL);
+		edax_base_convert(NULL, "libtest-null.ggf"); edax_base_convert("libtest-null.txt", NULL);
+		edax_base_unique(NULL, "libtest-null.txt"); edax_base_unique("libtest-null.txt", NULL);
+		edax_set_option(NULL, "1"); edax_set_option("level", NULL);
+		CHECK(edax_get_moves(NULL) == NULL);
+		edax_get_last_move(NULL); edax_get_board(NULL);
+		CHECK_INT(edax_board_is_pass(NULL), 0);
+		CHECK_INT(edax_board_get_square_color(NULL, 0), -1);
+		CHECK_STR(moves(), "F5d6");
+		edax_book_info(&info);
+		CHECK_INT(info.n_nodes, i);
+		// values out of range
+		b = board();
+		CHECK_INT(edax_board_get_square_color(&b, -1), 2);
+		CHECK_INT(edax_board_get_square_color(&b, 64), 2);
+		edax_hint(-1, hintlist);
+		CHECK_INT(hintlist->n_hints, 0);
+		edax_hint(0, hintlist);
+		CHECK_INT(hintlist->n_hints, 0);
+		// nothing to give: the list is empty
+		memset(line, '-', 64); memcpy(line, "WWWWWWWW", 8); strcpy(line + 64, " B");
+		edax_setboard(line); // game over
+		CHECK_INT(edax_is_game_over(), 1);
+		memset(movelist, 0x55, sizeof *movelist);
+		edax_get_bookmove(movelist);
+		CHECK_INT(movelist->n_moves, 0);
+		CHECK(movelist->move[0].next == NULL);
+		memset(movelist, 0x55, sizeof *movelist);
+		CHECK_INT(edax_get_bookmove_with_position(movelist, &position), -1);
+		CHECK_INT(movelist->n_moves, 0);
+		memset(movelist, 0x55, sizeof *movelist);
+		CHECK_INT(edax_get_bookmove_with_position_by_moves("f5f6e6f4e3c5c4e7c6e2", movelist, &position), -1); // not in the book
+		CHECK_INT(movelist->n_moves, 0);
+		edax_init();
+		// a level out of range: the book is kept
+		edax_book_new(100, 12);
+		edax_book_new(-3, 12);
+		edax_book_info(&info);
+		CHECK_INT(info.options.level, 2);
+		CHECK_INT(info.n_nodes, i);
+		// a file which cannot be imported does not replace the book
+		edax_book_load("libtest-book2.dat");
+		edax_book_info(&info);
+		i = info.n_nodes;
+		CHECK(i > 1);
+		edax_book_import("libtest-no-such-book.txt");
+		edax_book_info(&info);
+		CHECK_INT(info.n_nodes, i);
+		// a file which cannot be loaded is not removed
+		write_file("libtest-games.dat", "F5D6C3D3C4\n");
+		edax_base_complete("libtest-games.dat");
+		CHECK(file_size("libtest-games.dat") > 0);
+		edax_base_correct("libtest-games.dat", 4);
+		CHECK(file_size("libtest-games.dat") > 0);
+	}
+
 	section("game database");
 	write_file("libtest-base.txt", "F5D6C3D3C4F4F6F3E6E7\nF5F6E6F4E3C5C4E7C6E2\nF5D6C3D3C4F4F6F3E6E7\n");
 	edax_book_new(2, 8);
@@ -572,6 +650,21 @@ int main(int argc, char **argv)
 			CHECK_INT(store_games("", status), 0);
 			CHECK_STR(status, "");
 			CHECK_INT(store_games("a1", NULL), 0);
+			CHECK_INT(store_games(NULL, status), 0);
+			CHECK_STR(status, "");
+			CHECK_INT(store_games("\n\r\nf5d6\r\n", status), 1); // empty lines, CR LF
+			CHECK_STR(status, "001");
+			{	// a line longer than 255 characters because of its spaces is a game; one with too many moves is not
+				char games[1024];
+				int j;
+				strcpy(games, "f5d6c3");
+				memset(games + 6, ' ', 300);
+				strcpy(games + 306, "d3\n");
+				for (j = 0; j < 150; ++j) memcpy(games + 309 + 2 * j, "f5", 2);
+				strcpy(games + 609, "\nf5d6c3d3");
+				CHECK_INT(store_games(games, status), 2);
+				CHECK_STR(status, "101");
+			}
 
 			// several games at the same time
 			edax_set_option("n-tasks", "4");

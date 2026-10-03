@@ -70,6 +70,16 @@ static void lib_move_set(LibedaxMove *dst, const Move *src)
 }
 
 /**
+ * @brief Set an empty list of moves.
+ * @param dst List of moves of the api.
+ */
+static void lib_movelist_set_empty(LibedaxMoveList *dst)
+{
+	dst->move[0].next = NULL;
+	dst->n_moves = 0;
+}
+
+/**
  * @brief Copy a list of moves.
  *
  * The moves keep their place in the array, and their order in the list.
@@ -366,8 +376,8 @@ static void lib_count_board_bestpath(Book *book, Board *board, const int p_lower
 	}
 }
 
-/** links of the last positions given to the caller */
-#define LIB_N_LINKS 8
+/** links of the last positions given to the caller: enough for a position and the positions after each of its moves */
+#define LIB_N_LINKS 64
 static LibedaxLink lib_links[LIB_N_LINKS][MAX_MOVE + 2];
 static int lib_i_links = 0;
 
@@ -489,6 +499,25 @@ static void ui_free_libedax(UI *ui)
 }
 
 /**
+ * @brief Refuse a name of the book file which is too long.
+ *
+ * The book commands save their progress to the book file name with an extension (".store",
+ * ".dev2", ...), in buffers of FILENAME_MAX characters.
+ *
+ * @param previous Name to restore (a copy, freed or kept by this function), or NULL for the default name.
+ */
+static void lib_check_book_file(char *previous)
+{
+	if (options.book_file && strlen(options.book_file) > FILENAME_MAX - 8) {
+		warn("the name of the book file is too long: ignored\n");
+		free(options.book_file);
+		options.book_file = previous; // NULL: options_bound() sets the default name
+	} else {
+		free(previous);
+	}
+}
+
+/**
  * @brief edax init function for library use.
  *
  * @param argc Number of arguments.
@@ -528,6 +557,7 @@ LIBEDAX_API void libedax_initialize(int argc, char **argv)
 	g_ui->loop = NULL;
 
 	// parse arguments
+	if (argv == NULL) argc = 0;
 	for (i = 1; i < argc; i++) {
 		const char *arg = argv[i];
 		if (arg == NULL) continue;
@@ -536,6 +566,7 @@ LIBEDAX_API void libedax_initialize(int argc, char **argv)
 		else if ((r = options_read(arg, i + 1 < argc ? argv[i + 1] : NULL)) > 0) i += r - 1;
 		else warn("unknown or incomplete option \"%s\" ignored\n", argv[i]);
 	}
+	lib_check_book_file(NULL);
 	options_bound();
 
 	// initialize
@@ -641,7 +672,7 @@ LIBEDAX_API void edax_new(void)
  */
 LIBEDAX_API void edax_load(const char *file)
 {
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || file == NULL) return;
 	// open a saved game
 	play_load(g_ui->play, file);
 }
@@ -652,7 +683,7 @@ LIBEDAX_API void edax_load(const char *file)
  */
 LIBEDAX_API void edax_save(const char *file)
 {
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || file == NULL) return;
 	// save a game
 	play_save(g_ui->play, file);
 }
@@ -700,7 +731,7 @@ LIBEDAX_API void edax_mode(const int mode)
  */
 LIBEDAX_API void edax_setboard(const char *board)
 {
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || board == NULL) return;
 	// set a new initial position
 	play_set_board(g_ui->play, board);
 }
@@ -713,7 +744,7 @@ LIBEDAX_API void edax_setboard(const char *board)
 LIBEDAX_API void edax_setboard_from_obj(const LibedaxBoard *board, const int turn)
 {
 	Play *play;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || board == NULL) return;
 	play = g_ui->play;
 
 	// set a new initial position
@@ -808,7 +839,7 @@ LIBEDAX_API void edax_symetry(const int sym)
  */
 LIBEDAX_API void edax_play(char *moves)
 {
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || moves == NULL) return;
 	// play a serie of moves
 	string_to_lowercase(moves);
 	play_game(g_ui->play, moves);
@@ -822,7 +853,7 @@ LIBEDAX_API void edax_play(char *moves)
  */
 LIBEDAX_API void edax_force(char *moves)
 {
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || moves == NULL) return;
 	// force edax to play an opening
 	string_to_lowercase(moves);
 	play_force_init(g_ui->play, moves);
@@ -886,11 +917,13 @@ static void lib_obf_speed(Search *search, const int n)
  */
 LIBEDAX_API void edax_bench(LibedaxBenchResult *result, int n)
 {
+	if (result == NULL) return;
 	result->T = 0;
 	result->n_nodes = 0;
 	result->positions = 0;
 	BOUND(n, -1, 100, "n_problems");
 	if (g_ui == NULL) return;
+	play_stop_pondering(g_ui->play); // the bench uses the search of the game
 
 	lock(&lib_bench);
 	lib_bench.result = result;
@@ -909,7 +942,7 @@ LIBEDAX_API void edax_bench(LibedaxBenchResult *result, int n)
  */
 LIBEDAX_API void edax_bench_get_result(LibedaxBenchResult *result)
 {
-	if (!lib_is_started) return;
+	if (!lib_is_started || result == NULL) return;
 	lock(&lib_bench);
 	if (lib_bench.result != NULL) {
 		result->T = lib_bench.result->T;
@@ -946,9 +979,11 @@ LIBEDAX_API void edax_hint(const int n_hints, LibedaxHintList *hintlist)
 	MoveList book_moves;
 	Move *m;
 	Line pv;
-	LibedaxHint *hint = hintlist->hint + 1;
-	int n = n_hints;
+	LibedaxHint *hint;
+	int n = MAX(n_hints, 0); // a negative number asked for all the book moves
 
+	if (hintlist == NULL) return;
+	hint = hintlist->hint + 1;
 	hintlist->n_hints = 0;
 	if (g_ui == NULL) return;
 	play = g_ui->play;
@@ -1003,6 +1038,8 @@ LIBEDAX_API void edax_get_bookmove(LibedaxMoveList *move_list)
 	Play *play;
 	MoveList moves;
 
+	if (move_list == NULL) return;
+	lib_movelist_set_empty(move_list);
 	if (g_ui == NULL) return;
 	play = g_ui->play;
 	if (play_is_game_over(play)) return;
@@ -1011,11 +1048,7 @@ LIBEDAX_API void edax_get_bookmove(LibedaxMoveList *move_list)
 
 	play->state = IS_THINKING;
 
-	if (options.book_allowed) {
-		if (book_get_moves(play->book, &play->board, &moves)) lib_movelist_set(move_list, &moves);
-	} else {
-		move_list->n_moves = 0;
-	}
+	if (options.book_allowed && book_get_moves(play->book, &play->board, &moves)) lib_movelist_set(move_list, &moves);
 }
 
 /**
@@ -1028,6 +1061,8 @@ LIBEDAX_API int edax_get_bookmove_with_position(LibedaxMoveList *move_list, Libe
 {
 	Play *play;
 
+	if (move_list == NULL || position == NULL) return -1;
+	lib_movelist_set_empty(move_list);
 	if (g_ui == NULL) return -1;
 	play = g_ui->play;
 	if (play_is_game_over(play)) return -1;
@@ -1039,7 +1074,6 @@ LIBEDAX_API int edax_get_bookmove_with_position(LibedaxMoveList *move_list, Libe
 	if (options.book_allowed) {
 		return lib_book_get_moves_with_position(play->book, &play->board, move_list, position);
 	} else {
-		move_list->n_moves = 0;
 		return -1;
 	}
 }
@@ -1059,6 +1093,8 @@ LIBEDAX_API int edax_get_bookmove_with_position_by_moves(const char *moves, Libe
 	const char *string, *next;
 	int sym = -1;
 
+	if (move_list == NULL || position == NULL) return -1;
+	lib_movelist_set_empty(move_list);
 	if (g_ui == NULL || moves == NULL) return -1;
 
 	lower = string_duplicate(moves);
@@ -1079,8 +1115,6 @@ LIBEDAX_API int edax_get_bookmove_with_position_by_moves(const char *moves, Libe
 	if (board_is_game_over(&board)) return -1;
 	if (options.book_allowed) {
 		sym = lib_book_get_moves_with_position(g_ui->play->book, &board, move_list, position);
-	} else {
-		move_list->n_moves = 0;
 	}
 	return sym;
 }
@@ -1135,6 +1169,7 @@ static void lib_hint_next(LibedaxHint *hint, const bool multipv_depth_max)
 	Move *m;
 	Line pv;
 
+	if (hint == NULL) return;
 	lib_hint_set_nomove(hint);
 
 	if (g_ui == NULL) return;
@@ -1215,7 +1250,7 @@ LIBEDAX_API void edax_version(void)
  */
 LIBEDAX_API int edax_move(const char *move)
 {
-	if (g_ui == NULL) return 0;
+	if (g_ui == NULL || move == NULL) return 0;
 	// user move
 	if (!play_user_move(g_ui->play, move)) return 0;
 
@@ -1272,6 +1307,7 @@ static Book* lib_book_begin(void)
 	Play *play = g_ui->play;
 	Book *book = play->book;
 
+	play_stop_pondering(play); // the book commands use the search of the game
 	book->search = &play->search;
 	book->search->options.verbosity = book->options.verbosity;
 	book->failed = false; // see book_add()
@@ -1454,6 +1490,10 @@ LIBEDAX_API void edax_book_new(const int level, const int depth)
 {
 	Book *book;
 	if (g_ui == NULL) return;
+	if (level < 0 || level > 60) { // such a level would read outside the table of the levels
+		warn("book new: level %d is out of range; current book retained\n", level);
+		return;
+	}
 	book = lib_book_begin_change();
 
 	// create a new empty book
@@ -1494,7 +1534,7 @@ LIBEDAX_API void edax_book_load(const char *book_file)
 LIBEDAX_API void edax_book_save(const char *book_file)
 {
 	Book *book;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || book_file == NULL) return;
 	book = lib_book_begin();
 
 	// save an opening book (binary format) to the disc
@@ -1510,7 +1550,16 @@ LIBEDAX_API void edax_book_save(const char *book_file)
 LIBEDAX_API void edax_book_import(const char *import_file)
 {
 	Book *book;
-	if (g_ui == NULL) return;
+	FILE *f;
+	if (g_ui == NULL || import_file == NULL) return;
+
+	// book_import() replaces the book by a new one when the file cannot be opened: keep the current book
+	f = fopen(import_file, "r");
+	if (f == NULL) {
+		warn("Book %s was not imported; current book retained\n", import_file);
+		return;
+	}
+	fclose(f);
 	book = lib_book_begin_change();
 
 	// import an opening book (text format)
@@ -1531,7 +1580,7 @@ LIBEDAX_API void edax_book_import(const char *import_file)
 LIBEDAX_API void edax_book_export(const char *export_file)
 {
 	Book *book;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || export_file == NULL) return;
 	book = lib_book_begin();
 
 	// export an opening book (text format)
@@ -1548,7 +1597,7 @@ LIBEDAX_API void edax_book_merge(const char *book_file)
 {
 	Book *book;
 	char file[FILENAME_MAX];
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || book_file == NULL) return;
 	book = lib_book_begin_change();
 
 	// merge an opening book to the current one
@@ -1687,7 +1736,7 @@ LIBEDAX_API void edax_book_show(LibedaxPosition *position)
 {
 	Book *book;
 	const Position *p;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || position == NULL) return;
 	book = lib_book_begin();
 
 	// show the current position as stored in the book
@@ -1704,7 +1753,7 @@ LIBEDAX_API void edax_book_show(LibedaxPosition *position)
 LIBEDAX_API void edax_book_info(LibedaxBook *info)
 {
 	Book *book;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || info == NULL) return;
 	book = lib_book_begin();
 
 	// show book general information
@@ -1741,7 +1790,7 @@ LIBEDAX_API void edax_book_count_bestpath(LibedaxBoard *board, LibedaxPosition *
 	const Position *p;
 	unsigned short n_player, n_opponent;
 
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || board == NULL || position == NULL) return;
 	book = g_ui->play->book;
 	if (!lib_bestpath_prepare(book, 0, 0, 0)) return;
 
@@ -1770,7 +1819,7 @@ LIBEDAX_API void edax_book_count_board_bestpath(LibedaxBoard *board, LibedaxPosi
 	const Position *p;
 	unsigned short n_player, n_opponent;
 
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || board == NULL || position == NULL) return;
 	book = g_ui->play->book;
 	// the counts depend on the limits of the two colors
 	if (!lib_bestpath_prepare(book, 1, turn == BLACK ? p_lower : o_lower, turn == BLACK ? o_lower : p_lower)) return;
@@ -1818,7 +1867,7 @@ LIBEDAX_API void edax_book_add(const char *base_file)
 {
 	Book *book;
 	Base base;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || base_file == NULL) return;
 	book = lib_book_begin_change();
 
 	// add positions from a game database
@@ -1838,7 +1887,7 @@ LIBEDAX_API void edax_book_check(const char *base_file)
 {
 	Book *book;
 	Base base;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || base_file == NULL) return;
 	book = lib_book_begin();
 
 	// check positions from a game database
@@ -1858,7 +1907,7 @@ LIBEDAX_API void edax_book_extract(const char *base_file)
 {
 	Book *book;
 	Base base;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || base_file == NULL) return;
 	book = lib_book_begin();
 
 	// extract pv to a game database
@@ -2034,7 +2083,8 @@ LIBEDAX_API void edax_book_add_board_post_process(void)
 LIBEDAX_API void edax_book_add_board(const LibedaxBoard *board)
 {
 	Board b;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || board == NULL) return;
+	play_stop_pondering(g_ui->play);
 	lib_bestpath_free();
 	b.player = board->player;
 	b.opponent = board->opponent;
@@ -2054,6 +2104,13 @@ LIBEDAX_API void edax_book_add_board(const LibedaxBoard *board)
 LIBEDAX_API void edax_base_problem(const char *base_file, const int n_empties, const char *problem_file)
 {
 	Base base;
+	FILE *f;
+	if (base_file == NULL || problem_file == NULL) return;
+	if ((f = fopen(problem_file, "a")) == NULL) { // base_to_problem() does not check it
+		warn("Cannot open file %s\n", problem_file);
+		return;
+	}
+	fclose(f);
 	base_init(&base);
 
 	// extract problem from a game base
@@ -2072,6 +2129,13 @@ LIBEDAX_API void edax_base_problem(const char *base_file, const int n_empties, c
 LIBEDAX_API void edax_base_tofen(const char *base_file, const int n_empties, const char *problem_file)
 {
 	Base base;
+	FILE *f;
+	if (base_file == NULL || problem_file == NULL) return;
+	if ((f = fopen(problem_file, "a")) == NULL) { // base_to_FEN() does not check it
+		warn("Cannot open file %s\n", problem_file);
+		return;
+	}
+	fclose(f);
 	base_init(&base);
 
 	// extract FEN
@@ -2089,14 +2153,16 @@ LIBEDAX_API void edax_base_tofen(const char *base_file, const int n_empties, con
 LIBEDAX_API void edax_base_correct(const char *base_file, const int n_empties)
 {
 	Base base;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || base_file == NULL) return;
+	play_stop_pondering(g_ui->play);
 	base_init(&base);
 
 	// correct erroneous games
-	base_load(&base, base_file);
-	base_analyze(&base, &g_ui->play->search, n_empties, true);
-	remove(base_file);
-	base_save(&base, base_file);
+	if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+		base_analyze(&base, &g_ui->play->search, n_empties, true);
+		remove(base_file);
+		base_save(&base, base_file);
+	}
 
 	base_free(&base);
 }
@@ -2108,14 +2174,16 @@ LIBEDAX_API void edax_base_correct(const char *base_file, const int n_empties)
 LIBEDAX_API void edax_base_complete(const char *base_file)
 {
 	Base base;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || base_file == NULL) return;
+	play_stop_pondering(g_ui->play);
 	base_init(&base);
 
 	// terminate unfinished base
-	base_load(&base, base_file);
-	base_complete(&base, &g_ui->play->search);
-	remove(base_file);
-	base_save(&base, base_file);
+	if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+		base_complete(&base, &g_ui->play->search);
+		remove(base_file);
+		base_save(&base, base_file);
+	}
 
 	base_free(&base);
 }
@@ -2128,6 +2196,7 @@ LIBEDAX_API void edax_base_complete(const char *base_file)
 LIBEDAX_API void edax_base_convert(const char *base_file_from, const char *base_file_to)
 {
 	Base base;
+	if (base_file_from == NULL || base_file_to == NULL) return;
 	base_init(&base);
 
 	// convert a base to another format
@@ -2145,6 +2214,7 @@ LIBEDAX_API void edax_base_convert(const char *base_file_from, const char *base_
 LIBEDAX_API void edax_base_unique(const char *base_file_from, const char *base_file_to)
 {
 	Base base;
+	if (base_file_from == NULL || base_file_to == NULL) return;
 	base_init(&base);
 
 	// make a base unique by removing identical games
@@ -2167,11 +2237,14 @@ LIBEDAX_API void edax_base_unique(const char *base_file_from, const char *base_f
 LIBEDAX_API void edax_set_option(const char *option_name, const char *val)
 {
 	Play *play;
+	char *book_file;
 	if (g_ui == NULL) return;
 	play = g_ui->play;
 
 	/* edax options */
+	book_file = string_duplicate(options.book_file);
 	if (options_read(option_name, val)) {
+		lib_check_book_file(book_file);
 		options_bound();
 		// parallel search changes:
 		if (search_count_tasks(&play->search) != options.n_task) {
@@ -2179,6 +2252,8 @@ LIBEDAX_API void edax_set_option(const char *option_name, const char *val)
 			search_set_task_number(&play->search, options.n_task);
 		}
 		lib_auto_go();
+	} else {
+		free(book_file);
 	}
 }
 
@@ -2193,7 +2268,7 @@ LIBEDAX_API char* edax_get_moves(char *str)
 	int i;
 	int player = BLACK;
 
-	if (g_ui == NULL) return NULL;
+	if (g_ui == NULL || str == NULL) return NULL;
 	play = g_ui->play;
 	for (i = 0; i < play->i_game && i < 80; ++i) {
 		move_to_string(play->game[i].x, player, str + 2 * i);
@@ -2232,7 +2307,7 @@ LIBEDAX_API int edax_can_move(void)
 LIBEDAX_API void edax_get_last_move(LibedaxMove *move)
 {
 	const Move *last;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || move == NULL) return;
 
 	last = play_get_last_move(g_ui->play);
 	if (last) {
@@ -2253,7 +2328,7 @@ LIBEDAX_API void edax_get_last_move(LibedaxMove *move)
 LIBEDAX_API void edax_get_board(LibedaxBoard *board)
 {
 	const Play *play;
-	if (g_ui == NULL) return;
+	if (g_ui == NULL || board == NULL) return;
 	play = g_ui->play;
 
 	board->player = play->board.player;
@@ -2333,7 +2408,7 @@ LIBEDAX_API void edax_disable_book_verbose(void)
 LIBEDAX_API int edax_board_is_pass(const LibedaxBoard *board)
 {
 	Board b;
-	if (g_ui == NULL) return 0;
+	if (g_ui == NULL || board == NULL) return 0;
 	b.player = board->player;
 	b.opponent = board->opponent;
 	return board_is_pass(&b) ? 1 : 0;
@@ -2348,7 +2423,8 @@ LIBEDAX_API int edax_board_is_pass(const LibedaxBoard *board)
 LIBEDAX_API int edax_board_get_square_color(const LibedaxBoard *board, const int x)
 {
 	Board b;
-	if (g_ui == NULL) return -1;
+	if (g_ui == NULL || board == NULL) return -1;
+	if (x < A1 || x > H8) return 2; // not a square: empty, without shifting by more than 63 bits
 	b.player = board->player;
 	b.opponent = board->opponent;
 	return board_get_square_color(&b, x);
