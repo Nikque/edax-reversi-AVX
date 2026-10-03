@@ -161,10 +161,22 @@ struct Level LEVEL[61][61];
  *
  * @todo Add more global initialization from here?
  */
+/**
+ * measured search speed (nodes per second, one thread equivalent), used to share the time when the
+ * speed option is not given; 0 until a search long enough has been done. Locked: searches end at
+ * the same time when several games are learned.
+ */
+static struct {
+	double value;
+	SpinLock spin;
+} measured_speed;
+
 void search_global_init(void)
 {
 	int level, n_empties;
 	unsigned char dep, sel;
+
+	spin_init(&measured_speed);
 
 	for (level = 0; level <= 60; ++level)
 	for (n_empties = 0; n_empties <= 60; ++n_empties) {
@@ -677,23 +689,9 @@ void search_set_ponder_level(Search *search, const int level, const int n_emptie
 	assert(0 <= search->options.selectivity && search->options.selectivity <= 5);
 }
 
-/**
- * @brief Compute the deepest level that can be solved given a limited time...
- *
- * This is a very approximate computation... 
- * SMP_W & SMP_C depends on the depth and the position.
- * The branching factor depends also of the position. 
- *
- * @param limit Time limit in ms.
- * @param n_tasks Number of parallel tasks.
- * @return Reachable depth.
- */
 #ifndef SPEED_AUTO_K
 #define SPEED_AUTO_K 2.0
 #endif
-
-/** measured search speed (nodes per second, one thread equivalent); 0 until a search long enough has been done */
-static double measured_speed = 0.0;
 
 /**
  * @brief Update the measured search speed after a search.
@@ -709,8 +707,10 @@ void search_update_speed(Search *search)
 	const int n_tasks = search_count_tasks(search);
 
 	if (t >= 100 && n > 0) {
-		double s = 1000.0 * n / t / ((SMP_W + SMP_C) / (SMP_W / n_tasks + SMP_C));
-		measured_speed = (measured_speed > 0.0) ? 0.75 * measured_speed + 0.25 * s : s;
+		const double s = 1000.0 * n / t / ((SMP_W + SMP_C) / (SMP_W / n_tasks + SMP_C));
+		spin_lock(&measured_speed);
+		measured_speed.value = (measured_speed.value > 0.0) ? 0.75 * measured_speed.value + 0.25 * s : s;
+		spin_unlock(&measured_speed);
 	}
 }
 
@@ -723,10 +723,26 @@ void search_update_speed(Search *search)
  */
 static double search_speed(void)
 {
-	if (!options.speed_set && measured_speed > 0.0) return SPEED_AUTO_K * measured_speed;
+	double speed;
+
+	spin_lock(&measured_speed);
+	speed = measured_speed.value;
+	spin_unlock(&measured_speed);
+	if (!options.speed_set && speed > 0.0) return SPEED_AUTO_K * speed;
 	return options.speed;
 }
 
+/**
+ * @brief Compute the deepest level that can be solved given a limited time...
+ *
+ * This is a very approximate computation... 
+ * SMP_W & SMP_C depends on the depth and the position.
+ * The branching factor depends also of the position. 
+ *
+ * @param limit Time limit in ms.
+ * @param n_tasks Number of parallel tasks.
+ * @return Reachable depth.
+ */
 int solvable_depth(const long long limit, int n_tasks)
 {
 	int d;

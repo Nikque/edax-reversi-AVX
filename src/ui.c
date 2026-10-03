@@ -12,8 +12,25 @@
 #include "ui.h"
 #include "util.h"
 #include <assert.h>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 void gtp_preprocess(char *line);
+
+/** @return true if the standard input is a file (commands given with "edax < commands.txt"). */
+static bool stdin_is_file(void)
+{
+#ifdef _WIN32
+	return GetFileType((HANDLE) _get_osfhandle(_fileno(stdin))) == FILE_TYPE_DISK;
+#else
+	struct stat st;
+	return fstat(fileno(stdin), &st) == 0 && S_ISREG(st.st_mode);
+#endif
+}
 
 /**
  * @brief Switch between different User Interface
@@ -102,9 +119,13 @@ static void ui_read_input(UI *ui)
 			play_stop(play);
 		} else {
 			if (strcmp(cmd, "quit") == 0 || strcmp(cmd, "q") == 0) {
-				event_clear_messages(event);
-				play_stop(play);
-				if (ui->type == UI_GGS) play_stop(play + 1);
+				// Commands read from a file are all read at once: there, quit is done in its turn, after the
+				// commands before it. Typed (or sent through a pipe), it stops the search and quits at once.
+				if (!(ui->type == UI_EDAX && stdin_is_file())) {
+					event_clear_messages(event);
+					play_stop(play);
+					if (ui->type == UI_GGS) play_stop(play + 1);
+				}
 				event->loop = false;
 			}
 		}

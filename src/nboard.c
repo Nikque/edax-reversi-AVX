@@ -85,11 +85,7 @@ void ui_init_nboard(UI *ui)
 	play_init(play, &ui->book);
 	play->search.options.header = play->search.options.separator = NULL;
 	ui->book.search = &play->search;
-	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
-		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
-		ui->book.need_saving = false; // keep the damaged input file untouched
-	}
-	book_set_startup_depth(&ui->book);
+	book_load_at_startup(&ui->book);
 	play->search.id = 1;
 	search_set_observer(&play->search, nboard_observer);
 	ui->mode = 3;
@@ -137,6 +133,7 @@ void ui_loop_nboard(UI *ui)
 
 		} else if (strcmp(cmd, "depth") == 0) {
 			options.level = string_to_int(param, 21);
+			BOUND(options.level, 0, 60, "level");
 			options.level_set = true;
 			nboard_send("set myname Edax%d", options.level);
 

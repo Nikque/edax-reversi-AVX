@@ -1394,11 +1394,7 @@ void ui_init_ggs(UI *ui) {
 
 	play_init(ui->play, &ui->book);
 	ui->book.search = &ui->play->search;
-	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
-		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
-		ui->book.need_saving = false; // keep the damaged input file untouched
-	}
-	book_set_startup_depth(&ui->book);
+	book_load_at_startup(&ui->book);
 
 	ui->play[0].search.id = 1;
 	options.n_task = 1;

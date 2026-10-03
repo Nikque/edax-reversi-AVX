@@ -104,6 +104,13 @@ int main(int argc, char **argv)
 	options_parse_defaults("edax.ini");
 	get_config_file_path(argv[0], config_file);
 	options_parse_defaults(config_file);
+	if (strcmp(config_file, "config.ini") == 0) {
+		// started by its name alone (found through the PATH): the folder of the executable is not known,
+		// and config.ini is only looked for in the current folder
+		FILE *f = fopen(config_file, "r");
+		if (f) fclose(f);
+		else warn("config.ini was not found in the current folder (Edax was started without its folder name): default settings are used\n");
+	}
 
 	// allocate ui
 	ui = (UI*) mm_malloc(sizeof *ui);	// Eval in Search in Play in UI

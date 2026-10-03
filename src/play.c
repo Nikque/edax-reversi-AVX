@@ -1000,6 +1000,7 @@ void play_store(Play *play)
 	book_plan_end(play->book);
 
 	if (play->book->stats.n_nodes + play->book->stats.n_links) {
+		play->book->need_saving = true; // also when links were added without any search
 		book_link(play->book);
 		book_negamax(play->book);
 		book_save_progress(play->book, file);
@@ -1317,6 +1318,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 		}
 		book_plan_end(book);
 		if (book->stats.n_nodes + book->stats.n_links) {
+			book->need_saving = true; // also when links were added without any search
 			book_link(book);
 			book_negamax(book);
 			book_save_progress(book, file);

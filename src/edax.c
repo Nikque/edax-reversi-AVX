@@ -142,11 +142,7 @@ void ui_init_edax(UI *ui)
 	book_verbose = true;
 	play_init(play, &ui->book);
 	ui->book.search = &play->search;
-	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
-		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
-		ui->book.need_saving = false; // keep the damaged input file untouched
-	}
-	book_set_startup_depth(&ui->book);
+	book_load_at_startup(&ui->book);
 	play->search.id = 1;
 	search_set_observer(&play->search, edax_observer);
 	ui->mode = options.mode;
@@ -684,13 +680,19 @@ void ui_loop_edax(UI *ui)
 
 				// import an opening book (text format)
 				} else if (strcmp(book_cmd, "import") == 0) {
-					book_free(book);
+					Book next = {0};
 					parse_word(book_param, book_file, FILENAME_MAX);
-					book_import(book, book_file);
-					book_link(book);
-					book_fix(book);
-					book_negamax(book);
-					book_sort(book);
+					next.search = book->search;
+					if (book_import(&next, book_file)) { // as book load: the current book is kept when nothing is imported
+						book_free(book);
+						*book = next;
+						book_link(book);
+						book_fix(book);
+						book_negamax(book);
+						book_sort(book);
+					} else {
+						warn("Book %s was not imported; current book retained\n", book_file);
+					}
 
 				// export an opening book (text format)
 				} else if (strcmp(book_cmd, "export") == 0) {

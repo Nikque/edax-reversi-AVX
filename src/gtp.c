@@ -99,11 +99,7 @@ void ui_init_gtp(UI *ui)
 
 	play_init(play, &ui->book);
 	ui->book.search = &play->search;
-	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
-		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
-		ui->book.need_saving = false; // keep the damaged input file untouched
-	}
-	book_set_startup_depth(&ui->book);
+	book_load_at_startup(&ui->book);
 	play->search.id = 1;
 	search_set_observer(&play->search, gtp_observer);
 	ui->mode = 3;
