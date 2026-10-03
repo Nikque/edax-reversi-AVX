@@ -3562,6 +3562,9 @@ static void* book_expand_worker(void *v)
 static int book_test_pool_searches = 0; /* test builds: searches created by the book functions and not released yet */
 #endif
 
+/** memory that a 32-bit program keeps free when it creates a search for the book functions (see below) */
+#define BOOK_SEARCH_MEMORY_MARGIN ((size_t) 128 << 20)
+
 /**
  * @brief Check that a search with hash tables of this size can be created.
  *
@@ -3571,13 +3574,18 @@ static int book_test_pool_searches = 0; /* test builds: searches created by the 
  * with fewer searches, or with the main search only (a 32-bit program cannot hold as many searches
  * as threads at a high level).
  *
+ * A 32-bit program must also keep room for what is allocated later without such a check: the stacks of
+ * the threads given to the searches and to the workers (1 MB each), their small tables, the positions
+ * added to the book. (Without it, the searches of the positions filled the address space, the threads of
+ * a search could not be created, and book learn waited for them for ever.)
+ *
  * @param hash_bits Size of the main hash table (in number of bits).
  * @return true if the memory is available.
  */
 static bool book_search_memory_available(const int hash_bits)
 {
 	const size_t n_main = (size_t) 1 << hash_bits, n_other = (n_main > 16 ? n_main >> 4 : 1);
-	void *main_table, *other_tables;
+	void *main_table, *other_tables, *margin = NULL;
 	bool ok;
 
 #ifdef BOOK_TEST_POOL_MAX
@@ -3586,7 +3594,11 @@ static bool book_search_memory_available(const int hash_bits)
 	main_table = malloc((n_main + 8) * sizeof (Hash));
 	other_tables = malloc(2 * (n_other + 8) * sizeof (Hash)); // pv and shallow tables
 	ok = (main_table != NULL && other_tables != NULL);
-	free(main_table); free(other_tables);
+	if (ok && sizeof (void*) < 8) { // 32-bit program: the address space is what runs out
+		margin = malloc(BOOK_SEARCH_MEMORY_MARGIN);
+		ok = (margin != NULL);
+	}
+	free(main_table); free(other_tables); free(margin);
 	return ok;
 }
 
@@ -4736,7 +4748,13 @@ static int book_store_hash_bits(const Book *book, const int n_tasks)
 Search** book_store_searches(const Book *book, const int n, const int n_tasks)
 {
 	// with one thread each, they are the searches of the positions
-	return store_pool_get(store_pool + (n_tasks > 1), n, n_tasks, book_store_hash_bits(book, n_tasks));
+	StorePool *pool = store_pool + (n_tasks > 1);
+	Search **search = store_pool_get(pool, n, n_tasks, book_store_hash_bits(book, n_tasks));
+
+	// not all of them: the games are played one after the other, without these searches. The ones that were
+	// created are released (they kept their memory, that the searches of the positions then lacked)
+	if (search == NULL) store_pool_release(pool);
+	return search;
 }
 
 /**
