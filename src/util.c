@@ -920,15 +920,18 @@ void path_get_dir(const char *path, char *dir)
  * 
  * @param base Base name.
  * @param ext  Extension (.dat, .ext, .bin, etc.)
- * @param file Output file name.
+ * @param file Output file name (FILENAME_MAX characters at most: a longer base name is cut).
  * @return The output file name.
  */
 char* file_add_ext(const char *base, const char *ext, char *file)
 {
-	while (*base) *file++ = *base++;
-	while (*ext) *file++ = *ext++;
-	*file = '\0';
-	return file;
+	const size_t n_ext = MIN(strlen(ext), (size_t) FILENAME_MAX - 1);
+	const size_t n_base = MIN(strlen(base), (size_t) FILENAME_MAX - 1 - n_ext);
+
+	memcpy(file, base, n_base);
+	memcpy(file + n_base, ext, n_ext);
+	file[n_base + n_ext] = '\0';
+	return file + n_base + n_ext;
 }
 
 /**

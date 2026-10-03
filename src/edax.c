@@ -142,11 +142,7 @@ void ui_init_edax(UI *ui)
 	book_verbose = true;
 	play_init(play, &ui->book);
 	ui->book.search = &play->search;
-	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
-		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
-		ui->book.need_saving = false; // keep the damaged input file untouched
-	}
-	book_set_startup_depth(&ui->book);
+	book_load_at_startup(&ui->book);
 	play->search.id = 1;
 	search_set_observer(&play->search, edax_observer);
 	ui->mode = options.mode;
@@ -659,7 +655,7 @@ void ui_loop_edax(UI *ui)
 
 				// create a new empty book
 				} else if (strcmp(book_cmd, "new") == 0) {
-					val_1 = 21; book_param = parse_int(book_param, &val_1);
+					val_1 = 21; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 60, "level");
 					val_2 = 36;	book_param = parse_int(book_param, &val_2);
 					book_free(book) ;
 					book_new(book, val_1, 61 - val_2);

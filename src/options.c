@@ -17,6 +17,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <errno.h>
 
 /** global options with default value */
 Options options = {
@@ -149,6 +150,54 @@ void options_usage(void)
 static bool reading_defaults = false;
 
 /**
+ * @brief Read the integer value of an option.
+ *
+ * @param option Option name (for the message).
+ * @param value Option value: a whole number (spaces after it are accepted).
+ * @param current Current value of the option.
+ * @return the value, or the current value (with a warning) if the string is not a number.
+ */
+static int option_int(const char *option, const char *value, const int current)
+{
+	char *end;
+	const long n = strtol(value, &end, 10);
+
+	if (end != value) {
+		while (*end == ' ' || *end == '\t') ++end;
+		if (*end == '\0') return (int) MAX(INT_MIN, MIN(INT_MAX, n));
+	}
+	warn("%s: \"%s\" is not a number; ignored\n", option, value);
+	return current;
+}
+
+/** @brief Same as option_int(), where the word "auto" gives auto_value. */
+static int option_int_or_auto(const char *option, const char *value, const int current, const int auto_value)
+{
+	return strcmp(value, "auto") == 0 ? auto_value : option_int(option, value, current);
+}
+
+/**
+ * @brief Read the value of an on/off option (on, off, true, false, yes, no, 1, 0).
+ *
+ * @param option Option name (for the message).
+ * @param value Option value.
+ * @param result Option to set (unchanged, with a warning, if the value is not one of these words).
+ */
+static void option_boolean(const char *option, const char *value, bool *result)
+{
+	char word[6];
+	bool r;
+
+	parse_word(value, word, sizeof word);
+	errno = 0;
+	r = string_to_boolean(word);
+	if (errno == EINVAL) {
+		warn("%s: \"%s\" is not on or off; ignored\n", option, value);
+		errno = 0;
+	} else *result = r;
+}
+
+/**
  * @brief Read an option.
  *
  * @param option Option name.
@@ -175,26 +224,26 @@ int options_read(const char *option, const char *value)
 		read = 0;
 		if (value == NULL || *value == '\0') return read;
 		read = 2;
-		if (strcmp(option, "verbose") == 0) options.verbosity = string_to_int(value, options.verbosity);
-		else if (strcmp(option, "noise") == 0) options.noise = string_to_int(value, options.noise);
-		else if (strcmp(option, "width") == 0) options.width = string_to_int(value, options.width);
+		if (strcmp(option, "verbose") == 0) options.verbosity = option_int(option, value, options.verbosity);
+		else if (strcmp(option, "noise") == 0) options.noise = option_int(option, value, options.noise);
+		else if (strcmp(option, "width") == 0) options.width = option_int(option, value, options.width);
 
 		else if (strcmp(option, "h") == 0  || strcmp(option, "hash-table-size") == 0) {
 			options.hash_table_auto = (strcmp(value, "auto") == 0);
-			if (!options.hash_table_auto) options.hash_table_size = string_to_int(value, options.hash_table_size);
+			if (!options.hash_table_auto) options.hash_table_size = option_int(option, value, options.hash_table_size);
 		}
-		else if (strcmp(option, "n") == 0 || strcmp(option, "n-tasks") == 0) options.n_task = (strcmp(value, "auto") == 0) ? get_cpu_number() : string_to_int(value, options.n_task);
+		else if (strcmp(option, "n") == 0 || strcmp(option, "n-tasks") == 0) options.n_task = option_int_or_auto(option, value, options.n_task, get_cpu_number());
 		else if (strcmp(option, "l") == 0 || strcmp(option, "level") == 0) {
-			options.level = string_to_int(value, options.level);
+			options.level = option_int(option, value, options.level);
 			if (!reading_defaults) {	// a level of edax.ini / config.ini is only the initial level
 				options.level_set = true;
 				options.play_type = EDAX_FIXED_LEVEL;
 			}
 		} else if (strcmp(option, "d") == 0 || strcmp(option, "depth") == 0) {
-			options.depth = string_to_int(value, options.depth);
+			options.depth = option_int(option, value, options.depth);
 			options.play_type = EDAX_FIXED_LEVEL;
 		} else if (strcmp(option, "selectivity") == 0) {
-			options.selectivity = string_to_int(value, options.selectivity);
+			options.selectivity = option_int(option, value, options.selectivity);
 			options.play_type = EDAX_FIXED_LEVEL;
 		} else if (strcmp(option, "t") == 0 || strcmp(option, "game-time") == 0) {
 			options.time = string_to_time(value);
@@ -202,9 +251,9 @@ int options_read(const char *option, const char *value)
 		} else if (strcmp(option, "move-time") == 0) {
 			options.time = string_to_time(value);
 			options.play_type = EDAX_TIME_PER_MOVE;
-		} else if (strcmp(option, "alpha") == 0) options.alpha = string_to_int(value, options.alpha);
-		else if (strcmp(option, "beta") == 0) options.beta = string_to_int(value, options.beta);
-		else if (strcmp(option, "all-best") == 0) parse_boolean(value, &options.all_best);
+		} else if (strcmp(option, "alpha") == 0) options.alpha = option_int(option, value, options.alpha);
+		else if (strcmp(option, "beta") == 0) options.beta = option_int(option, value, options.beta);
+		else if (strcmp(option, "all-best") == 0) option_boolean(option, value, &options.all_best);
 
 		else if (strcmp(option, "o") == 0 || strcmp(option, "option-file") == 0) options_parse(value);
 		else if (strcmp(option, "speed") == 0) {
@@ -212,18 +261,18 @@ int options_read(const char *option, const char *value)
 			if (options.speed_set) options.speed = string_to_real(value, options.speed);
 		}
 		else if (strcmp(option, "nps") == 0) options.nps = 0.001 * string_to_real(value, options.nps);
-		else if (strcmp(option, "ponder") == 0) parse_boolean(value, &options.can_ponder);
-		else if (strcmp(option, "mode") == 0) parse_int(value, &options.mode);
+		else if (strcmp(option, "ponder") == 0) option_boolean(option, value, &options.can_ponder);
+		else if (strcmp(option, "mode") == 0) options.mode = option_int(option, value, options.mode);
 
-		else if (strcmp(option, "inc-pvnode-sort-depth") == 0) options.inc_sort_depth[PV_NODE] = string_to_int(value, options.inc_sort_depth[PV_NODE]);
-		else if (strcmp(option, "inc-cutnode-sort-depth") == 0) options.inc_sort_depth[CUT_NODE] = string_to_int(value, options.inc_sort_depth[CUT_NODE]);
-		else if (strcmp(option, "inc-allnode-sort-depth") == 0) options.inc_sort_depth[ALL_NODE] = string_to_int(value, options.inc_sort_depth[ALL_NODE]);
+		else if (strcmp(option, "inc-pvnode-sort-depth") == 0) options.inc_sort_depth[PV_NODE] = option_int(option, value, options.inc_sort_depth[PV_NODE]);
+		else if (strcmp(option, "inc-cutnode-sort-depth") == 0) options.inc_sort_depth[CUT_NODE] = option_int(option, value, options.inc_sort_depth[CUT_NODE]);
+		else if (strcmp(option, "inc-allnode-sort-depth") == 0) options.inc_sort_depth[ALL_NODE] = option_int(option, value, options.inc_sort_depth[ALL_NODE]);
 
 		else if (strcmp(option, "ggs-host") == 0) options.ggs_host = string_duplicate(value);
 		else if (strcmp(option, "ggs-login") == 0) options.ggs_login = string_duplicate(value);
 		else if (strcmp(option, "ggs-password") == 0) options.ggs_password = string_duplicate(value);
 		else if (strcmp(option, "ggs-port") == 0) options.ggs_port = string_duplicate(value);
-		else if (strcmp(option, "ggs-open") == 0) parse_boolean(value, &options.ggs_open);
+		else if (strcmp(option, "ggs-open") == 0) option_boolean(option, value, &options.ggs_open);
 
 		else if (strcmp(option, "probcut-d") == 0) parse_real(value, &options.probcut_d);
 		else if (strcmp(option, "probcut-model") == 0) {
@@ -232,36 +281,36 @@ int options_read(const char *option, const char *value)
 			else warn("probcut-model: unknown value \"%s\" (standard or refit)\n", value);
 		}
 
-		else if (strcmp(option, "pv-debug") == 0) parse_boolean(value, &options.pv_debug);
-		else if (strcmp(option, "pv-check") == 0) parse_boolean(value, &options.pv_check);
-		else if (strcmp(option, "pv-guess") == 0) parse_boolean(value, &options.pv_guess);
+		else if (strcmp(option, "pv-debug") == 0) option_boolean(option, value, &options.pv_debug);
+		else if (strcmp(option, "pv-check") == 0) option_boolean(option, value, &options.pv_check);
+		else if (strcmp(option, "pv-guess") == 0) option_boolean(option, value, &options.pv_guess);
 
 		else if (strcmp(option, "game-file") == 0) options.game_file = string_duplicate(value);
 
 		else if (strcmp(option, "eval-file") == 0) options.eval_file = string_duplicate(value);	// 11/13/2015
 
 		else if (strcmp(option, "book-file") == 0) options.book_file = string_duplicate(value);
-		else if (strcmp(option, "book-usage") == 0) parse_boolean(value, &options.book_allowed);
-		else if (strcmp(option, "book-randomness") == 0) parse_int(value, &options.book_randomness);
+		else if (strcmp(option, "book-usage") == 0) option_boolean(option, value, &options.book_allowed);
+		else if (strcmp(option, "book-randomness") == 0) options.book_randomness = option_int(option, value, options.book_randomness);
 
 		else if (strcmp(option, "search-log-file") == 0) options.search_log_file = string_duplicate(value);
 		else if (strcmp(option, "ui-log-file") == 0) options.ui_log_file = string_duplicate(value);
 		else if (strcmp(option, "ggs-log-file") == 0) options.ggs_log_file = string_duplicate(value);
 
 		else if (strcmp(option, "name") == 0) options.name = string_duplicate(value);
-		else if (strcmp(option, "echo") == 0) parse_boolean(value, &options.echo);
+		else if (strcmp(option, "echo") == 0) option_boolean(option, value, &options.echo);
 
-		else if (strcmp(option, "auto-start") == 0) parse_boolean(value, &options.auto_start);
-		else if (strcmp(option, "auto-store") == 0) parse_boolean(value, &options.auto_store);
-		else if (strcmp(option, "auto-swap") == 0) parse_boolean(value, &options.auto_swap);
-		else if (strcmp(option, "auto-quit") == 0) parse_boolean(value, &options.auto_quit);
-		else if (strcmp(option, "repeat") == 0) parse_int(value, &options.repeat);
-		else if (strcmp(option, "book-save-interval") == 0) options.book_save_interval = string_to_int(value, options.book_save_interval);
-		else if (strcmp(option, "book-deviate-save-rounds") == 0) options.book_deviate_save_rounds = string_to_int(value, options.book_deviate_save_rounds);
-		else if (strcmp(option, "book-depth") == 0) options.book_depth = (strcmp(value, "auto") == 0) ? 0 : string_to_int(value, options.book_depth);
-		else if (strcmp(option, "book-expand-tasks") == 0) options.book_expand_tasks = (strcmp(value, "auto") == 0) ? 0 : string_to_int(value, options.book_expand_tasks);
-		else if (strcmp(option, "book-store-tasks") == 0) options.book_store_tasks = (strcmp(value, "auto") == 0) ? 0 : string_to_int(value, options.book_store_tasks);
-		else if (strcmp(option, "book-merge-auto-save") == 0) parse_boolean(value, &options.book_merge_auto_save);
+		else if (strcmp(option, "auto-start") == 0) option_boolean(option, value, &options.auto_start);
+		else if (strcmp(option, "auto-store") == 0) option_boolean(option, value, &options.auto_store);
+		else if (strcmp(option, "auto-swap") == 0) option_boolean(option, value, &options.auto_swap);
+		else if (strcmp(option, "auto-quit") == 0) option_boolean(option, value, &options.auto_quit);
+		else if (strcmp(option, "repeat") == 0) options.repeat = option_int(option, value, options.repeat);
+		else if (strcmp(option, "book-save-interval") == 0) options.book_save_interval = option_int(option, value, options.book_save_interval);
+		else if (strcmp(option, "book-deviate-save-rounds") == 0) options.book_deviate_save_rounds = option_int(option, value, options.book_deviate_save_rounds);
+		else if (strcmp(option, "book-depth") == 0) options.book_depth = option_int_or_auto(option, value, options.book_depth, 0);	// 0 = auto
+		else if (strcmp(option, "book-expand-tasks") == 0) options.book_expand_tasks = option_int_or_auto(option, value, options.book_expand_tasks, 0);	// 0 = auto
+		else if (strcmp(option, "book-store-tasks") == 0) options.book_store_tasks = option_int_or_auto(option, value, options.book_store_tasks, 0);	// 0 = auto
+		else if (strcmp(option, "book-merge-auto-save") == 0) option_boolean(option, value, &options.book_merge_auto_save);
 
 		else read = 0;
 	}
@@ -440,8 +489,10 @@ void options_bound(void)
 		BOUND(options.hash_table_size, 10, 30, "hash-table-size");	// 51KB to 53GB
 	}
 
-	if (options.book_expand_tasks != 0) BOUND(options.book_expand_tasks, 1, options.n_task, "book-expand-tasks");	// 0 = auto
-	if (options.book_store_tasks != 0) BOUND(options.book_store_tasks, 1, options.n_task, "book-store-tasks");	// 0 = auto
+	// 0 = auto. The limit is the largest n-tasks, not its current value: a number given by the user is kept when
+	// n-tasks is lowered then raised again (it is capped by n-tasks where it is used).
+	if (options.book_expand_tasks != 0) BOUND(options.book_expand_tasks, 1, max_threads, "book-expand-tasks");
+	if (options.book_store_tasks != 0) BOUND(options.book_store_tasks, 1, max_threads, "book-store-tasks");
 	BOUND(options.book_depth, 0, 60, "book-depth");	// 0 = auto
 	BOUND(options.verbosity, 0, 4, "verbosity");
 	BOUND(options.noise, 0, 60, "noise");

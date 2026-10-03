@@ -80,11 +80,7 @@ void ui_init_xboard(UI *ui)
 	search->options.header = NULL;
 	search->options.separator = NULL;
 	ui->book.search = search;
-	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
-		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
-		ui->book.need_saving = false; // keep the damaged input file untouched
-	}
-	book_set_startup_depth(&ui->book);
+	book_load_at_startup(&ui->book);
 	search->id = 1;
 	search_set_observer(search, xboard_observer);
 	options.level = 60;
@@ -710,13 +706,15 @@ void ui_loop_xboard(UI *ui)
 				int size = string_to_int(param, 100);
 				
 				for (options.hash_table_size = 10; hash_size(options.hash_table_size + 1) < size; ++options.hash_table_size) ;
-				BOUND(options.hash_table_size, 10, 30, "hash-table-size");
+				BOUND(options.hash_table_size, 10, (sizeof (void*) == 4 ? 25 : 30), "hash-table-size");
+				options.hash_table_auto = false;
 				log_print(xboard_log, "edax setup> hash table size: 2**%d entries\n", options.hash_table_size);
 				play_stop_pondering(play);
 				search_resize_hashtable(&play->search);
 			
 			} else if ((strcmp(cmd, "cores") == 0)) {
 				options.n_task = string_to_int(param, 1);
+				BOUND(options.n_task, 1, MIN(get_cpu_number(), MAX_THREADS), "cores");
 				log_print(xboard_log, "edax setup> cores: %d\n", options.n_task);
 				if (search_count_tasks(&play->search) != options.n_task) {
 					play_stop_pondering(play);

@@ -68,7 +68,6 @@
 
 #include <assert.h>
 #include <limits.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
 
@@ -162,10 +161,22 @@ struct Level LEVEL[61][61];
  *
  * @todo Add more global initialization from here?
  */
+/**
+ * measured search speed (nodes per second, one thread equivalent), used to share the time when the
+ * speed option is not given; 0 until a search long enough has been done. Locked: searches end at
+ * the same time when several games are learned.
+ */
+static struct {
+	double value;
+	SpinLock spin;
+} measured_speed;
+
 void search_global_init(void)
 {
 	int level, n_empties;
 	unsigned char dep, sel;
+
+	spin_init(&measured_speed);
 
 	for (level = 0; level <= 60; ++level)
 	for (n_empties = 0; n_empties <= 60; ++n_empties) {
@@ -393,34 +404,6 @@ void search_alloc_thread_hash(Search *search)
 void search_init(Search *search)
 {
 	search_init_with(search, options.n_task, options.hash_table_size);
-}
-
-/**
- * @brief Check that the memory of one more search can be allocated.
- *
- * search_init() stops the program when a hash table cannot be allocated. The searches that are
- * only used to go faster (several book positions or games at the same time) are not required:
- * their creation is given up when this test fails, and the work is done with the searches that
- * exist. This happens with a 32-bit program (2 to 4 GB of address space) and many threads.
- *
- * @param hash_bits Size of the main hash table (in number of bits).
- * @param n_search Number of searches.
- * @return true if blocks as large as the tables of these searches can be allocated now.
- */
-bool search_memory_available(const int hash_bits, const int n_search)
-{
-	const unsigned long long n = 1ULL << hash_bits;
-	// main table + pv & shallow tables (1/16 each), thread table, the search itself and its small blocks
-	const unsigned long long bytes = (n + n / 8 + (1ULL << THREAD_LOCAL_HASH_SIZE) + 64) * sizeof (Hash) + sizeof (Search) + (4ULL << 20);
-	void *block[MAX_THREADS];
-	int i, n_block;
-
-	if (bytes > (unsigned long long) SIZE_MAX || n_search > MAX_THREADS) return false;
-	for (n_block = 0; n_block < n_search; ++n_block) {
-		if ((block[n_block] = malloc((size_t) bytes)) == NULL) break;
-	}
-	for (i = 0; i < n_block; ++i) free(block[i]);
-	return n_block == n_search;
 }
 
 /**
@@ -697,23 +680,9 @@ void search_set_ponder_level(Search *search, const int level, const int n_emptie
 	assert(0 <= search->options.selectivity && search->options.selectivity <= 5);
 }
 
-/**
- * @brief Compute the deepest level that can be solved given a limited time...
- *
- * This is a very approximate computation... 
- * SMP_W & SMP_C depends on the depth and the position.
- * The branching factor depends also of the position. 
- *
- * @param limit Time limit in ms.
- * @param n_tasks Number of parallel tasks.
- * @return Reachable depth.
- */
 #ifndef SPEED_AUTO_K
 #define SPEED_AUTO_K 2.0
 #endif
-
-/** measured search speed (nodes per second, one thread equivalent); 0 until a search long enough has been done */
-static double measured_speed = 0.0;
 
 /**
  * @brief Update the measured search speed after a search.
@@ -729,8 +698,10 @@ void search_update_speed(Search *search)
 	const int n_tasks = search_count_tasks(search);
 
 	if (t >= 100 && n > 0) {
-		double s = 1000.0 * n / t / ((SMP_W + SMP_C) / (SMP_W / n_tasks + SMP_C));
-		measured_speed = (measured_speed > 0.0) ? 0.75 * measured_speed + 0.25 * s : s;
+		const double s = 1000.0 * n / t / ((SMP_W + SMP_C) / (SMP_W / n_tasks + SMP_C));
+		spin_lock(&measured_speed);
+		measured_speed.value = (measured_speed.value > 0.0) ? 0.75 * measured_speed.value + 0.25 * s : s;
+		spin_unlock(&measured_speed);
 	}
 }
 
@@ -743,10 +714,26 @@ void search_update_speed(Search *search)
  */
 static double search_speed(void)
 {
-	if (!options.speed_set && measured_speed > 0.0) return SPEED_AUTO_K * measured_speed;
+	double speed;
+
+	spin_lock(&measured_speed);
+	speed = measured_speed.value;
+	spin_unlock(&measured_speed);
+	if (!options.speed_set && speed > 0.0) return SPEED_AUTO_K * speed;
 	return options.speed;
 }
 
+/**
+ * @brief Compute the deepest level that can be solved given a limited time...
+ *
+ * This is a very approximate computation... 
+ * SMP_W & SMP_C depends on the depth and the position.
+ * The branching factor depends also of the position. 
+ *
+ * @param limit Time limit in ms.
+ * @param n_tasks Number of parallel tasks.
+ * @return Reachable depth.
+ */
 int solvable_depth(const long long limit, int n_tasks)
 {
 	int d;

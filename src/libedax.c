@@ -465,11 +465,7 @@ static void ui_init_libedax(UI *ui)
 	play->search.options.header = NULL;
 	play->search.options.separator = NULL;
 	ui->book.search = &play->search;
-	if (!book_load(&ui->book, options.book_file) && ui->book.array == NULL) {
-		book_new(&ui->book, options.level, 60 - get_book_depth(options.level));
-		ui->book.need_saving = false; // keep the damaged input file untouched
-	}
-	book_set_startup_depth(&ui->book);
+	book_load_at_startup(&ui->book);
 	play->search.id = 1;
 	search_set_observer(&play->search, libedax_observer);
 	ui->mode = options.mode;
