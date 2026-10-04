@@ -95,6 +95,7 @@ typedef struct {
 	int probcut_model;                    /**< probcut error model: 0 = standard, 1 = refit (experimental, see eval.c) */
 	int book_depth;                       /**< book depth set at startup (book-depth); 0 = auto: keep the depth of the loaded book */
 	int book_store_tasks;                 /**< games learned at the same time by book store/add/learn (each game uses n_task / book_store_tasks threads), and leaf searches of book link done at the same time; 0 = auto (n_task, the default), 1 = one position after the other */
+	bool book_store_auto_save;            /**< save the book to "<book-file>.store" after book store and after each group of games of book learn (the default); off: a program that saves the book itself after each call (edax_runner) does not write it twice */
 
 	// TODO: add more options?
 } Options;

@@ -93,6 +93,7 @@ Options options = {
 	0, // probcut model: standard
 	0, // book depth: auto (the depth of the loaded book)
 	0, // games learned at the same time: auto
+	true, // save the book to <book-file>.store after book store
 };
 
 /**
@@ -140,6 +141,7 @@ void options_usage(void)
 		"  -book-merge-auto-save <on/off> save the book to <book-file>.mrg after book merge.\n"
 		"  -book-expand-tasks <n|auto>   expand n book positions at the same time (n-tasks / n threads each).\n"
 		"  -book-store-tasks <n|auto>    learn n games at the same time (n-tasks / n threads each); auto (default): n-tasks; 1: as before.\n"
+		"  -book-store-auto-save <on/off> save the book to <book-file>.store after book store and book learn (default on).\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
@@ -315,6 +317,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "book-expand-tasks") == 0) options.book_expand_tasks = option_int_or_auto(option, value, options.book_expand_tasks, 0);	// 0 = auto
 		else if (strcmp(option, "book-store-tasks") == 0) options.book_store_tasks = option_int_or_auto(option, value, options.book_store_tasks, 0);	// 0 = auto
 		else if (strcmp(option, "book-merge-auto-save") == 0) option_boolean(option, value, &options.book_merge_auto_save);
+		else if (strcmp(option, "book-store-auto-save") == 0) option_boolean(option, value, &options.book_store_auto_save);
 
 		else read = 0;
 	}
@@ -568,6 +571,7 @@ void options_dump(FILE *f)
 	fprintf(f, "\tbook timed-save interval: %d minutes\n", options.book_save_interval);
 	fprintf(f, "\tbook deviate-save interval: %d productive rounds (0 = completion only)\n", options.book_deviate_save_rounds);
 	fprintf(f, "\tbook merge auto-save: %s\n", boolean_string[options.book_merge_auto_save]);
+	fprintf(f, "\tbook store auto-save: %s\n", boolean_string[options.book_store_auto_save]);
 	if (options.book_store_tasks > 0) fprintf(f, "\tbook store tasks: %d\n\n", options.book_store_tasks);
 	else fprintf(f, "\tbook store tasks: auto\n\n");
 

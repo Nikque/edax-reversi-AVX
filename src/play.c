@@ -1003,7 +1003,7 @@ void play_store(Play *play)
 		play->book->need_saving = true; // also when links were added without any search
 		book_link(play->book);
 		book_negamax(play->book);
-		book_save_progress(play->book, file);
+		if (options.book_store_auto_save) book_save_progress(play->book, file);
 	}
 }
 
@@ -1330,7 +1330,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			book->need_saving = true; // also when links were added without any search
 			book_link(book);
 			book_negamax(book);
-			book_save_progress(book, file);
+			if (options.book_store_auto_save) book_save_progress(book, file);
 		}
 		free(game); free(buffer); free(lane);
 	}
