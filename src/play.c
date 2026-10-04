@@ -1050,7 +1050,8 @@ typedef struct LearnShared {
 	Book *book;
 	LearnGame *game;
 	int n, next, n_done;
-	Lock lock;                 /**< guards next and n_done */
+	int n_threads, n_busy;     /**< threads shared by the lanes; lanes that still have a game to play */
+	Lock lock;                 /**< guards next, n_done and n_busy */
 } LearnShared;
 
 /** a thread playing games, with its own search */
@@ -1059,6 +1060,7 @@ typedef struct LearnLane {
 	Search *search;
 	Random random;             /**< to choose among the book moves */
 	bool progress;             /**< this one shows the progress */
+	int n_tasks;               /**< threads of its search */
 } LearnLane;
 
 /** size of the copy of the first moves of a game: a game has 60 moves at most (120 characters) */
@@ -1112,6 +1114,37 @@ static int learn_game_start(LearnGame *g, Board *board)
 }
 
 /**
+ * @brief Give to the search of a lane the threads of the lanes that have no game left to play.
+ *
+ * When the last games are being played, the lanes that are over leave their threads idle. The search of
+ * a lane that still plays gets them for its next moves, each time it can get at least twice its threads
+ * (as plan_share_threads() does for the searches of the positions). Its hash tables keep their size.
+ *
+ * @param lane Lane.
+ */
+static void learn_lane_share_threads(LearnLane *lane)
+{
+#ifndef BOOK_TEST_ONE_THREAD
+	LearnShared *s = lane->shared;
+	int n;
+
+	lock(s);
+	n = MIN(s->n_threads / s->n_busy, MAX_THREADS - 1);
+	unlock(s);
+#ifdef BOOK_TEST_LANE_DOUBLE
+	if (n >= 2 * lane->n_tasks) { // test builds: only when the threads double, as plan_share_threads()
+#else
+	if (n > lane->n_tasks) { // (between two moves: nothing is stopped, the threads are only created)
+#endif
+		search_set_task_number(lane->search, n);
+		lane->n_tasks = n;
+	}
+#else
+	(void) lane; // test builds: every search keeps its threads, to compare the books
+#endif
+}
+
+/**
  * @brief Play games to their end, as play_go() does: a move of the book, or the move of a search.
  *
  * The book is only read.
@@ -1136,6 +1169,7 @@ static void* learn_lane_run(void *v)
 
 		lock(s);
 		i = s->next < s->n ? s->next++ : -1;
+		if (i < 0) --s->n_busy; // (see learn_lane_share_threads)
 		unlock(s);
 		if (i < 0) break;
 
@@ -1153,6 +1187,7 @@ static void* learn_lane_run(void *v)
 			} else if (options.book_allowed && book_get_random_move_with(s->book, &board, &move, g->randomness, &lane->random) && move.x != NOMOVE) {
 				t_real += real_clock() + 1;
 			} else {
+				learn_lane_share_threads(lane);
 				search->options.verbosity = 0;
 				search_set_board(search, &board, player);
 				search_set_level(search, play_level(), search->eval.n_empties);
@@ -1223,14 +1258,14 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 	char *buffer = NULL;
 	LearnLane *lane = NULL;
 	Search **search = NULL;
-	int i, n_learned = 0;
+	int i, n_learned = 0, lane_tasks = 1;
 	char file[FILENAME_MAX + 1];
 
 	if (n <= 0) return 0;
 	play_stop_pondering(play);
 
 	if (book_store_task_count() > 1) {
-		const int n_tasks = MAX(1, book_store_thread_count() / n_lanes);
+		const int n_tasks = lane_tasks = MAX(1, book_store_thread_count() / n_lanes);
 
 		game = (LearnGame*) calloc(n, sizeof *game);
 		buffer = (char*) malloc((size_t) n * LEARN_MOVES_SIZE);
@@ -1294,16 +1329,21 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			game[i].randomness = randomness ? randomness[i] : book_randomness;
 		}
 		shared.book = book; shared.game = game; shared.n = n; shared.next = shared.n_done = 0;
+		shared.n_threads = book_store_thread_count(); shared.n_busy = n_lanes;
 		lock_init(&shared);
 		for (i = 0; i < n_lanes; ++i) {
 			lane[i].shared = &shared;
 			lane[i].search = search[i];
 			lane[i].progress = (i == 0);
+			lane[i].n_tasks = lane_tasks;
 			random_seed(&lane[i].random, random_get(&book->random));
 		}
 		book_print("Playing games...\r");
 		thread_run_workers(learn_lane_run, lane, sizeof *lane, n_lanes, true, false); // (this thread runs the first lane)
 		lock_free(&shared);
+		for (i = 0; i < n_lanes; ++i) { // back to the state of the pool
+			if (lane[i].n_tasks != lane_tasks) search_set_task_number(search[i], lane_tasks);
+		}
 		book_print("Playing games...%d done\n", n);
 
 		// store the games
