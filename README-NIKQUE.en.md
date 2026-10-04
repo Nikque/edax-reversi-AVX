@@ -96,10 +96,10 @@ Ryzen 9 9950X (32 logical CPUs), `n-tasks` 32, `hash-table-size = auto`. The cod
 | Load → `book info` → save | 35.9 s, peak 31.6 GB | 36.3 s, 31.6 GB | the saved file holds the same positions' bytes as the original file (both versions) |
 | `book negamax` (with the load and the save) | 53.4 s (negamax: about 19 s) | 56.0 s (about 19.6 s) | same book with both versions |
 | `book merge` of another real book of 657 million positions (1.74 million positions added; with the load and the save) | 254.5 s, peak 32.9 GB | 256.0 s, 32.9 GB | same book with both versions (658,615,773 positions) |
-| `book fix` (with the load and the save) | 239.6 s, peak 32.0 GB | 239.2 s, 32.0 GB | 64 links added, 31 searches. **The saved books of the two versions differ** (same size) |
+| `book fix` (with the load and the save) | 239.6 s, peak 32.0 GB | 239.2 s, 32.0 GB | 64 links added, 31 searches. The saved books differ by the leaf move of 1 or 2 positions between two runs of the same version, and by as much (1 position) between the two versions |
 
 - No crash, error or warning. These are single runs: a difference of a few percent is within the noise. The times are about 100 times the ones of the 6.49 million position book (proportional to the number of positions). `book merge`: checking the file 13 to 16 s, adding the positions 18 s, rebuilding the links 145 to 150 s, checking the positions 17 s, negamax 19 s. `book fix`: checking the positions about 20 s, rebuilding the links 164 s, negamax 19 s.
-- The difference after `book fix` is thought to come from the 31 leaf searches, done with several threads, whose results vary from a run to the next; **this was not verified** (running the same version twice and comparing is still to be done).
+- The book made by `book fix` changes slightly from a run to the next: with each version run twice and the books compared position by position, the leaf move differs in 1 position between the two runs of v4.5.5-nikque.8, in 2 positions between the two runs of this version, and in 1 position between the two versions (same scores; all the other 656.87 million positions are equal). The leaf searches, done with several threads, choose one or the other of two moves with the same score.
 
 ### What behaves differently (summary)
 
