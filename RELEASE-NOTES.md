@@ -4,7 +4,7 @@
 
 ## v4.5.5-nikque.9
 
-Fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2. No new feature (two functions added to libedax). `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+Fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2. No new feature (two functions added to libedax, and one setting). `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
 
 Search:
 
@@ -35,6 +35,13 @@ Settings and commands:
 - With commands from a file (`edax < file`), `quit` is run in its turn.
 - Windows: a `book.dat.tmp.<number>` left by a killed run is removed at the next save.
 - `-cpu` on Linux: the threads of the book commands are bound to one CPU each; the searches done at the same time are not used with `-cpu`.
+- New setting `book-store-auto-save` (default `on`, as before): with `off`, `book store` and `book learn` do not save the book to `<book-file>.store`. For programs that save the book themselves after each learning (edax_runner sets it to `off`).
+
+Speed and memory (32 threads; builds made the same way, without PGO; the release builds were not compared):
+
+- Against v4.5.5-nikque.8, the time ratio is 0.95 to 1.005 for `book learn` (levels 18, 21 and 24), `book store`, `book add`, `book fix` and `book deviate`, within the measurement error, with the same peak memory (about 150 MB less for `book deviate`). `book merge` of a book of 6.49 million positions is 0.75% slower (4.86 s, ratio 1.0075 ± 0.0028).
+- The real book of 657 million positions (28.95 GB): load + save 36 s (the saved file equals the original), `book negamax` 19 s, `book merge` of another book of that size 255 s with a peak of 32.9 GB, `book fix` 239 s; same times and memory as v4.5.5-nikque.8, and identical books for load/save, negamax and merge. The books saved after `book fix` differ between the two versions (31 leaf searches with several threads; not verified further).
+- Not measured: the release builds, 32-bit builds, Linux, level 30 and above, `book-store-tasks` from 2 to 16, `n-tasks` 4 to 16.
 
 libedax:
 

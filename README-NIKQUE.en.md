@@ -6,7 +6,7 @@ This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5c
 
 ## Changes in v4.5.5-nikque.9
 
-This version fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2. There is no new feature (two functions were added to libedax). The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. What behaves differently is listed under "What behaves differently" below.
+This version fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2. There is no new feature (two functions were added to libedax, and one setting). The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. What behaves differently is listed under "What behaves differently" below.
 
 ### Multi-thread search
 
@@ -14,7 +14,7 @@ Two races of the parallel search, both inherited from upstream (v4.5.5), are fix
 
 - **A search that had been stopped could go on, and a helper thread could end without searching its move.** Nodes were then stored in the transposition table as "all moves searched" although a move had not been searched. In ordinary 32-thread searches: 1,294 such nodes in 4,000 solved endgame positions and 8,453 in 360 midgame positions at level 21 (0 in both after the fix). A wrong final result is rare (0 in 28,000 solved endgame positions with the old code).
 - **A request to stop a search could be lost** (3 out of 2.4 million requests). The "stop, add threads and go on" step of v4.5.5-nikque.8 (`book-store-tasks`) searches again with the transposition table of the stopped search, so it was more exposed to both races: a leaf of the book could get a move that is not the best one, with its score (in a test that sends stop requests all the time: 2 wrong results in 12,800 positions before the fix, 0 in 13,920 after).
-- Single-thread searches are unchanged (same results and node counts as v4.5.5-nikque.6 and v4.5.5-nikque.8). For multi-thread searches, with builds made the same way (without PGO), the time relative to v4.5.5-nikque.8 was 0.98 to 1.01 (solved endgames and midgame at levels 18 to 24, with 1, 2, 8 and 32 threads: 9 conditions, standard error 0.003 to 0.02): no condition can be said to be slower. The release builds will be measured before the release.
+- Single-thread searches are unchanged (same results and node counts as v4.5.5-nikque.6 and v4.5.5-nikque.8). For multi-thread searches, with builds made the same way (without PGO), the time relative to v4.5.5-nikque.8 was 0.98 to 1.01 (solved endgames and midgame at levels 18 to 24, with 1, 2, 8 and 32 threads: 9 conditions, standard error 0.003 to 0.02): no condition can be said to be slower. The speed and the memory of the book commands are under "Speed and memory (measured)" below.
 
 ### Book bugs
 
@@ -51,6 +51,7 @@ Two races of the parallel search, both inherited from upstream (v4.5.5), are fix
 - `cores` and `memory` of xboard, `depth` of NBoard: clamped to their range.
 - `-cpu` on Linux: the threads of the book commands are also bound to one CPU each (they were all on CPU 0). With `-cpu`, the searches done at the same time (`book-store-tasks`, `book-expand-tasks`) are not used.
 - The error messages of book load, save and merge now end with a new line.
+- **New setting `book-store-auto-save`** (`on`/`off`, default `on` = as before): with `off`, `book store` and `book learn` (`edax_book_store` and `edax_book_store_games` of libedax) do not save the book to `<book-file>.store` afterwards. It is for a program that saves the book itself after each learning (edax_runner), where the whole book was written twice. What is learned does not change. The setting is not in the bundled `config.ini` (the default applies).
 
 ### libedax
 
@@ -63,6 +64,42 @@ Two races of the parallel search, both inherited from upstream (v4.5.5), are fix
 - The `link` of a `LibedaxPosition` stays valid until the next 63 positions are fetched (it was 8).
 - The Linux and Android libraries are linked with `-Bsymbolic`: if the program that uses the library has functions or variables with the same names as Edax (`board_init`, ...), the library still uses its own. The exported names and the API are the same. As before, the Android libraries were only built, not run on a device.
 - Tests: `tests/libedax_test.c` now has 191 checks (passed on 3 Windows and 3 Linux builds).
+
+### Speed and memory (measured)
+
+Ryzen 9 9950X (32 logical CPUs), `n-tasks` 32, `hash-table-size = auto`. The code of v4.5.5-nikque.8 and the code with the fixes of this version were built with the same compiler and options (AVX-512, without PGO), and run in turn, in a changing order; the ratio is taken between the runs of the same round (± is the standard error). **The release builds (with PGO) were not compared.**
+
+| Work | v4.5.5-nikque.8 | Rounds | This version / v4.5.5-nikque.8 (time) | Peak memory |
+|---|---|---|---|---|
+| Level 18: `book learn` of 128 games (book of 270,000 positions) | 32.5 s | 12 | 1.000 ± 0.004 | same (718 MB) |
+| Level 21: `book learn` of 8 games | 10.0 s | 12 | 0.996 ± 0.008 | same (2.0 GB) |
+| Level 24: `book learn` of 4 games | 9.6 s | 12 | 1.005 ± 0.008 | same (2.4 GB) |
+| Level 24: `book learn` of 1 game (37 searches) | 5.1 to 11.7 s (mean 8.5) | 40 | 1.07 ± 0.06 | same (2.2 GB) |
+| Level 21: the same | 2.0 to 4.7 s (mean 2.9) | 40 | 0.95 ± 0.04 | same (1.35 GB) |
+| Level 18: 30 games, each one played then stored with `book store` | 18.3 s | 12 | 0.997 ± 0.006 | same (720 MB) |
+| Level 18: `book add` of 30 games | 2.8 s | 24 | 1.00 ± 0.01 | same (720 MB) |
+| Level 18: `book fix` with 1000 leaves to search again | 9.0 s | 12 | 1.003 ± 0.007 | same (701 MB) |
+| Level 18: `book deviate 1 2` (book of 270,000 positions, `book-expand-tasks = auto`, about 3400 positions expanded) | 28.6 to 49.7 s (mean 35.6) | 9 | 0.95 ± 0.09 | 1,297 MB → 1,149 MB |
+| Level 18: `book deviate 0 2` (the same book, about 370 positions expanded, 102 rounds) | 9.2 s | 16 | 0.918 ± 0.015 | 1,297 MB → 1,149 MB |
+| `book merge` of a book of 6.49 million positions into an empty book | 4.86 s | 24 | **1.0075 ± 0.0028** | 746-750 MB → 748-762 MB |
+| `book merge` of two real books of 270,000 positions | 0.13 s | 48 | 0.98 ± 0.01 | same (272 MB) |
+
+- **`book merge` of the 6.49 million position book is 0.75% (about 0.04 s) slower** (2.7 times the standard error). Which fix causes it was not investigated. For the other rows the difference is within the error, or on the faster side.
+- `book deviate`: the searches of the concurrent expansion are now created with their final size at once (a part of the fix under "When memory or threads are missing"): the peak memory is about 150 MB lower, and a learning made of many rounds is a little faster. The time of a concurrent expansion varies much from a run to the next (the order of the expansions changes).
+- Learning a single game (levels 21 and 24) takes a time that changes by a factor of 2 or more with the same executable. The time is the one of the last search still running (at level 24, the solving of a position with 30 empties): continued with 32 threads, it visited from 1.5 to 5.9 billion nodes depending on the run.
+- **Not measured**: the release builds, the 32-bit builds, Linux, level 30 and above, `book-store-tasks` from 2 to 16, `n-tasks` 4, 8 and 16, the memory of edax_runner over a long run, the gain of `book-store-auto-save = off` (with the book of 270,000 positions it only removes one save, about 0.013 s, for each group of 32 games; it grows with the book).
+
+**The real book of 657 million positions** (28.95 GB, level 18; the first check on it since v4.5.5-nikque.5). 32 threads, one run each.
+
+| Work | v4.5.5-nikque.8 | This version | Result |
+|---|---|---|---|
+| Load → `book info` → save | 35.9 s, peak 31.6 GB | 36.3 s, 31.6 GB | the saved file holds the same positions' bytes as the original file (both versions) |
+| `book negamax` (with the load and the save) | 53.4 s (negamax: about 19 s) | 56.0 s (about 19.6 s) | same book with both versions |
+| `book merge` of another real book of 657 million positions (1.74 million positions added; with the load and the save) | 254.5 s, peak 32.9 GB | 256.0 s, 32.9 GB | same book with both versions (658,615,773 positions) |
+| `book fix` (with the load and the save) | 239.6 s, peak 32.0 GB | 239.2 s, 32.0 GB | 64 links added, 31 searches. **The saved books of the two versions differ** (same size) |
+
+- No crash, error or warning. These are single runs: a difference of a few percent is within the noise. The times are about 100 times the ones of the 6.49 million position book (proportional to the number of positions). `book merge`: checking the file 13 to 16 s, adding the positions 18 s, rebuilding the links 145 to 150 s, checking the positions 17 s, negamax 19 s. `book fix`: checking the positions about 20 s, rebuilding the links 164 s, negamax 19 s.
+- The difference after `book fix` is thought to come from the 31 leaf searches, done with several threads, whose results vary from a run to the next; **this was not verified** (running the same version twice and comparing is still to be done).
 
 ### What behaves differently (summary)
 
@@ -86,6 +123,8 @@ Two races of the parallel search, both inherited from upstream (v4.5.5), are fix
 - Book regression tests (all the book commands; 1 and 8 threads; including a book of 6.49 million positions): all files equal to v4.5.5-nikque.8 (except the files that hold a date, and the messages described above).
 - With the test build whose searches all use one thread, the books are identical to "one search after the other, with an empty hash table for each" (the ten damaged books, `book store`, `book add`, `book learn`, and merges).
 - 240 runs of `book fix` with 32 threads for the "stop and go on" step, repeated multi-thread `-solve` (no wrong result), test builds where threads cannot be created or the search memory cannot be allocated, the 32-bit build with its address space exhausted, damaged books, unwritable targets and odd settings, ThreadSanitizer (Linux).
+- The real book of 657 million positions: load, save, `book negamax` and `book merge` give the same result as v4.5.5-nikque.8 (see "Speed and memory" above).
+- `book-store-auto-save`: with `off` no `.store` file is written, and the saved book is the same as with `on`. After this setting was added, the single-thread `-solve`, the book regression tests and the API checks were run again (the other tests were run on the code before it).
 - libedax: 191 API checks, 81 cases of edge values and wrong calls, the tests of libedax4dart 7.67.0 (28 of 29; the remaining one is the same as in v4.5.5-nikque.7).
 
 The bugs of the upstream parallel search have not been reported upstream (okuhara/edax-reversi-AVX).
@@ -760,6 +799,10 @@ With `book-store-tasks = auto` (the bundled value, and the default without `conf
 - **Leaf searches while the links are rebuilt** (`book fix`, `book merge`, `book import`, ...): they are also done at the same time, one thread each, when this setting is not 1.
 - **Memory**: the positions are searched by up to `n-tasks` searches at the same time, each one with its hash tables. With fewer searches than `n-tasks`, each search uses several threads and larger tables (never more in total than `n-tasks` one-thread searches). The one-thread searches take 14 MB each (19 bits) up to level 18, 28 MB up to level 21 and 57 MB above, whatever `hash-table-size` is (there are `n-tasks` of them: a large number would take too much memory; only a smaller number is used as it is). When `n` is smaller than `n-tasks`, add the hash tables of the n searches that play the games (`n-tasks / n` threads each).
 - edax_runner (built with the libedax of this fork) learns the "edax vs edax" lines of its learning list by groups of that many games when this setting is not 1.
+
+### book-store-auto-save
+
+With `book-store-auto-save = on` (the default; the setting is not in the bundled `config.ini`), the book is saved to `<book-file>.store` (for example `data/book.dat.store`) after `book store`, and after each group (`book-store-tasks` games) of `book learn`, as in the previous versions. With `off` this save is not done (the book is saved to the book file by `book save`, or on exit). Added in v4.5.5-nikque.9. Write `book-store-auto-save = off` in `config.ini`, or `-book-store-auto-save off` on the command line. edax_runner (v5.3.0-nikque.3) saves `book.dat` itself after each learning, and sets it to `off` by itself.
 
 The book memory does not depend on these settings (about 50 bytes per position with its links, 30.6 GiB for 657 million positions; about 58 bytes and 35.6 GiB up to v4.5.5-nikque.4); add the hash tables (for example 16 x 57 MB = 0.9 GB above), and 1 byte per position while `book deviate`/`deviate2`/`deviate3` select positions.
 
