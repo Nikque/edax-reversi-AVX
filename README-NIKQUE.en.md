@@ -81,13 +81,17 @@ Ryzen 9 9950X (32 logical CPUs), `n-tasks` 32, `hash-table-size = auto`. The cod
 | Level 18: `book fix` with 1000 leaves to search again | 9.0 s | 12 | 1.003 ± 0.007 | same (701 MB) |
 | Level 18: `book deviate 1 2` (book of 270,000 positions, `book-expand-tasks = auto`, about 3400 positions expanded) | 28.6 to 49.7 s (mean 35.6) | 9 | 0.95 ± 0.09 | 1,297 MB → 1,149 MB |
 | Level 18: `book deviate 0 2` (the same book, about 370 positions expanded, 102 rounds) | 9.2 s | 16 | 0.918 ± 0.015 | 1,297 MB → 1,149 MB |
-| `book merge` of a book of 6.49 million positions into an empty book | 4.86 s | 24 | **1.0075 ± 0.0028** | 746-750 MB → 748-762 MB |
+| `book merge` of a book of 6.49 million positions into an empty book | 4.86 s | 24 | **1.0075 ± 0.0028** | same (746-761 MB) |
 | `book merge` of two real books of 270,000 positions | 0.13 s | 48 | 0.98 ± 0.01 | same (272 MB) |
 
-- **`book merge` of the 6.49 million position book is 0.75% (about 0.04 s) slower** (2.7 times the standard error). Which fix causes it was not investigated. For the other rows the difference is within the error, or on the faster side.
+- **`book merge` of the 6.49 million position book is 0.75% (about 0.04 s) slower** (2.7 times the standard error). Measured again with builds holding the fixes step by step (24 rounds): 1.008 ± 0.004 with the fixes of the parallel code and of the book, 1.005 ± 0.004 with all the fixes of this version; the difference comes from the former (the marks of all the positions checked when a merge starts, the links checked by negamax, ...). The peak memory is the same (746 to 761 MB). For the other rows the difference is within the error, or on the faster side.
 - `book deviate`: the searches of the concurrent expansion are now created with their final size at once (a part of the fix under "When memory or threads are missing"): the peak memory is about 150 MB lower, and a learning made of many rounds is a little faster. The time of a concurrent expansion varies much from a run to the next (the order of the expansions changes).
 - Learning a single game (levels 21 and 24) takes a time that changes by a factor of 2 or more with the same executable. The time is the one of the last search still running (at level 24, the solving of a position with 30 empties): continued with 32 threads, it visited from 1.5 to 5.9 billion nodes depending on the run.
-- **Not measured**: the release builds, the 32-bit builds, Linux, level 30 and above, `book-store-tasks` from 2 to 16, `n-tasks` 4, 8 and 16, the memory of edax_runner over a long run, the gain of `book-store-auto-save = off` (with the book of 270,000 positions it only removes one save, about 0.013 s, for each group of 32 games; it grows with the book).
+- **Not measured**: the release builds, the 32-bit builds, Linux, level 30 and above, `book-store-tasks` from 2 to 16, `n-tasks` 4, 8 and 16, the gain of `book-store-auto-save = off` with a large book (millions of positions).
+
+- `book-store-auto-save = off`: 1.004 ± 0.005 times the time of `on` for 128 games learned on the book of 270,000 positions, 0.99 ± 0.04 on a book of 770,000 positions, 0.99 ± 0.01 for 30 games learned one by one: with books of this size the difference cannot be measured (a save takes about 0.013 s). The setting halves what is written to the disk, and the time of a save grows with the book.
+- `book negamax` and the number of threads (6.49 million positions, one negamax): 1.97 s with 1 thread, 1.00 s with 2, 0.53 s with 4, 0.30 s with 8, 0.21 s with 16, 0.19 s with 32: almost proportional up to 8 threads, flat above. The work lost by threads walking the same positions is about 20% with 32 threads, 3% with 8.
+- edax_runner at level 18 with 32 threads, 3,200 games learned in 16 minutes: its memory stayed between 717 and 725 MB.
 
 **The real book of 657 million positions** (28.95 GB, level 18; the first check on it since v4.5.5-nikque.5). 32 threads, one run each.
 

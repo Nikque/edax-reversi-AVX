@@ -39,7 +39,7 @@ book：
 
 速さとメモリ（32スレッド。PGOなしの同じ作り方のビルドどうしの比較。配布用ビルドでは比べていません）：
 
-- v4.5.5-nikque.8 に対する時間の比は、`book learn`（level 18・21・24）・`book store`・`book add`・`book fix`・`book deviate` で 0.95〜1.005（誤差の範囲）、最大メモリは同じです（`book deviate` は約150MB減）。649万局面の `book merge` は 0.75% 遅くなりました（4.86秒、比 1.0075 ± 0.0028）。
+- v4.5.5-nikque.8 に対する時間の比は、`book learn`（level 18・21・24）・`book store`・`book add`・`book fix`・`book deviate` で 0.95〜1.005（誤差の範囲）、最大メモリは同じです（`book deviate` は約150MB減）。649万局面の `book merge` は 0.5〜0.75% 遅くなりました（4.86秒、比 1.0075 ± 0.0028。並列処理とbookの修正によるもの。最大メモリは同じ）。
 - 6.57億局面の実book（28.95GB）：読み込み＋保存 36秒（保存したファイルは元と同じ）、`book negamax` 19秒、同じ大きさの別のbookの `book merge` 255秒・最大 32.9GB、`book fix` 239秒。時間とメモリは v4.5.5-nikque.8 と同じで、読み込み・保存、negamax、merge のbookは完全に一致しました。`book fix` の後のbookは、同じ版を2回動かしても1〜2局面でLeafの手が違い（評価値は同じ。複数スレッドの探索の揺れ）、2つの版の間の違いも1局面でした。
 - 測っていないもの：配布用ビルド、32ビット版、Linux版、level 30 以上、`book-store-tasks` が 2〜16、`n-tasks` が 4〜16。
 
