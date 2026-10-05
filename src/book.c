@@ -3937,6 +3937,30 @@ static int search_pool_get(SearchPool *pool, const int n, const int n_tasks, con
 	return MIN(n, pool->n);
 }
 
+static int book_plan_hash_bits(const Book*, const int);
+
+/**
+ * @brief Threads of each search when book-expand-tasks = auto and there are enough positions to expand.
+ *
+ * Up to level 18 a search does not use a second thread well: one thread each, as many searches as
+ * threads (32 threads, 6.49 million positions, level 18: 17 to 21% more positions expanded in a minute
+ * than with 2 threads each, the rule up to v4.5.5-nikque.9). Above: 4 threads up to level 24, then 8,
+ * as before.
+ *
+ * @param book Opening book.
+ * @return the number of threads.
+ */
+static int book_expand_auto_threads(const Book *book)
+{
+#ifdef BOOK_TEST_EXPAND_THREADS
+	(void) book;
+	return BOOK_TEST_EXPAND_THREADS; // test builds: to compare
+#else
+	const int level = book->options.level;
+	return level <= 18 ? 1 : level <= 24 ? 4 : 8;
+#endif
+}
+
 /**
  * @brief Number of book positions expanded at the same time.
  *
@@ -3952,10 +3976,7 @@ static int book_expand_task_count(const Book *book)
 	int n = options.book_expand_tasks;
 
 	if (book_one_search_at_a_time()) return 1;
-	if (n <= 0) {
-		const int level = book->options.level;
-		n = options.n_task / (level <= 18 ? 2 : level <= 24 ? 4 : 8);
-	}
+	if (n <= 0) n = options.n_task / book_expand_auto_threads(book);
 	return MAX(1, MIN(n, options.n_task));
 }
 
@@ -3973,10 +3994,20 @@ static bool book_expand_concurrent(Book *book, const char *action, const char *t
 {
 	ExpandShared shared;
 	ExpandWorker *w;
-	const int n_tasks = MAX(1, options.n_task / book_expand_task_count(book));
+	int n_tasks = MAX(1, options.n_task / book_expand_task_count(book));
+	int bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
 	int i;
 
-	n_workers = search_pool_get(&expand_pool, n_workers, n_tasks, options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size);
+#ifndef BOOK_TEST_EXPAND_FIXED
+	if (options.book_expand_tasks <= 0) {
+		// auto: the threads are shared between the positions of this round (2 positions with 32 threads: 16 threads
+		// each, where each one had the threads of a round with many positions). A power of 2, so that the rounds
+		// with a few positions do not create new searches each time. Hash tables: as the searches of book store.
+		for (n_tasks = 1; n_tasks * 2 <= options.n_task / n_workers && n_tasks * 2 < MAX_THREADS; n_tasks *= 2) ;
+		bits = book_plan_hash_bits(book, n_tasks);
+	}
+#endif
+	n_workers = search_pool_get(&expand_pool, n_workers, n_tasks, bits);
 	if (n_workers < 2) return false;
 	w = (ExpandWorker*) calloc(n_workers, sizeof *w);
 	if (w == NULL) return false;
