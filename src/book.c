@@ -3939,44 +3939,57 @@ static int search_pool_get(SearchPool *pool, const int n, const int n_tasks, con
 
 static int book_plan_hash_bits(const Book*, const int);
 
+/** book-expand-tasks = auto: a round gets one thread for each search if it has this many positions for each thread.
+ * A round with fewer positions than that is short: its last searches would run alone, each with one thread only,
+ * and the searches are created again when the kind of round changes (level 18, 32 threads, rounds of 0 to a few
+ * hundred positions: 19% more time for each position with 1, 9% more with 4, than with 2 threads each). */
+#ifndef BOOK_EXPAND_ONE_THREAD_ROUND
+#define BOOK_EXPAND_ONE_THREAD_ROUND 32
+#endif
+
 /**
- * @brief Threads of each search when book-expand-tasks = auto and there are enough positions to expand.
+ * @brief Threads of each search when book-expand-tasks = auto.
  *
- * Up to level 18 a search does not use a second thread well: one thread each, as many searches as
- * threads (32 threads, 6.49 million positions, level 18: 17 to 21% more positions expanded in a minute
- * than with 2 threads each, the rule up to v4.5.5-nikque.9). Above: 4 threads up to level 24, then 8,
- * as before.
+ * Up to level 18 a search does not use a second thread well. A round with many positions to expand
+ * (BOOK_EXPAND_ONE_THREAD_ROUND for each thread: 1024 with 32 threads) gets one thread for each search,
+ * as many searches as threads (32 threads, 6.49 million positions, level 18: about 20% more positions
+ * expanded in a minute than with 2 threads each). A round with fewer positions keeps 2 threads for each
+ * search, the rule up to v4.5.5-nikque.9 for every round.
+ * Above level 18: 4 threads up to level 24, then 8, as before.
  *
  * @param book Opening book.
+ * @param n_todo Positions to expand in this round.
  * @return the number of threads.
  */
-static int book_expand_auto_threads(const Book *book)
+static int book_expand_auto_threads(const Book *book, const long long n_todo)
 {
-#ifdef BOOK_TEST_EXPAND_THREADS
-	(void) book;
-	return BOOK_TEST_EXPAND_THREADS; // test builds: to compare
-#else
 	const int level = book->options.level;
-	return level <= 18 ? 1 : level <= 24 ? 4 : 8;
+
+	if (level > 18) return level <= 24 ? 4 : 8;
+#ifdef BOOK_TEST_EXPAND_OLD
+	(void) n_todo;
+	return 2; // test builds: the rule of v4.5.5-nikque.9, to compare
+#else
+	return n_todo >= (long long) BOOK_EXPAND_ONE_THREAD_ROUND * options.n_task ? 1 : 2;
 #endif
 }
 
 /**
  * @brief Number of book positions expanded at the same time.
  *
- * book-expand-tasks = n, or auto (0): each search gets 2 threads at level 18 and below
- * (the fastest in a level 18 test on a large book), 4 up to level 24 and 8 above.
+ * book-expand-tasks = n, or auto (0): see book_expand_auto_threads.
  * Always 1 with the cpu option where it binds the threads (see book_one_search_at_a_time).
  *
  * @param book Opening book.
+ * @param n_todo Positions to expand in this round.
  * @return the number of concurrent expansions (1 = one by one).
  */
-static int book_expand_task_count(const Book *book)
+static int book_expand_task_count(const Book *book, const long long n_todo)
 {
 	int n = options.book_expand_tasks;
 
 	if (book_one_search_at_a_time()) return 1;
-	if (n <= 0) n = options.n_task / book_expand_auto_threads(book);
+	if (n <= 0) n = options.n_task / book_expand_auto_threads(book, n_todo);
 	return MAX(1, MIN(n, options.n_task));
 }
 
@@ -3994,19 +4007,13 @@ static bool book_expand_concurrent(Book *book, const char *action, const char *t
 {
 	ExpandShared shared;
 	ExpandWorker *w;
-	int n_tasks = MAX(1, options.n_task / book_expand_task_count(book));
+	const int n_tasks = MAX(1, options.n_task / book_expand_task_count(book, book->todo_list.n));
 	int bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
 	int i;
 
-#ifndef BOOK_TEST_EXPAND_FIXED
-	if (options.book_expand_tasks <= 0) {
-		// auto: the threads are shared between the positions of this round (2 positions with 32 threads: 16 threads
-		// each, where each one had the threads of a round with many positions). A power of 2, so that the rounds
-		// with a few positions do not create new searches each time. Hash tables: as the searches of book store.
-		for (n_tasks = 1; n_tasks * 2 <= options.n_task / n_workers && n_tasks * 2 < MAX_THREADS; n_tasks *= 2) ;
-		bits = book_plan_hash_bits(book, n_tasks);
-	}
-#endif
+	// auto, one thread each: as many searches as threads, with the hash tables of the one-thread searches of
+	// book store (never more memory than the searches with 2 threads of the other rounds)
+	if (options.book_expand_tasks <= 0 && n_tasks == 1) bits = book_plan_hash_bits(book, 1);
 	n_workers = search_pool_get(&expand_pool, n_workers, n_tasks, bits);
 	if (n_workers < 2) return false;
 	w = (ExpandWorker*) calloc(n_workers, sizeof *w);
@@ -4051,8 +4058,8 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 	// while marking them, or by scanning the whole book.
 	if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
 
-	if (book_expand_task_count(book) > 1 && book->todo_list.valid && book->todo_list.n > 1) {
-		if (book_expand_concurrent(book, action, tmp_file, (int) MIN(book_expand_task_count(book), book->todo_list.n))) return;
+	if (book->todo_list.valid && book->todo_list.n > 1 && book_expand_task_count(book, book->todo_list.n) > 1) {
+		if (book_expand_concurrent(book, action, tmp_file, (int) MIN(book_expand_task_count(book, book->todo_list.n), book->todo_list.n))) return;
 		// (not enough memory for the searches: one position after the other, below)
 	}
 
