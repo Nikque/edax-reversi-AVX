@@ -179,6 +179,20 @@ static int option_int_or_auto(const char *option, const char *value, const int c
 }
 
 /**
+ * @brief Set a string option: the previous string is released (it was lost each time an option
+ * was set again, by a second file of settings or by edax_set_option).
+ *
+ * @param option Option to set.
+ * @param value New value (copied).
+ */
+static void option_string(char **option, const char *value)
+{
+	char *s = string_duplicate(value);
+	free(*option);
+	*option = s;
+}
+
+/**
  * @brief Read the value of an on/off option (on, off, true, false, yes, no, 1, 0).
  *
  * @param option Option name (for the message).
@@ -270,10 +284,10 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "inc-cutnode-sort-depth") == 0) options.inc_sort_depth[CUT_NODE] = option_int(option, value, options.inc_sort_depth[CUT_NODE]);
 		else if (strcmp(option, "inc-allnode-sort-depth") == 0) options.inc_sort_depth[ALL_NODE] = option_int(option, value, options.inc_sort_depth[ALL_NODE]);
 
-		else if (strcmp(option, "ggs-host") == 0) options.ggs_host = string_duplicate(value);
-		else if (strcmp(option, "ggs-login") == 0) options.ggs_login = string_duplicate(value);
-		else if (strcmp(option, "ggs-password") == 0) options.ggs_password = string_duplicate(value);
-		else if (strcmp(option, "ggs-port") == 0) options.ggs_port = string_duplicate(value);
+		else if (strcmp(option, "ggs-host") == 0) option_string(&options.ggs_host, value);
+		else if (strcmp(option, "ggs-login") == 0) options.ggs_login = string_duplicate(value); // (kept: the GGS client holds this pointer)
+		else if (strcmp(option, "ggs-password") == 0) option_string(&options.ggs_password, value);
+		else if (strcmp(option, "ggs-port") == 0) option_string(&options.ggs_port, value);
 		else if (strcmp(option, "ggs-open") == 0) option_boolean(option, value, &options.ggs_open);
 
 		else if (strcmp(option, "probcut-d") == 0) parse_real(value, &options.probcut_d);
@@ -287,23 +301,23 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "pv-check") == 0) option_boolean(option, value, &options.pv_check);
 		else if (strcmp(option, "pv-guess") == 0) option_boolean(option, value, &options.pv_guess);
 
-		else if (strcmp(option, "game-file") == 0) options.game_file = string_duplicate(value);
+		else if (strcmp(option, "game-file") == 0) option_string(&options.game_file, value);
 
-		else if (strcmp(option, "eval-file") == 0) options.eval_file = string_duplicate(value);	// 11/13/2015
+		else if (strcmp(option, "eval-file") == 0) option_string(&options.eval_file, value);	// 11/13/2015
 
 		else if (strcmp(option, "book-file") == 0) {
 			// the book commands add an extension (".store", ".dev2", ...) to this name, in buffers of FILENAME_MAX characters
 			if (strlen(value) > FILENAME_MAX - 8) warn("the name of the book file is too long: ignored\n");
-			else options.book_file = string_duplicate(value);
+			else option_string(&options.book_file, value);
 		}
 		else if (strcmp(option, "book-usage") == 0) option_boolean(option, value, &options.book_allowed);
 		else if (strcmp(option, "book-randomness") == 0) options.book_randomness = option_int(option, value, options.book_randomness);
 
-		else if (strcmp(option, "search-log-file") == 0) options.search_log_file = string_duplicate(value);
-		else if (strcmp(option, "ui-log-file") == 0) options.ui_log_file = string_duplicate(value);
-		else if (strcmp(option, "ggs-log-file") == 0) options.ggs_log_file = string_duplicate(value);
+		else if (strcmp(option, "search-log-file") == 0) option_string(&options.search_log_file, value);
+		else if (strcmp(option, "ui-log-file") == 0) option_string(&options.ui_log_file, value);
+		else if (strcmp(option, "ggs-log-file") == 0) option_string(&options.ggs_log_file, value);
 
-		else if (strcmp(option, "name") == 0) options.name = string_duplicate(value);
+		else if (strcmp(option, "name") == 0) option_string(&options.name, value);
 		else if (strcmp(option, "echo") == 0) option_boolean(option, value, &options.echo);
 
 		else if (strcmp(option, "auto-start") == 0) option_boolean(option, value, &options.auto_start);
