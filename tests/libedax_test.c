@@ -26,6 +26,8 @@
 	#include <windows.h>
 #else
 	#include <dlfcn.h>
+	#include <pthread.h>
+	#include <unistd.h>
 #endif
 
 static int n_checks = 0, n_failures = 0;
@@ -53,6 +55,25 @@ static void section(const char *name)
 	printf("\n## %s\n", name);
 	fflush(stdout);
 }
+
+/** a thread that calls edax_stop after half a second (to stop a running bench) */
+#ifdef _WIN32
+static DWORD WINAPI stop_later(LPVOID unused)
+{
+	(void) unused;
+	Sleep(500);
+	edax_stop();
+	return 0;
+}
+#else
+static void* stop_later(void *unused)
+{
+	(void) unused;
+	usleep(500000);
+	edax_stop();
+	return NULL;
+}
+#endif
 
 /** square name */
 static const char* square(const int x)
@@ -717,6 +738,26 @@ int main(int argc, char **argv)
 	printf("bench: %d positions, %llu nodes\n", bench.result.positions, bench.result.n_nodes);
 	CHECK_INT(bench.result.positions, 2);
 	CHECK(bench.result.n_nodes > 0);
+	{ // edax_stop from another thread ends the bench: the problem that was cut is not counted, the time is the time of the others
+#ifdef _WIN32
+		HANDLE t = CreateThread(NULL, 0, stop_later, NULL, 0, NULL);
+#else
+		pthread_t t;
+		pthread_create(&t, NULL, stop_later, NULL);
+#endif
+		memset(&bench, 0, sizeof bench);
+		edax_bench(&bench.result, 100);
+#ifdef _WIN32
+		WaitForSingleObject(t, INFINITE);
+		CloseHandle(t);
+#else
+		pthread_join(t, NULL);
+#endif
+		printf("stopped bench: %d positions, %llu nodes, %llu ms\n", bench.result.positions, bench.result.n_nodes, bench.result.T);
+		CHECK(bench.result.positions < 100);
+		CHECK(bench.result.T < 60000);
+	}
+
 
 	section("stop & termination");
 	edax_stop();

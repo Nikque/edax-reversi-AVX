@@ -49,6 +49,7 @@ static bool lib_is_started = false;
 static struct {
 	Lock lock;
 	LibedaxBenchResult *result;
+	bool stop;                  /**< edax_stop was called during the bench */
 } lib_bench;
 
 /**
@@ -824,8 +825,20 @@ LIBEDAX_API void edax_force(char *moves)
 	play_force_init(g_ui->play, moves);
 }
 
+/** @brief Was edax_stop called during the running bench? */
+static bool lib_bench_stopped(void)
+{
+	bool stop;
+
+	lock(&lib_bench);
+	stop = lib_bench.stop;
+	unlock(&lib_bench);
+	return stop;
+}
+
 /**
  * @brief Test edax speed (see obf_speed), giving the progress to edax_bench_get_result.
+ * edax_stop (from another thread) ends it: the problem that was being solved is not counted.
  * @param search Search.
  * @param n Number of problems (-1: 1 minute).
  */
@@ -847,11 +860,12 @@ static void lib_obf_speed(Search *search, const int n)
 	search->options.verbosity = (options.verbosity == 1 ? 0 : options.verbosity);
 	options.width -= 4;
 
-	for (i = 0; n == - 1 ? real_clock() - t < 60000 : i < n; ++i) {
+	for (i = 0; (n == - 1 ? real_clock() - t < 60000 : i < n) && !lib_bench_stopped(); ++i) {
 		const int ply = MAX(30, 40 - i / 5);
 		obf.player = ply & 1;
 		board_rand(&obf.board, ply, &r);
 		obf_search(search, &obf, i + 1);
+		if (lib_bench_stopped()) break; // edax_stop: this search was cut (and its time is not valid): the bench ends here
 		T += search_time(search);
 		n_nodes += search_count_nodes(search);
 
@@ -892,6 +906,7 @@ LIBEDAX_API void edax_bench(LibedaxBenchResult *result, int n)
 
 	lock(&lib_bench);
 	lib_bench.result = result;
+	lib_bench.stop = false;
 	unlock(&lib_bench);
 
 	lib_obf_speed(&g_ui->play->search, n);
@@ -1197,6 +1212,9 @@ LIBEDAX_API void edax_stop(void)
 	if (g_ui == NULL) return;
 	// stop thinking
 	g_ui->mode = 3;
+	lock(&lib_bench);
+	if (lib_bench.result != NULL) lib_bench.stop = true; // a running bench ends (see lib_obf_speed)
+	unlock(&lib_bench);
 	lock(&lib_book_change);
 	if (!lib_book_change.running) play_stop(g_ui->play);
 	unlock(&lib_book_change);
