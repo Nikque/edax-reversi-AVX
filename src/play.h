@@ -18,6 +18,11 @@
 #include "move.h"
 #include "util.h"
 
+/** size of a game record: moves and passes. From any board there are at most 62 moves,
+ * and a pass is only recorded before a move: 124 at most (the size was 80, which a game
+ * with many passes could exceed) */
+#define PLAY_GAME_SIZE 128
+
 /** error message max length */
 #define PLAY_MESSAGE_MAX_LENGTH 4096
 
@@ -31,7 +36,7 @@ typedef struct Play {
 	int type;                  /**< ui type */
 	int player;                /**< current player's color. */
 	int initial_player;        /**< initial player's color. */
-	Move game[80];             /**< game (move sequence). */
+	Move game[PLAY_GAME_SIZE];             /**< game (move sequence). */
 	int i_game;                /**< current move index. */
 	int n_game;                /**< last move index. */
 	volatile PlayState state;  /**< current state */
@@ -43,9 +48,9 @@ typedef struct Play {
 		long long extra;       /**< extra time left */
 	} time[2];                 /**< time of each player */
 	struct {
-		Board real[80];        /**< forced positions */
-		Board unique[80];      /**< unique symetry of the forced positions */
-		Move move[80];         /**< forced move sequence */
+		Board real[PLAY_GAME_SIZE];        /**< forced positions */
+		Board unique[PLAY_GAME_SIZE];      /**< unique symetry of the forced positions */
+		Move move[PLAY_GAME_SIZE];         /**< forced move sequence */
 		int n_move;            /**< number of forced move */
 		int i_move;            /**< current forced move */
 	} force;                   /**< forced line */

@@ -174,7 +174,7 @@ void play_save(Play *play, const char *file)
 	game.initial_board = play->initial_board;
 	game.player = play->initial_player;
 	for (i = j = 0; i < play->n_game; ++i) {
-		if (play->game[i].x != PASS) {
+		if (play->game[i].x != PASS && j < 60) { // a Game holds 60 moves
 			game.move[j++] = play->game[i].x;
 		}
 	}
