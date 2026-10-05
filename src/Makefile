@@ -254,7 +254,9 @@ LIB_CFLAGS = $(filter-out -fwhole-program -mdynamic-no-pic -fno-pie -no-pie,$(CF
 LIB_EXT = so
 ifeq ($(OS),linux)
 	# the library calls its own functions, even when the program has functions with the same names
-	LIB_CFLAGS += -Wl,-Bsymbolic
+	# (-fno-semantic-interposition: the compiler can then inline them and call them directly, as in the
+	# executable: the library was 7% slower without it)
+	LIB_CFLAGS += -Wl,-Bsymbolic -fno-semantic-interposition
 endif
 ifeq ($(OS),windows)
 	LIB_EXT = dll
