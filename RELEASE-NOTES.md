@@ -2,6 +2,49 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.1 (a new series of the evaluation function)
+
+**A separate series with a different evaluation function (`eval.dat`).** It is the source of v4.5.5-nikque.9 plus the change of the evaluation function, and nothing else. It is published from the branch `eval2`; the default branch and the latest release remain v4.5.5-nikque.9. Scores and search results change. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+
+Changes:
+
+- **The mobility of both sides** is added to the evaluation function (the 46 patterns are kept). All the weights were trained again, starting from the upstream weights.
+- `eval.dat` (version 3.3.0, 13,960,248 bytes): the previous content followed by the mobility tables. The source change is about 40 lines in the four files of the evaluation function.
+- **`eval.dat` and the executable (or library) go together.** Do not use the new `eval.dat` with an executable of v4.5.5-nikque.9 or older (the tables are not read and the program is weaker). The upstream `eval.dat` with the executables of this version gives the same results and node counts as v4.5.5-nikque.9 (0.98 to 1.013 times its time).
+- The book file format is the same. The scores change: a book that goes on learning holds old and new scores.
+- The settings, the commands, the api of libedax and the peak memory are the same as in v4.5.5-nikque.9.
+
+Strength (matches against the upstream `eval.dat`: same executable, same level, 1 thread, about 2200 games each, 95% confidence intervals):
+
+- Level 6: +22.1 [+8.5, +35.7]; level 10: +18.8 [+6.1, +31.5]; level 18: +17.0 [+6.6, +27.5] (+20.0 [+9.5, +30.5] from other start positions); level 21: +17.4 [+7.9, +26.8].
+- Error of the level 18 scores against the exact scores (2850 positions): mean 1.089 → 1.067 discs.
+- Not measured: matches at level 24 or more, with several threads, or against other programs.
+
+Speed (release executables: time of this version with the new `eval.dat`, divided by the time of the v4.5.5-nikque.9 release executable with the upstream `eval.dat`; less than 1 is faster):
+
+| Executable (1 thread) | Level 10 | Level 18 | Level 21 | Exact (fforum 20-39) |
+|---|---|---|---|---|
+| AVX-512 (`wEdax-x86-64-v4.exe`) | **1.055** | 0.945 | 0.877 | **1.026** |
+| AVX2 (`wEdax-x86-64-v3.exe`) | **1.045** | 0.943 | 0.878 | **1.036** |
+| Baseline 64-bit (`wEdax-x86-64.exe`) | **1.135** | 0.994 | 0.916 | **1.029** |
+| 32-bit SSE2 (`wEdax-x86-sse.exe`) | **1.204** | **1.037** | 0.949 | 0.97 (±0.05) |
+| 32-bit (`wEdax-x86.exe`) | **1.239** | **1.070** | 0.973 | **1.034** |
+
+- Other conditions with the AVX-512 build: level 18 with 8 and 32 threads 0.977 and 0.958; level 21 with 8 and 32 threads 0.907 and 0.931; level 24 with 1 and 32 threads 0.847 and 0.902.
+- The node counts are 0.89 times at level 18, 0.84 at level 21 and 0.80 at level 24. Each call of the evaluation function counts the legal moves, so the nodes per second go down (4 to 7% with the AVX-512 build, 12 to 20% with the 32-bit builds).
+
+**Slower conditions** (against the release executables of v4.5.5-nikque.9):
+
+- Shallow searches such as level 10: 4.5 to 5.5% longer with the AVX-512 and AVX2 builds, 13.5% with the baseline 64-bit build, 20 to 24% with the 32-bit builds.
+- Exact solving: 3 to 4% longer with 1 thread (fforum 40-59: 279.6 s → 290.1 s), about 6% with 32 threads (22.5 s → 23.8 s); 3 to 9% more nodes. The scores are the same for every problem.
+- Level 18 with the 32-bit builds: 4 to 7% longer.
+- v4.5.5-nikque.9 is the faster one if you mostly solve endgames, play or learn large numbers of games at shallow levels, or use a 32-bit build.
+- Not measured: the time of book learning, the speed of levels below 10.
+
+Training data: the search scores of self-play games of Edax itself (level 8, about 840,000 games), the positions and scores of a book learned with this fork, and the training data published on the site of [Egaroucid](https://www.egaroucid.nyanyan.dev/). For Egaroucid, only the published data was used for training: its patterns and trained weights are not used. The training data is not in the package.
+
+Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
+
 ## v4.5.5-nikque.9
 
 Fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2, and makes the learning of games a little faster. No new feature (two functions added to libedax, and one setting). `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.

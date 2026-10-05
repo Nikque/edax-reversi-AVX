@@ -15,7 +15,8 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 
 ROOT = Path(__file__).resolve().parent
-EVAL_SHA256 = "f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792"
+# eval.dat version 3.3.0 of the eval2 series (46 patterns + mobility weights); the upstream v4.5.5 file is f8b22996...
+EVAL_SHA256 = "1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172"
 
 BINARIES = (
     "bin/aEdax-arm64-v8a",
@@ -75,7 +76,7 @@ def main() -> None:
     output = Path(argv[1]).resolve()
     eval_data = (ROOT / "bin/data/eval.dat").read_bytes()
     if sha256(eval_data).hexdigest() != EVAL_SHA256:
-        raise SystemExit("bin/data/eval.dat differs from the upstream v4.5.5 asset")
+        raise SystemExit("bin/data/eval.dat is not the eval.dat 3.3.0 of the eval2 series")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(output, "w") as archive:

@@ -4,6 +4,143 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+**This branch (`eval2`) is v4.5.5-eval2.1, a separate series with a different evaluation function.** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.9) only by what is described under "Changes in v4.5.5-eval2.1" just below.
+
+## Changes in v4.5.5-eval2.1 (a new series of the evaluation function)
+
+**This is a separate series with a different evaluation function (`eval.dat`).** It is the source of v4.5.5-nikque.9 plus the change of the evaluation function, and nothing else. It is published from the branch `eval2`. The default branch (`edax-4.5.5-fixes`) and the latest release remain v4.5.5-nikque.9. Scores and search results change: use v4.5.5-nikque.9 when you need the same scores as before.
+
+- **Evaluation function**: the 46 patterns are kept, and **the mobility of both sides (the number of legal moves)** is added. All the weights were trained again, starting from the upstream (v4.5.5) weights.
+- **Strength**: against the upstream `eval.dat` (same executable, same level, 1 thread), **+17 to +22 Elo** at each of the levels 6, 10, 18 and 21.
+- **Speed**: searches at levels 18 to 24 take **2 to 15% less time** than the release executables of v4.5.5-nikque.9 (AVX2 and AVX-512 builds, 1 to 32 threads; 8 to 20% fewer nodes).
+- **Some conditions are slower**: shallow searches such as level 10 (about 5% with the AVX2 and AVX-512 builds, 13% with the baseline 64-bit build, 20 to 24% with the 32-bit builds), exact endgame solving (3 to 6%), and level 18 with the 32-bit builds (4 to 7%). They are all listed under "Slower conditions (summary)" below.
+- The book file format, the settings, the commands, the api of libedax and the peak memory are the same as in v4.5.5-nikque.9.
+
+### The change of the evaluation function
+
+- The score gets two more terms: a weight for the mobility of the side to move, and a weight for the mobility of the opponent. For each ply (60 minus the number of empty squares) there are two tables indexed by the mobility, 0 to 31 (32 or more counts as 31), in the unit of the pattern weights (1 disc = 128).
+- `eval.dat` (version 3.3.0): the previous content (the weights of the 46 patterns for 61 plies) is followed by the four characters `MOBW` and 61 × 64 16-bit values. The size goes from 13,952,436 to 13,960,248 bytes. SHA-256: `1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172`.
+- The source change is about 40 lines in `src/const.h`, `src/eval.c`, `src/eval.h` and `src/midgame.c`. The tables are read when `eval.dat` has them, and the two places that call the evaluation function (`search_eval_0`, `search_eval_1`) count the legal moves and add the table values. Without the tables nothing is added.
+- The number of features (46) and the incremental update of the features during the search are unchanged.
+
+### eval.dat and the executable go together
+
+| Executable (or library) | `eval.dat` | What happens |
+|---|---|---|
+| this version | this version (3.3.0) | the new evaluation function |
+| this version | the upstream file (the one in the packages up to v4.5.5-nikque.9) | same results and node counts as v4.5.5-nikque.9; 0.98 to 1.013 times its time with the release executables (see "Speed") |
+| v4.5.5-nikque.9 or older, upstream | this version (3.3.0) | **Do not use.** The file loads, but the mobility tables are not read. The pattern weights were trained together with the tables, so the program is weaker (halving the table values alone cost 17 Elo; the strength without the tables was not measured) |
+
+- **Books**: the file format is the same and existing books load as before. But the scores change: if you go on learning with this version, one book holds scores of the upstream evaluation function and scores of the new one. Keep separate books if you do not want to mix them.
+- **libedax, edax_runner**: a program that uses the library needs both the library of this version (`libedax-*`) and its `data/eval.dat`. edax_runner v5.3.0-nikque.3 ships the library of v4.5.5-nikque.9 and the upstream `eval.dat`. edax_runner with the library and the `eval.dat` of this version was not tested.
+- **`probcut-model = refit`** (the experimental setting of v4.5.5-nikque.5): its coefficients are still the ones fitted to the upstream weights; it was neither refitted nor measured with the new weights. For the default `standard`, the errors were measured again with the new weights and it was left as it is (see "Accuracy").
+
+### Strength (measured)
+
+The same executable played against itself with only `eval.dat` changed, the new file against the upstream one (1 thread, same level, no book; the method is the one of "How strength was measured" under v4.5.5-nikque.5 below: two games with colors swapped from each balanced start position). Elo is given for the new `eval.dat`, with its 95% confidence interval.
+
+| Level | Start positions | Games | Wins − draws − losses | Elo | Nodes per move (ratio) |
+|---|---|---|---|---|---|
+| 6 | 8 moves, 1102 positions | 2204 | 1093 − 158 − 953 | **+22.1** [+8.5, +35.7] | 0.99 |
+| 10 | same | 2204 | 1032 − 259 − 913 | **+18.8** [+6.1, +31.5] | 0.99 |
+| 18 | same | 2204 | 970 − 372 − 862 | **+17.0** [+6.6, +27.5] | 0.91 |
+| 18 | 10 moves, 1087 positions | 2174 | 969 − 361 − 844 | **+20.0** [+9.5, +30.5] | 0.92 |
+| 21 | 8 moves, 1102 positions | 2204 | 941 − 432 − 831 | **+17.4** [+7.9, +26.8] | 0.88 |
+
+- The matches were played with a build of the v4.5.5-nikque.8 code plus this change (no PGO, AVX-512). Single-thread searches give the same results in v4.5.5-nikque.8 and v4.5.5-nikque.9, so this version plays the same games.
+- The accuracy of the level 18 scores was measured too (see "Accuracy").
+- **Not measured**: matches at level 24 or more, matches with several threads, matches with a time per game, matches against other programs.
+
+### Speed (measured)
+
+Ryzen 9 9950X. **Release executables (PGO) against release executables**: the **time** of this version with the new `eval.dat`, divided by the time of the v4.5.5-nikque.9 release executable with the upstream `eval.dat` (less than 1 is faster). Each is the time `-solve` takes for the same set of positions; the runs alternated 3 to 7 times and the shortest times are compared. Levels 10 and 18 use 89 positions, levels 21 and 24 use 30 midgame positions, exact solving uses `problem/fforum-20-39.obf`.
+
+1 thread:
+
+| Executable | Level 10 | Level 18 | Level 21 | Exact (fforum 20-39) |
+|---|---|---|---|---|
+| `wEdax-x86-64-v4.exe` (AVX-512) | **1.055** | 0.945 | 0.877 | **1.026** |
+| `wEdax-x86-64-v3.exe` (AVX2) | **1.045** | 0.943 | 0.878 | **1.036** |
+| `wEdax-x86-64.exe` (baseline) | **1.135** | 0.994 | 0.916 | **1.029** |
+| `wEdax-x86-sse.exe` (32-bit, SSE2) | **1.204** | **1.037** | 0.949 | 0.97 (±0.05) |
+| `wEdax-x86.exe` (32-bit) | **1.239** | **1.070** | 0.973 | **1.034** |
+| Node count ratio (the same for every executable) | 0.984 | 0.889 | 0.835 | 1.030 |
+
+- Each call of the evaluation function now counts the legal moves twice, which lowers the nodes per second (by 4 to 7% with the AVX-512 build, 9 to 13% with the baseline 64-bit build, 12 to 20% with the 32-bit builds). On the other hand, at level 18 or more the search visits 11 to 20% fewer nodes. The table shows the balance of the two. A shallow search (level 10) visits almost as many nodes, so it is slower.
+- Exact solving with the 32-bit builds is a short measurement (2 to 3 seconds) that varies much (the x86-sse run came out shorter although it visits 3% more nodes).
+
+Other conditions with `wEdax-x86-64-v4.exe`:
+
+| Condition | Time ratio | Node count ratio |
+|---|---|---|
+| Level 18, 8 threads | 0.977 | 0.877 |
+| Level 18, 32 threads | 0.958 | 0.842 |
+| Level 21, 8 threads | 0.907 | 0.813 |
+| Level 21, 32 threads | 0.931 | 0.916 |
+| Level 24, 1 thread (1 run) | 0.847 | 0.795 |
+| Level 24, 32 threads | 0.902 | 0.818 |
+| Exact, fforum 40-59, 1 thread (1 run, 279.6 s → 290.1 s) | **1.038** | 1.055 |
+| Exact, fforum 40-59, 32 threads (22.5 s → 23.8 s) | **1.056** | 1.094 |
+
+- The node counts of multi-thread searches vary from a run to the next; these are ratios of the shortest of 3 to 5 runs.
+- Position by position, some of the 30 positions at level 24 take more nodes (13 of the 30 in a check with a build without PGO; 0.80 times in total).
+- Exact solving uses the evaluation function only to order the moves, but the order changes and the node counts grow by 3 to 9%. The scores (disc differences) are the same for every problem.
+
+**The upstream `eval.dat` with the executables of this version** (same results and node counts as v4.5.5-nikque.9; time against the v4.5.5-nikque.9 release executable, level 10 / 18 / 21 / exact): AVX-512 1.013 / 1.008 / 0.997 / 1.000, AVX2 0.998 / 1.004 / 1.004 / 1.011, baseline 64-bit 1.005 / 1.000 / 1.006 / 1.000, x86-sse 1.003 / 1.000 / 0.994 / (varies too much), x86 0.981 / 0.988 / 0.986 / 0.993. The differences stay within ±2%; without the tables the legal moves are not counted. Between two builds made the same way without PGO (AVX-512) the ratios were 1.011, 1.017 and 1.009 at levels 10, 18 and 21, and 1.000 for exact solving.
+
+**Linux executables** (gcc 11.4, 1 thread, 1 run each; time with the new `eval.dat` divided by the time with the upstream `eval.dat`, same executable; level 18 / level 21 / exact fforum 20-39): x86-64 0.995 / 0.915 / **1.026**, x86-64-v3 0.952 / 0.871 / **1.030**, x86-64-v4 0.943 / 0.881 / **1.033**, 32-bit (`lEdax-x86`) **1.028** / 0.938 / **1.050**: the same pattern as on Windows. With the upstream `eval.dat`, the results and node counts are those of the Linux executables of v4.5.5-nikque.9, in 0.99 to 1.01 times the time (runs of 1 to 2 seconds). Level 10 was not measured on Linux.
+
+**Peak memory** is unchanged (release executables, 1 run each: 462.7 MB → 462.9 MB at level 21 with 32 threads, 135.2 MB → 135.2 MB at level 18 with 1 thread; the added tables take about 8 KB).
+
+### Slower conditions (summary)
+
+Conditions where this version (new `eval.dat`) is slower than the release executables of v4.5.5-nikque.9 (upstream `eval.dat`):
+
+| Condition | Time |
+|---|---|
+| Level 10 (shallow search), AVX-512 and AVX2 builds | 4.5 to 5.5% longer |
+| Level 10, baseline 64-bit build (`wEdax-x86-64.exe`) | 13.5% longer |
+| Level 10, 32-bit builds | 20 to 24% longer |
+| Level 18, 32-bit builds | 4 to 7% longer |
+| Exact solving, 1 thread | 3 to 4% longer (3 to 5.5% more nodes) |
+| Exact solving, 32 threads | about 6% longer (9% more nodes) |
+
+- The speed of levels below 10 was not measured (level 6 was only played; its node counts are almost the same, so it should be as slow as level 10 or slower).
+- Level 21 with the 32-bit builds is a little faster (0.95 to 0.97), and every 64-bit build is faster at level 18 or more.
+- v4.5.5-nikque.9 is the faster one if you mostly solve endgames, play or learn large numbers of games at shallow levels, or use a 32-bit build.
+- The time of book learning (`book learn`, `book deviate`, `book fix`...) was not measured. It is made of searches at the level of the book, so it should follow the ratios above; but even in a level 18 book, the searches of the endgame positions (exact solving) get slower.
+
+### Accuracy
+
+- The level 18 scores were compared with the exact scores (12 sets with different numbers of empty squares, 2850 positions, 1 thread). Mean absolute error: 1.089 discs with the upstream `eval.dat`, 1.067 with the new one; root mean square error: 2.02 and 1.94. The search visits fewer nodes and the scores are a little more accurate.
+- The settings of the search pruning (ProbCut) are unchanged. The difference between shallow and deep searches was measured again with the new weights (1200 positions, depths 0 to 16): 0.93 to 1.00 times the one of the upstream weights with 32 empty squares or more, 1.18 to 1.24 times with 24 to 31 empties at depths 12 to 16. Scaling the error estimate by 1.1 and 1.2 was tried: the gain in accuracy (mean error 1.01 and 0.97 discs) was smaller than the loss of speed (1.16 and 1.47 times the time at level 18), so it was not taken. (The two tests of this paragraph were run before the final weights were chosen, with weights pulled less strongly toward the upstream ones.)
+
+### How the weights were made, and the training data
+
+- The 46 patterns and the mobility tables were trained together (plies 2 to 53), with a penalty on the distance from the upstream weights so that they do not move too far from them. Symmetric patterns share their weights.
+- Training data (positions with a target score):
+  1. Self-play games of Edax itself (level 8, about 840,000 games): the search score of each position, and the exact score with 18 empty squares or fewer.
+  2. The positions and scores of a book learned with this fork (at most 3 million positions per ply).
+  3. The training data published on the site of [Egaroucid](https://www.egaroucid.nyanyan.dev/) (positions with the scores given by Egaroucid). **Only the published data was used for training; the patterns and the trained weights of Egaroucid are not used.** The training data itself is not in this package.
+- What to adopt was decided by matches, not by the error: several times a lower error on the training data did not give a stronger program.
+- Tried and not taken (matches at level 18 against the upstream `eval.dat`, about 2200 games each):
+  - Training without the published Egaroucid data: +9.9 (+2.2 from other start positions). With the data the program was stronger and visited fewer nodes, so the data was used.
+  - A stronger pull toward the upstream weights: +15.0; a weaker one: +18.6. The weaker pull is about as strong, but exact solving visits 8 to 13% more nodes, so the present weights (3 to 5.5% more) were chosen.
+  - The mobility of the side to move only: +13.6. Two new patterns instead of the mobility: −5.5 to +1.9. Numbers such as stable discs, disc counts or the parity of the empty squares hardly lowered the error and were not played.
+  - Fewer patterns for speed (46 → 38, 30): −9.1, −25.4.
+  - Training from scratch, without the upstream weights: −19 to −49 (not enough training data).
+  - The upstream weights from move 40, 44 or 48 on: +12.9, +15.0, +16.6. The node counts of exact solving go back to what they were, but the gain of speed at level 18 or more goes too: the smaller trees at level 18 or more come from the weights after move 40.
+
+### Checks
+
+- **Same behaviour as v4.5.5-nikque.9 with the upstream `eval.dat`**: with the five Windows release executables, the single-thread node counts at levels 10, 18 and 21 and of exact solving (fforum 20-39) are those of the v4.5.5-nikque.9 release executables.
+- **New `eval.dat`**: the five Windows executables give the same node counts in these four conditions. The exact scores of fforum 20-39 and 40-59 are the same as with the upstream `eval.dat` for every problem.
+- **The four Linux executables**: with the upstream `eval.dat`, the results and node counts of exact solving and of level 18 are those of the v4.5.5-nikque.9 release executables. With the new `eval.dat`, the four executables give the same results and node counts at levels 18 and 21 and for exact solving, and the node counts are those of the Windows executables.
+- **libedax**: the 191 api checks pass with the new `eval.dat` (3 Windows libraries, 3 Linux libraries).
+- **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
+- Peak memory (see "Speed").
+- **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+
 ## Changes in v4.5.5-nikque.9
 
 This version fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2, and makes the learning of games (`book learn`) a little faster. There is no new feature (two functions were added to libedax, and one setting). The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. What behaves differently is listed under "What behaves differently" below.
@@ -850,7 +987,7 @@ The book memory does not depend on these settings (about 50 bytes per position w
 
 ## Build and use
 
-The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5) (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`). It also includes the upstream initial `bin/data/book.dat` and problem files. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
+The v4.5.5-eval2.1 bundle includes the evaluation data of this series at `bin/data/eval.dat` (version 3.3.0, SHA-256 `1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172`; see "Changes in v4.5.5-eval2.1" above), and the initial `bin/data/book.dat` and problem files copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5). The upstream `eval.dat` (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`) is in the bundles up to v4.5.5-nikque.9. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
 
 | Environment | File in `bin/` |
 |---|---|
