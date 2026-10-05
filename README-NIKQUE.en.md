@@ -6,7 +6,7 @@ This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5c
 
 ## Changes in v4.5.5-nikque.9
 
-This version fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2. There is no new feature (two functions were added to libedax, and one setting). The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. What behaves differently is listed under "What behaves differently" below.
+This version fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2, and makes the learning of games (`book learn`) a little faster. There is no new feature (two functions were added to libedax, and one setting). The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. What behaves differently is listed under "What behaves differently" below.
 
 ### Multi-thread search
 
@@ -65,9 +65,35 @@ Two races of the parallel search, both inherited from upstream (v4.5.5), are fix
 - The Linux and Android libraries are linked with `-Bsymbolic`: if the program that uses the library has functions or variables with the same names as Edax (`board_init`, ...), the library still uses its own. The exported names and the API are the same. As before, the Android libraries were only built, not run on a device.
 - Tests: `tests/libedax_test.c` now has 191 checks (passed on 3 Windows and 3 Linux builds).
 
+### Learning games a little faster (the threads of the games that are over go to the games still played)
+
+`book learn` (`edax_book_store_games` of libedax, the grouped learning of edax_runner) plays the games of a group at the same time (one thread per game with `book-store-tasks = auto`). The threads of the games that ended early used to wait until the longest game was over (in a group of 32 games most games end during the first second, and a few went on alone for 2 or 3 more seconds). Now **a thread that has no game left is given to a search that still plays, from its next move on** (between two moves: no search is stopped).
+
+- Only a game played with 7 threads or fewer gets more threads. A game played with 8 threads or more (few games) did not get faster with more (see the note under the table): it is played exactly as before.
+- Nothing changes with `book-store-tasks = 1`, or with a single game.
+
+Measured (Ryzen 9 9950X, builds made the same way without PGO, 12 to 24 rounds; "before" is the code without this change only):
+
+| Work | Before | This version | Ratio |
+|---|---|---|---|
+| Level 18: 128 games (32 threads, book of 270,000 positions) | 33.6 s | 30.3 s | **0.901 ± 0.002** |
+| Level 18: 30 games | 8.64 s | 8.15 s | 0.944 ± 0.004 |
+| Level 18: 30 games, `n-tasks` 8 | 21.6 s | 20.2 s | 0.935 ± 0.003 |
+| Level 18: 30 games, `book-store-tasks` 8 | 9.42 s | 9.29 s | 0.986 ± 0.015 |
+| Level 18: 8 games | 2.61 s | 2.59 s | 0.993 ± 0.009 |
+| Level 21: 8 games | 10.33 s | 10.26 s | 0.994 ± 0.006 |
+| Level 21: 8 games, `n-tasks` 4 | 40.9 s | 40.2 s | 0.981 ± 0.003 |
+| Level 24: 8 games | 21.5 s | 21.4 s | 0.997 ± 0.006 |
+| Level 24: 4 games / 2 games (8 and 16 threads each: no thread is added) | 10.03 s / 6.85 s | 10.05 s / 6.86 s | 1.002 ± 0.006 / 1.001 ± 0.011 |
+
+- The peak memory is the same in every row.
+- Note: a first version also gave threads to the games played with 8 threads or more; with 2 games at level 24 (16 threads each) it took 1.008 ± 0.005 times the time (72 rounds), slightly on the slower side. So only the games played with 7 threads or fewer get more threads.
+- **Resulting book**: the last games of a group are now played by searches with several threads, so their moves can change from a run to the next. Learning 128 games (272,576 positions) three times: 9 to 13 positions differ between two runs before this change, 6 to 11 after it (the searches that get more threads while they run, since v4.5.5-nikque.8); between before and after, one more game was played differently (7 positions). To make the same books as the older versions, set `book-store-tasks = 1`, as before.
+- Checked: with this change, the tests of the audit were run again (single-thread `-solve`, book regression, identical books with the test build where every search keeps one thread, builds where threads cannot be created, ThreadSanitizer, API checks), and 48 learning runs with different numbers of games, threads and `book-store-tasks` all ended normally, with nothing to fix in the books.
+
 ### Speed and memory (measured)
 
-Ryzen 9 9950X (32 logical CPUs), `n-tasks` 32, `hash-table-size = auto`. The code of v4.5.5-nikque.8 and the code with the fixes of this version were built with the same compiler and options (AVX-512, without PGO), and run in turn, in a changing order; the ratio is taken between the runs of the same round (± is the standard error). **The release builds (with PGO) were not compared.**
+Ryzen 9 9950X (32 logical CPUs), `n-tasks` 32, `hash-table-size = auto`. The code of v4.5.5-nikque.8 and the code with the fixes of this version (without the change of "Learning games a little faster" above, whose effect is in the table above) were built with the same compiler and options (AVX-512, without PGO), and run in turn, in a changing order; the ratio is taken between the runs of the same round (± is the standard error). **The release builds (with PGO) were not compared.**
 
 | Work | v4.5.5-nikque.8 | Rounds | This version / v4.5.5-nikque.8 (time) | Peak memory |
 |---|---|---|---|---|
@@ -87,9 +113,15 @@ Ryzen 9 9950X (32 logical CPUs), `n-tasks` 32, `hash-table-size = auto`. The cod
 - **`book merge` of the 6.49 million position book is 0.75% (about 0.04 s) slower** (2.7 times the standard error). Measured again with builds holding the fixes step by step (24 rounds): 1.008 ± 0.004 with the fixes of the parallel code and of the book, 1.005 ± 0.004 with all the fixes of this version; the difference comes from the former (the marks of all the positions checked when a merge starts, the links checked by negamax, ...). The peak memory is the same (746 to 761 MB). For the other rows the difference is within the error, or on the faster side.
 - `book deviate`: the searches of the concurrent expansion are now created with their final size at once (a part of the fix under "When memory or threads are missing"): the peak memory is about 150 MB lower, and a learning made of many rounds is a little faster. The time of a concurrent expansion varies much from a run to the next (the order of the expansions changes).
 - Learning a single game (levels 21 and 24) takes a time that changes by a factor of 2 or more with the same executable. The time is the one of the last search still running (at level 24, the solving of a position with 30 empties): continued with 32 threads, it visited from 1.5 to 5.9 billion nodes depending on the run.
-- **Not measured**: the release builds, the 32-bit builds, Linux, level 30 and above, `book-store-tasks` from 2 to 16, `n-tasks` 4, 8 and 16, the gain of `book-store-auto-save = off` with a large book (millions of positions).
+- Values of `book-store-tasks` (128 games at level 18, seconds / peak memory): `auto` 34.3 / 718 MB, `1` 109.0 / 281 MB, `2` 59.8 / 1155 MB, `4` 46.3 / 1155 MB, `8` 37.9 / 1587 MB, `16` 34.1 / 1587 MB. 8 games at level 21: `auto` 10.0, `1` 29.2, `2` 12.9, `4` 11.0, `8` and `16` 10.0 to 10.2. No value is slower than `1`, but with many games 2 to 8 are slower than `auto` and use more memory.
+- `n-tasks` 4, 8 and 16 (ratio to the code of v4.5.5-nikque.8): 30 games learned at level 18: 0.996 and 0.996 (not enough rounds with 16); 8 games at level 21: 0.990, 0.997 and 0.985 (± 0.003 to 0.008): no difference. `auto` is still faster than `1` with 4 threads (8 games at level 21: 40.1 s against 43.2 s).
+- Size of the hash tables of the searches done at the same time (19 bits up to level 18, 20 up to level 21, 21 above), changed in test builds: 128 games at level 18 take 1.017 ± 0.002 times the time with 1 bit less and 1.055 ± 0.004 with 2 bits less (peak memory 719 → 503 → 393 MB); 4 games at level 24: 1.021 ± 0.007 and 1.053 ± 0.009 (2433 → 1568 → 1136 MB); 8 games at level 21: 0.999 ± 0.011 and 1.024 ± 0.011. Larger tables only gain 1 to 2%. The sizes were kept.
+- 32-bit build (without PGO, ratio to the code of v4.5.5-nikque.8): `-solve` 0.93 ± 0.02 with 1 thread, 1.005 ± 0.005 with 8 and 32 threads; 30 games learned at level 18: 0.997 ± 0.003; `book fix` with 1000 leaves: 1.015 ± 0.014; 8 games at level 21 (8 threads): 1.000 ± 0.002. **The peak memory of the commands that use searches done at the same time is about 110 to 120 MB higher** (718 → 830 MB, for example: 128 MB are allocated for a moment to check that they are free before a search is created; see "When memory or threads are missing").
+- Level 30 (one run each): `book fix` with 2 leaves to search: 3.4 s with `auto`, 3.6 s with `1`; with 4 leaves: 11.9 s and 18.4 s (peak memory 684 MB and 262 MB).
+- Linux library (x86-64-v3, the 30 problems of `edax_bench`): 0.987 ± 0.002 times the time of the library linked without `-Bsymbolic` with 1 thread (same node counts), 0.98 ± 0.01 with 8 threads.
+- **Not measured**: the release builds (with PGO) against each other, the speed of the Linux executables, learning games at level 30, the macOS, Android and Windows ARM64 builds.
 
-- `book-store-auto-save = off`: 1.004 ± 0.005 times the time of `on` for 128 games learned on the book of 270,000 positions, 0.99 ± 0.04 on a book of 770,000 positions, 0.99 ± 0.01 for 30 games learned one by one: with books of this size the difference cannot be measured (a save takes about 0.013 s). The setting halves what is written to the disk, and the time of a save grows with the book.
+- `book-store-auto-save = off`: 1.004 ± 0.005 times the time of `on` for 128 games learned on the book of 270,000 positions, 0.99 ± 0.04 on a book of 770,000 positions, 0.99 ± 0.01 for 30 games learned one by one: with books of this size the difference cannot be measured (a save takes about 0.013 s). With the book of 6.49 million positions (a save takes 0.2 to 0.3 s): 0.966 ± 0.002 for 128 games (23.8 → 23.0 s), 0.87 ± 0.02 for 8 games learned one by one (18.7 → 16.3 s). The setting halves what is written to the disk, and the time of a save grows with the book.
 - `book negamax` and the number of threads (6.49 million positions, one negamax): 1.97 s with 1 thread, 1.00 s with 2, 0.53 s with 4, 0.30 s with 8, 0.21 s with 16, 0.19 s with 32: almost proportional up to 8 threads, flat above. The work lost by threads walking the same positions is about 20% with 32 threads, 3% with 8.
 - edax_runner at level 18 with 32 threads, 3,200 games learned in 16 minutes: its memory stayed between 717 and 725 MB.
 
@@ -118,6 +150,7 @@ Ryzen 9 9950X (32 logical CPUs), `n-tasks` 32, `hash-table-size = auto`. The cod
 | A setting that is not a number | no warning | ignored with a warning |
 | `quit` with `edax < file` | previous commands could be dropped | run in its turn |
 | `-cpu` on Linux and the searches done at the same time | threads piled up on the same CPUs | not used (as `book-store-tasks = 1`) |
+| The last games of a group of `book learn` / `edax_book_store_games` (`book-store-tasks` not 1) | one thread per game to the end | the threads of the games that are over are added (the moves of these games can change from a run to the next) |
 | libedax: `edax_stop` while the book is being changed | search interrupted, its partial result stored | not stopped |
 | libedax: NULL arguments | crash | nothing happens |
 
