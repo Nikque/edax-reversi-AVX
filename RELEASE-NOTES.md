@@ -50,7 +50,7 @@ libedax:
 - New function `edax_book_save_checked` (`book save` that returns 1 if the book was saved, 0 otherwise) and `edax_book_failed` (1 if the last book function could not add a position, the memory being exhausted). New status character `'2'` of `edax_book_store_games` (failure: the line is still to be learned).
 - While a function that changes the book is running, `edax_stop` no longer stops the search (the partial result of the interrupted search went into the book).
 - Fixed: a hang when a book function is called while pondering, crashes on NULL arguments, a negative number for `edax_hint`, the `edax_get_bookmove` functions when there is no move. The `link` of a `LibedaxPosition` stays valid for the next 63 positions.
-- The Linux and Android libraries are linked with `-Bsymbolic` (functions of the same name in the program do not take the place of the ones of the library).
+- The Linux and Android libraries are linked with `-Bsymbolic` (functions of the same name in the program do not take the place of the ones of the library). The Linux library is also compiled with `-fno-semantic-interposition`, and is about 8% faster (`edax_bench`: 0.926 times the time, same node counts).
 
 Checked: single-thread `-solve` results and node counts; the book regression tests (every file as v4.5.5-nikque.8); identical books with the test build where every search keeps one thread; repeated runs of the "stop and go on" step; test builds without enough threads or memory; 32-bit builds; ThreadSanitizer; 191 API checks.
 
