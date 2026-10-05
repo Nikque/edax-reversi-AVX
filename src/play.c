@@ -1117,25 +1117,27 @@ static int learn_game_start(LearnGame *g, Board *board)
  * @brief Give to the search of a lane the threads of the lanes that have no game left to play.
  *
  * When the last games are being played, the lanes that are over leave their threads idle. The search of
- * a lane that still plays gets them for its next moves, each time it can get at least twice its threads
- * (as plan_share_threads() does for the searches of the positions). Its hash tables keep their size.
+ * a lane that still plays gets them for its next moves (between two moves: nothing is stopped, the threads
+ * are only created). Its hash tables keep their size.
+ * A lane that already has LEARN_LANE_SHARE_MAX threads or more keeps them: more threads did not make its
+ * moves faster (2 games at level 24, 16 threads each: 1.008 +- 0.005 times the time, 72 rounds), while
+ * lanes of 1 thread gain much (128 games at level 18: 0.90).
  *
  * @param lane Lane.
  */
+#define LEARN_LANE_SHARE_MAX 8
+
 static void learn_lane_share_threads(LearnLane *lane)
 {
 #ifndef BOOK_TEST_ONE_THREAD
 	LearnShared *s = lane->shared;
 	int n;
 
+	if (lane->n_tasks >= LEARN_LANE_SHARE_MAX) return;
 	lock(s);
 	n = MIN(s->n_threads / s->n_busy, MAX_THREADS - 1);
 	unlock(s);
-#ifdef BOOK_TEST_LANE_DOUBLE
-	if (n >= 2 * lane->n_tasks) { // test builds: only when the threads double, as plan_share_threads()
-#else
-	if (n > lane->n_tasks) { // (between two moves: nothing is stopped, the threads are only created)
-#endif
+	if (n > lane->n_tasks) {
 		search_set_task_number(lane->search, n);
 		lane->n_tasks = n;
 	}
