@@ -3044,6 +3044,113 @@ static void book_link_refresh(BookTask *task)
  * (only this thread writes to the links of a position, and no thread reads the links of
  * another position).
  */
+#ifndef BOOK_TEST_LINK_NO_PREFETCH
+/**
+ * The positions that the moves of a position lead to, looked for together: their places in the book
+ * are computed and asked for (prefetch) before the first one is read, as position_negamax_parallel()
+ * does. Same positions, in the same order, as one book_probe() for each move.
+ */
+typedef struct ChildProbe {
+	PositionArray *array[MAX_MOVE];
+	Board unique[MAX_MOVE];
+	int x[MAX_MOVE];
+	int n;
+} ChildProbe;
+
+static inline void child_probe_add(ChildProbe *c, const Book *book, const Board *next, const int x)
+{
+	board_unique(next, c->unique + c->n);
+	c->array[c->n] = book_array(book, c->unique + c->n);
+	PREFETCH(c->array[c->n]);
+	c->x[c->n++] = x;
+}
+
+static inline void child_probe_fetch(const ChildProbe *c)
+{
+	int i;
+	for (i = 0; i < c->n; ++i) position_array_prefetch(c->array[i]);
+}
+
+static void book_link_find(BookTask *task)
+{
+	Book *book = task->book;
+	int b, k, x, i;
+	Board next;
+	ChildProbe c;
+
+	for (b = task->first; b < task->last; ++b) {
+		const PositionArray *a = book->array + b;
+		for (k = 0; k < a->n; ++k) {
+			Position *p = a->positions + k;
+			unsigned long long moves = board_get_moves(&p->board);
+			bool found = false;
+			const Position *child;
+			Link *l;
+
+			c.n = 0;
+			if (moves) {
+				foreach_bit(x, moves) {
+					board_next(&p->board, x, &next);
+					child_probe_add(&c, book, &next, x);
+				}
+			} else if (can_move(p->board.opponent, p->board.player)) {
+				next.player = p->board.opponent;
+				next.opponent = p->board.player;
+				child_probe_add(&c, book, &next, PASS);
+			}
+			child_probe_fetch(&c);
+			for (i = 0; i < c.n; ++i) {
+				child = position_array_probe(c.array[i], c.unique + i);
+				if (child) {
+					x = c.x[i];
+					foreach_link(l, p) if (l->move == x) break;
+					if (l < position_links(p) + p->n_link) l->score = -child->score.value;
+					else { book_task_push(task, TASK_ITEM(b, k, x)); found = true; }
+				}
+			}
+			if (!found && p->leaf.move == NOMOVE) book_task_push(task, TASK_ITEM(b, k, TASK_NO_LINK));
+		}
+		task->done += a->n;
+	}
+}
+
+static void book_link_find_missing(BookTask *task)
+{
+	Book *book = task->book;
+	int b, k, x, i;
+	Board next;
+	ChildProbe c;
+
+	for (b = task->first; b < task->last; ++b) {
+		const PositionArray *a = book->array + b;
+		for (k = 0; k < a->n; ++k) {
+			const Position *p = a->positions + k;
+			unsigned long long moves = board_get_moves(&p->board);
+			bool found = false;
+
+			c.n = 0;
+			if (moves) {
+				foreach_bit(x, moves) {
+					if (!position_has_link(p, x)) {
+						board_next(&p->board, x, &next);
+						child_probe_add(&c, book, &next, x);
+					}
+				}
+			} else if (can_move(p->board.opponent, p->board.player) && !position_has_link(p, PASS)) {
+				next.player = p->board.opponent;
+				next.opponent = p->board.player;
+				child_probe_add(&c, book, &next, PASS);
+			}
+			child_probe_fetch(&c);
+			for (i = 0; i < c.n; ++i) {
+				if (position_array_probe(c.array[i], c.unique + i)) { book_task_push(task, TASK_ITEM(b, k, c.x[i])); found = true; }
+			}
+			if (!found && p->leaf.move == NOMOVE) book_task_push(task, TASK_ITEM(b, k, TASK_NO_LINK));
+		}
+		task->done += a->n;
+	}
+}
+#else // test builds: the lookup of v4.5.5-nikque.9, one child after the other
 static void book_link_find(BookTask *task)
 {
 	Book *book = task->book;
@@ -3118,6 +3225,7 @@ static void book_link_find_missing(BookTask *task)
 		task->done += a->n;
 	}
 }
+#endif
 
 /*
  * Leaves of the merge source for positions that are in both books.
