@@ -1232,6 +1232,7 @@ static void position_negamax_compute(Position *position, Book *book, Position **
 	position->n_lines = (unsigned int) MIN(UINT_MAX, stat.n_lines);
 }
 
+#ifdef BOOK_TEST_NEGAMAX_NO_PREFETCH // (test builds: the lookup of v4.5.5-nikque.9, one child after the other)
 /**
  * @brief Position that a link leads to, for the parallel negamax.
  *
@@ -1264,6 +1265,47 @@ static Position* negamax_link_target(const Position *position, const Link *link,
 	}
 	return book_probe(book, &target);
 }
+#else
+struct PositionArray;
+static struct PositionArray* book_array(const Book*, const Board*);
+static void position_array_prefetch(const struct PositionArray*);
+static Position* position_array_probe(struct PositionArray*, const Board*);
+
+/**
+ * @brief Where the position that a link leads to is looked for, for the parallel negamax.
+ *
+ * The threads walk the links without marking where they are, and wait for each other: a link of a
+ * damaged book that leads back to its own position, or to a position above it (a pass that is not
+ * one, a move on an occupied square), would be walked without end (stack overflow), where
+ * position_negamax() stops at the positions that it has already seen. So only the links that make the
+ * game progress are followed: a move that adds a disc, or the pass of a player who cannot move to a
+ * player who can. Every link of a valid book is one of them.
+ *
+ * @param position Position.
+ * @param link Link of the position.
+ * @param book Opening book.
+ * @param unique Board to look for (output).
+ * @return the array of positions to search for this board, or NULL if the link is not followed.
+ */
+static struct PositionArray* negamax_link_array(const Position *position, const Link *link, const Book *book, Board *unique)
+{
+	const Board *board = &position->board;
+	Board target;
+
+	if (link->move <= H8) {
+		board_next(board, link->move, &target);
+		if (bit_count(target.player | target.opponent) <= bit_count(board->player | board->opponent)) return NULL;
+	} else if (link->move == PASS) {
+		if (can_move(board->player, board->opponent) || !can_move(board->opponent, board->player)) return NULL;
+		target.player = board->opponent;
+		target.opponent = board->player;
+	} else {
+		return NULL;
+	}
+	board_unique(&target, unique);
+	return book_array(book, unique);
+}
+#endif
 
 static void position_negamax_parallel(Position *position, Book *book, const int id)
 {
@@ -1280,7 +1322,23 @@ static void position_negamax_parallel(Position *position, Book *book, const int 
 	n = position->n_link;
 	if (n > NEGAMAX_MAX_LINKS) fatal_error("too many links\n");
 	l = position_links(position);
+#ifndef BOOK_TEST_NEGAMAX_NO_PREFETCH
+	{
+		// the children are anywhere in memory: ask for all of them (the arrays, then their positions) before
+		// reading the first one, instead of waiting for each one in turn.
+		struct PositionArray *array[NEGAMAX_MAX_LINKS];
+		Board unique[NEGAMAX_MAX_LINKS];
+
+		for (i = 0; i < n; ++i) {
+			array[i] = negamax_link_array(position, l + i, book, unique + i);
+			if (array[i]) PREFETCH(array[i]);
+		}
+		for (i = 0; i < n; ++i) if (array[i]) position_array_prefetch(array[i]);
+		for (i = 0; i < n; ++i) children[i] = array[i] ? position_array_probe(array[i], unique + i) : NULL;
+	}
+#else
 	for (i = 0; i < n; ++i) children[i] = negamax_link_target(position, l + i, book);
+#endif
 	// threads start with different children to spread the work
 	first = n ? (id * 7 + board_count_empties(&position->board)) % n : 0;
 	for (i = 0; i < n; ++i) {
@@ -1859,6 +1917,18 @@ static Position* position_array_probe(PositionArray *a, const Board *board)
 	int i;
 	for (i = 0; i < a->n; ++i) if (board_equal(&a->positions[i].board, board)) return a->positions + i;
 	return NULL;
+}
+
+/** @brief Array of the positions with the hash code of a board (unique board). */
+static PositionArray* book_array(const Book *book, const Board *unique)
+{
+	return book->array + (board_get_hash_code(unique) & (book->n - 1));
+}
+
+/** @brief Ask for the memory of the positions of an array (the array itself must be readable). */
+static void position_array_prefetch(const PositionArray *a)
+{
+	PREFETCH(a->positions);
 }
 
 #define foreach_position(p, a, b) \
