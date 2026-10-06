@@ -1415,6 +1415,10 @@ static void book_negamax_position(Position *root, Book *book)
  * @param opponent_deviation Opponent's error.
  * @param lower Error lower bound.
  * @param upper Error upper bound.
+ * @param seen State flag of the walks with these deviations and bounds (0: none): a position that
+ *        already has it is not walked again (the same positions would be kept again). The callers
+ *        only use infinite bounds, so the deviations alone tell the walks apart.
+ * @param seen_next State flag of the walks with the deviations swapped.
  */
 #ifdef BOOK_TEST_SUBTREE_STAT
 static long long subtree_stat_new, subtree_stat_t0;
@@ -1422,7 +1426,7 @@ static long long subtree_stat_new, subtree_stat_t0;
 #else
 #define SUBTREE_STAT(s)
 #endif
-static void position_prune(Position *position, Book *book, const int player_deviation, const int opponent_deviation, const int lower, const int upper)
+static void position_prune(Position *position, Book *book, const int player_deviation, const int opponent_deviation, const int lower, const int upper, const unsigned char seen, const unsigned char seen_next)
 {
 	Link *l;
 	Board target;
@@ -1430,17 +1434,18 @@ static void position_prune(Position *position, Book *book, const int player_devi
 
 	// if position is not done yet & good enough & inside the book height limit
 	if (lower <= position->score.value && position->score.value <= upper && board_count_empties(&position->board) >= book->options.n_empties - 1) {
+		if (seen && position_state_is(position->state, book, seen)) return;
 #ifdef BOOK_TEST_SUBTREE_STAT
 		if (!position_is_done(position, book)) ++subtree_stat_new;
 #endif
-		position_set_done(position, book); book->stats.n_todo++;
+		position_set_done(position, book); position->state |= seen; book->stats.n_todo++;
 
 		// prune all children close to the best move
 		foreach_link(l, position) {
 			if (position->score.value - l->score <= player_deviation && lower <= l->score && l->score <= upper) {
 				board_next(&position->board, l->move, &target);
 				child = book_probe(book, &target);
-				if (child) position_prune(child, book, opponent_deviation, player_deviation, -upper, -lower);
+				if (child) position_prune(child, book, opponent_deviation, player_deviation, -upper, -lower, seen_next, seen);
 			}
 		}
 		if (book->stats.n_todo % BOOK_INFO_RESOLUTION == 0) {
@@ -4764,11 +4769,11 @@ void book_prune(Book *book)
 		SUBTREE_STAT("negamax");
 
 		book_clean(book);
-		position_prune(root, book, 2*SCORE_INF, 0, -SCORE_INF, SCORE_INF);
+		position_prune(root, book, 2*SCORE_INF, 0, -SCORE_INF, SCORE_INF, 0, 0);
 		position_print(root, &root->board, stdout);
 		bprint("Book prune %lld... done\n", book->stats.n_todo);
 
-		position_prune(root, book, 0, 2*SCORE_INF, -SCORE_INF, SCORE_INF);
+		position_prune(root, book, 0, 2*SCORE_INF, -SCORE_INF, SCORE_INF, 0, 0);
 		bprint("Book prune %lld... done\n", book->stats.n_todo);
 #ifdef BOOK_TEST_SUBTREE_STAT
 		fprintf(stderr, "<subtree-stat visits %lld, marked %lld>\n", book->stats.n_todo, subtree_stat_new);
@@ -4806,7 +4811,12 @@ void book_subtree(Book *book, const Board *board)
 		SUBTREE_STAT("negamax");
 
 		book_clean(book);
-		position_prune(root, book, 2*SCORE_INF, 2*SCORE_INF, -SCORE_INF, SCORE_INF);
+#ifdef BOOK_TEST_SUBTREE_OLD
+		position_prune(root, book, 2*SCORE_INF, 2*SCORE_INF, -SCORE_INF, SCORE_INF, 0, 0);
+#else
+		// every walk has the same deviations and bounds: a kept position is not walked again
+		position_prune(root, book, 2*SCORE_INF, 2*SCORE_INF, -SCORE_INF, SCORE_INF, POSITION_DONE, POSITION_DONE);
+#endif
 		position_print(root, &root->board, stdout);
 		bprint("Book subtree %lld... done\n", book->stats.n_todo);
 #ifdef BOOK_TEST_SUBTREE_STAT
