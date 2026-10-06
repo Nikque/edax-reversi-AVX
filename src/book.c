@@ -4753,6 +4753,13 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
  *
  * @param book opening book.
  */
+#ifdef BOOK_TEST_PRUNE_OLD
+#define PRUNE_SEEN_A 0
+#define PRUNE_SEEN_B 0
+#else
+#define PRUNE_SEEN_A POSITION_TODO
+#define PRUNE_SEEN_B POSITION_BUSY
+#endif
 void book_prune(Book *book)
 {
 	PositionArray *a;
@@ -4769,11 +4776,13 @@ void book_prune(Book *book)
 		SUBTREE_STAT("negamax");
 
 		book_clean(book);
-		position_prune(root, book, 2*SCORE_INF, 0, -SCORE_INF, SCORE_INF, 0, 0);
+		// the walks only have two sets of deviations (all the moves of a side, the best moves of the other):
+		// a state flag for each tells that a position was already walked with it (cleared below)
+		position_prune(root, book, 2*SCORE_INF, 0, -SCORE_INF, SCORE_INF, PRUNE_SEEN_A, PRUNE_SEEN_B);
 		position_print(root, &root->board, stdout);
 		bprint("Book prune %lld... done\n", book->stats.n_todo);
 
-		position_prune(root, book, 0, 2*SCORE_INF, -SCORE_INF, SCORE_INF, 0, 0);
+		position_prune(root, book, 0, 2*SCORE_INF, -SCORE_INF, SCORE_INF, PRUNE_SEEN_B, PRUNE_SEEN_A);
 		bprint("Book prune %lld... done\n", book->stats.n_todo);
 #ifdef BOOK_TEST_SUBTREE_STAT
 		fprintf(stderr, "<subtree-stat visits %lld, marked %lld>\n", book->stats.n_todo, subtree_stat_new);
@@ -4782,7 +4791,10 @@ void book_prune(Book *book)
 		for (a = book->array; a < book->array + book->n; ++a)
 		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
 		SUBTREE_STAT("remove");
-		foreach_position(p, a, book) position_remove_links(p, book);
+		foreach_position(p, a, book) {
+			p->state &= (unsigned char) ~(PRUNE_SEEN_A | PRUNE_SEEN_B);
+			position_remove_links(p, book);
+		}
 		SUBTREE_STAT("remove_links");
 		bprint("done\n");
 	}
