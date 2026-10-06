@@ -1416,6 +1416,12 @@ static void book_negamax_position(Position *root, Book *book)
  * @param lower Error lower bound.
  * @param upper Error upper bound.
  */
+#ifdef BOOK_TEST_SUBTREE_STAT
+static long long subtree_stat_new, subtree_stat_t0;
+#define SUBTREE_STAT(s) (fprintf(stderr, "<subtree-stat %s: %lld ms, nodes %u>\n", s, real_clock() - subtree_stat_t0, book->n_nodes), subtree_stat_t0 = real_clock())
+#else
+#define SUBTREE_STAT(s)
+#endif
 static void position_prune(Position *position, Book *book, const int player_deviation, const int opponent_deviation, const int lower, const int upper)
 {
 	Link *l;
@@ -1424,6 +1430,9 @@ static void position_prune(Position *position, Book *book, const int player_devi
 
 	// if position is not done yet & good enough & inside the book height limit
 	if (lower <= position->score.value && position->score.value <= upper && board_count_empties(&position->board) >= book->options.n_empties - 1) {
+#ifdef BOOK_TEST_SUBTREE_STAT
+		if (!position_is_done(position, book)) ++subtree_stat_new;
+#endif
 		position_set_done(position, book); book->stats.n_todo++;
 
 		// prune all children close to the best move
@@ -4747,8 +4756,12 @@ void book_prune(Book *book)
 	int i;
 
 	if (root) {
+#ifdef BOOK_TEST_SUBTREE_STAT
+		subtree_stat_new = 0; subtree_stat_t0 = real_clock();
+#endif
 		book_clean(book);
 		position_negamax(root, book);
+		SUBTREE_STAT("negamax");
 
 		book_clean(book);
 		position_prune(root, book, 2*SCORE_INF, 0, -SCORE_INF, SCORE_INF);
@@ -4757,9 +4770,15 @@ void book_prune(Book *book)
 
 		position_prune(root, book, 0, 2*SCORE_INF, -SCORE_INF, SCORE_INF);
 		bprint("Book prune %lld... done\n", book->stats.n_todo);
+#ifdef BOOK_TEST_SUBTREE_STAT
+		fprintf(stderr, "<subtree-stat visits %lld, marked %lld>\n", book->stats.n_todo, subtree_stat_new);
+#endif
+		SUBTREE_STAT("mark");
 		for (a = book->array; a < book->array + book->n; ++a)
 		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
+		SUBTREE_STAT("remove");
 		foreach_position(p, a, book) position_remove_links(p, book);
+		SUBTREE_STAT("remove_links");
 		bprint("done\n");
 	}
 }
@@ -4779,16 +4798,26 @@ void book_subtree(Book *book, const Board *board)
 	int i;
 
 	if (root) {
+#ifdef BOOK_TEST_SUBTREE_STAT
+		subtree_stat_new = 0; subtree_stat_t0 = real_clock();
+#endif
 		book_clean(book);
 		position_negamax(root, book);
+		SUBTREE_STAT("negamax");
 
 		book_clean(book);
 		position_prune(root, book, 2*SCORE_INF, 2*SCORE_INF, -SCORE_INF, SCORE_INF);
 		position_print(root, &root->board, stdout);
 		bprint("Book subtree %lld... done\n", book->stats.n_todo);
+#ifdef BOOK_TEST_SUBTREE_STAT
+		fprintf(stderr, "<subtree-stat visits %lld, marked %lld>\n", book->stats.n_todo, subtree_stat_new);
+#endif
+		SUBTREE_STAT("mark");
 		for (a = book->array; a < book->array + book->n; ++a)
 		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
+		SUBTREE_STAT("remove");
 		foreach_position(p, a, book) position_remove_links(p, book);
+		SUBTREE_STAT("remove_links");
 		bprint("done\n");
 	}
 }
