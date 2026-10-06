@@ -1460,6 +1460,265 @@ static void position_prune(Position *position, Book *book, const int player_devi
 	}
 }
 
+#ifndef BOOK_TEST_PRUNE_MARK_OLD
+/*
+ * Marking of the positions to keep (book subtree, book prune) with several threads.
+ *
+ * position_prune() marks what can be reached from the root: a position (with the deviation of the
+ * side to move, see book_prune) is walked once, and what is walked from it only depends on the
+ * book, that does not change meanwhile. So the marks do not depend on the order of the walk, and
+ * the number of marks is the same. Here each thread walks with its own stack of positions to walk;
+ * a position is pushed by the thread that marks it (compare and swap of its state), so it is
+ * walked once. A thread with nothing left takes positions from a shared pool, that the others fill
+ * with the oldest half of their stacks (the positions nearest to the root) when a thread is waiting.
+ * The positions that the links lead to are asked from the memory together, before the first one is read.
+ */
+#define PRUNE_MARK_LINKS 64
+#ifndef PRUNE_MARK_SEQUENTIAL
+#define PRUNE_MARK_SEQUENTIAL 4096 /**< marks done by the calling thread before the others are started (small walks) */
+#endif
+#define PRUNE_MARK_FLUSH 1024      /**< marks between two updates of the shared count */
+
+struct PositionArray;
+static struct PositionArray* book_array(const Book*, const Board*);
+static void position_array_prefetch(const struct PositionArray*);
+static Position* position_array_probe(struct PositionArray*, const Board*);
+static void book_clean(Book*);
+
+/** list of positions to walk: pointer | kind of walk (0 or 1) */
+typedef struct PruneMarkList {
+	uintptr_t *item;
+	long long n, size;
+} PruneMarkList;
+
+typedef struct PruneMarkShared {
+	Book *book;
+	Lock lock;                 /**< guards the pool and the counts */
+	PruneMarkList pool;        /**< positions given by the threads to the threads with nothing left */
+	int n_busy;                /**< threads with positions to walk */
+	long long n_marked;        /**< marks so far (progress), with those of the walks before */
+	int deviation[2];          /**< deviation of the side to move, for each kind of walk */
+	unsigned char seen[2];     /**< state flag of each kind of walk */
+	unsigned char hungry;      /**< a thread waits for positions */
+	unsigned char oom;
+} PruneMarkShared;
+
+typedef struct PruneMarkWorker {
+	PruneMarkShared *shared;
+	PruneMarkList stack;
+	long long n_marked, n_new, n_flushed;
+	bool busy;
+} PruneMarkWorker;
+
+static bool prune_mark_reserve(PruneMarkList *l, const long long n)
+{
+	if (l->n + n > l->size) {
+		const long long size = l->size + l->size / 2 + n + 1024;
+		uintptr_t *item = (uintptr_t*) realloc(l->item, size * sizeof *item);
+		if (item == NULL) return false;
+		l->item = item; l->size = size;
+	}
+	return true;
+}
+
+/** Mark a position for a kind of walk, if it is not, and push it. */
+static void prune_mark_push(PruneMarkWorker *w, Position *p, const int kind)
+{
+	PruneMarkShared *s = w->shared;
+	const Book *book = s->book;
+	const unsigned char seen = s->seen[kind];
+	unsigned char state;
+
+	if (board_count_empties(&p->board) < book->options.n_empties - 1) return; // (the bounds of position_prune are infinite)
+	do {
+		state = atomic_load_uchar(&p->state);
+		if (position_state_is(state, book, seen)) return; // already walked
+	} while (!atomic_cas_uchar(&p->state, state, (unsigned char) (position_state_set(state, book->epoch, POSITION_DONE) | seen)));
+	++w->n_marked;
+	if (!position_state_is(state, book, POSITION_DONE)) ++w->n_new;
+	if (!prune_mark_reserve(&w->stack, 1)) { atomic_store_uchar(&s->oom, 1); return; }
+	w->stack.item[w->stack.n++] = (uintptr_t) p | (uintptr_t) kind;
+}
+
+/** Walk the links of a marked position (as position_prune). */
+static void prune_mark_walk(PruneMarkWorker *w, const uintptr_t item)
+{
+	PruneMarkShared *s = w->shared;
+	const Book *book = s->book;
+	const Position *position = (const Position*) (item & ~(uintptr_t) 1);
+	const int kind = (int) (item & 1);
+	const int deviation = s->deviation[kind];
+	const Link *l = position_links(position);
+	struct PositionArray *array[PRUNE_MARK_LINKS];
+	Board unique[PRUNE_MARK_LINKS], target;
+	int first, i, n;
+
+	for (first = 0; first < position->n_link; first += PRUNE_MARK_LINKS, l += PRUNE_MARK_LINKS) {
+		n = MIN(position->n_link - first, PRUNE_MARK_LINKS);
+		for (i = 0; i < n; ++i) {
+			array[i] = NULL;
+			if (position->score.value - l[i].score <= deviation && -SCORE_INF <= l[i].score && l[i].score <= SCORE_INF) {
+				board_next(&position->board, l[i].move, &target);
+				board_unique(&target, unique + i);
+				array[i] = book_array(book, unique + i);
+				PREFETCH(array[i]);
+			}
+		}
+		for (i = 0; i < n; ++i) if (array[i]) position_array_prefetch(array[i]);
+		for (i = 0; i < n; ++i) if (array[i]) {
+			Position *child = position_array_probe(array[i], unique + i);
+			if (child) prune_mark_push(w, child, kind ^ 1);
+		}
+	}
+}
+
+/** Add the marks of a thread to the shared count (and show it, as position_prune). */
+static void prune_mark_flush(PruneMarkWorker *w)
+{
+	PruneMarkShared *s = w->shared;
+	const long long n = w->n_marked - w->n_flushed;
+
+	if (n == 0) return;
+	lock(s);
+	s->n_marked += n;
+	if (s->n_marked / BOOK_INFO_RESOLUTION != (s->n_marked - n) / BOOK_INFO_RESOLUTION) {
+		bprint("Book prune %lld to keep\r", s->n_marked / BOOK_INFO_RESOLUTION * BOOK_INFO_RESOLUTION);
+	}
+	unlock(s);
+	w->n_flushed = w->n_marked;
+}
+
+/** Take positions from the pool. @return false when the walk is over. */
+static bool prune_mark_take(PruneMarkWorker *w)
+{
+	PruneMarkShared *s = w->shared;
+	int spin = 0;
+
+	for (;;) {
+		lock(s);
+		if (w->busy) { --s->n_busy; w->busy = false; }
+		if (s->pool.n > 0) {
+			const long long n = (s->pool.n + 1) / 2;
+			if (prune_mark_reserve(&w->stack, n)) {
+				memcpy(w->stack.item + w->stack.n, s->pool.item + s->pool.n - n, n * sizeof *w->stack.item);
+				w->stack.n += n; s->pool.n -= n;
+				++s->n_busy; w->busy = true;
+				unlock(s);
+				return true;
+			}
+			atomic_store_uchar(&s->oom, 1); // (the walk is done again by the caller)
+			s->pool.n = 0;
+		}
+		if (s->n_busy == 0) { unlock(s); return false; }
+		atomic_store_uchar(&s->hungry, 1);
+		unlock(s);
+		if (++spin < 64) {
+#if defined(_M_X64) || defined(_M_IX86)
+			_mm_pause();
+#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+			__builtin_ia32_pause();
+#endif
+		} else {
+			spin = 0;
+#ifdef _WIN32
+			Sleep(0);
+#else
+			sched_yield();
+#endif
+		}
+	}
+}
+
+/** Give the oldest half of the stack to the pool. */
+static void prune_mark_give(PruneMarkWorker *w)
+{
+	PruneMarkShared *s = w->shared;
+	const long long n = w->stack.n / 2;
+
+	lock(s);
+	if (prune_mark_reserve(&s->pool, n)) {
+		memcpy(s->pool.item + s->pool.n, w->stack.item, n * sizeof *w->stack.item);
+		s->pool.n += n;
+		w->stack.n -= n;
+		memmove(w->stack.item, w->stack.item + n, w->stack.n * sizeof *w->stack.item);
+	} // (else: this thread walks them)
+	atomic_store_uchar(&s->hungry, 0);
+	unlock(s);
+}
+
+static void* prune_mark_worker(void *v)
+{
+	PruneMarkWorker *w = (PruneMarkWorker*) v;
+	PruneMarkShared *s = w->shared;
+
+	for (;;) {
+		if (w->stack.n == 0 && !prune_mark_take(w)) break;
+		prune_mark_walk(w, w->stack.item[--w->stack.n]);
+		if (w->n_marked - w->n_flushed >= PRUNE_MARK_FLUSH) prune_mark_flush(w);
+		if (w->stack.n >= 2 && atomic_load_uchar(&s->hungry)) prune_mark_give(w);
+	}
+	prune_mark_flush(w);
+	return NULL;
+}
+
+/**
+ * @brief Mark the positions to keep with several threads (same marks and same count as position_prune).
+ *
+ * @param book Opening book.
+ * @param root Position to walk from.
+ * @param deviation_0 Deviation of the side to move in the walks of kind 0.
+ * @param deviation_1 Deviation of the side to move in the walks of kind 1 (the positions after those of kind 0, and back).
+ * @param seen_0 State flag of the walks of kind 0.
+ * @param seen_1 State flag of the walks of kind 1.
+ * @param kind Kind of the walk of the root.
+ * @return false if nothing was marked (one thread; or memory exhausted: then book_clean() was called):
+ *         position_prune() is to be used.
+ */
+static bool book_prune_mark(Book *book, Position *root, const int deviation_0, const int deviation_1, const unsigned char seen_0, const unsigned char seen_1, const int kind)
+{
+	PruneMarkShared shared;
+	PruneMarkWorker *w;
+	int i, n = options.n_task; // (as book_negamax_position)
+	bool ok;
+
+	if (n > MAX_THREADS) n = MAX_THREADS;
+	if (n <= 1 || seen_0 == 0 || seen_1 == 0) return false;
+	w = (PruneMarkWorker*) calloc(n, sizeof *w);
+	if (w == NULL) return false;
+	memset(&shared, 0, sizeof shared);
+	shared.book = book; shared.n_marked = book->stats.n_todo;
+	shared.deviation[0] = deviation_0; shared.deviation[1] = deviation_1;
+	shared.seen[0] = seen_0; shared.seen[1] = seen_1;
+	lock_init(&shared);
+	for (i = 0; i < n; ++i) w[i].shared = &shared;
+
+	// the calling thread starts alone: a small walk ends here
+	prune_mark_push(w, root, kind);
+	while (w->stack.n > 0 && w->n_marked < PRUNE_MARK_SEQUENTIAL) prune_mark_walk(w, w->stack.item[--w->stack.n]);
+	if (w->stack.n > 0) {
+		w->busy = true; shared.n_busy = 1;
+		book_run_workers(prune_mark_worker, w, sizeof *w, n);
+	}
+
+	ok = !shared.oom;
+	if (ok) {
+		for (i = 0; i < n; ++i) {
+			book->stats.n_todo += w[i].n_marked;
+#ifdef BOOK_TEST_SUBTREE_STAT
+			subtree_stat_new += w[i].n_new;
+#endif
+		}
+	} else {
+		book_clean(book);
+	}
+	for (i = 0; i < n; ++i) free(w[i].stack.item);
+	free(shared.pool.item);
+	lock_free(&shared);
+	free(w);
+	return ok;
+}
+#endif
+
 /**
  * @brief Remove bad links after book pruning.
  *
@@ -5036,12 +5295,28 @@ void book_prune(Book *book)
 		book_clean(book);
 		// the walks only have two sets of deviations (all the moves of a side, the best moves of the other):
 		// a state flag for each tells that a position was already walked with it (cleared below)
+#ifdef BOOK_TEST_PRUNE_MARK_OLD
 		position_prune(root, book, 2*SCORE_INF, 0, -SCORE_INF, SCORE_INF, PRUNE_SEEN_A, PRUNE_SEEN_B);
 		position_print(root, &root->board, stdout);
 		bprint("Book prune %lld... done\n", book->stats.n_todo);
 
 		position_prune(root, book, 0, 2*SCORE_INF, -SCORE_INF, SCORE_INF, PRUNE_SEEN_B, PRUNE_SEEN_A);
 		bprint("Book prune %lld... done\n", book->stats.n_todo);
+#else
+		{
+			// with n-tasks threads (the same marks and counts); with one thread, or without memory, as before
+			const bool marked = book_prune_mark(book, root, 2*SCORE_INF, 0, PRUNE_SEEN_A, PRUNE_SEEN_B, 0);
+			if (!marked) position_prune(root, book, 2*SCORE_INF, 0, -SCORE_INF, SCORE_INF, PRUNE_SEEN_A, PRUNE_SEEN_B);
+			position_print(root, &root->board, stdout);
+			bprint("Book prune %lld... done\n", book->stats.n_todo);
+
+			if (!marked || !book_prune_mark(book, root, 2*SCORE_INF, 0, PRUNE_SEEN_A, PRUNE_SEEN_B, 1)) {
+				if (marked) position_prune(root, book, 2*SCORE_INF, 0, -SCORE_INF, SCORE_INF, PRUNE_SEEN_A, PRUNE_SEEN_B); // (the marks were cleared)
+				position_prune(root, book, 0, 2*SCORE_INF, -SCORE_INF, SCORE_INF, PRUNE_SEEN_B, PRUNE_SEEN_A);
+			}
+			bprint("Book prune %lld... done\n", book->stats.n_todo);
+		}
+#endif
 #ifdef BOOK_TEST_SUBTREE_STAT
 		fprintf(stderr, "<subtree-stat visits %lld, marked %lld>\n", book->stats.n_todo, subtree_stat_new);
 #endif
@@ -5090,6 +5365,9 @@ void book_subtree(Book *book, const Board *board)
 		position_prune(root, book, 2*SCORE_INF, 2*SCORE_INF, -SCORE_INF, SCORE_INF, 0, 0);
 #else
 		// every walk has the same deviations and bounds: a kept position is not walked again
+#ifndef BOOK_TEST_PRUNE_MARK_OLD
+		if (!book_prune_mark(book, root, 2*SCORE_INF, 2*SCORE_INF, POSITION_DONE, POSITION_DONE, 0)) // (with n-tasks threads: the same marks and count)
+#endif
 		position_prune(root, book, 2*SCORE_INF, 2*SCORE_INF, -SCORE_INF, SCORE_INF, POSITION_DONE, POSITION_DONE);
 #endif
 		position_print(root, &root->board, stdout);
