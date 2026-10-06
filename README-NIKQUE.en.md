@@ -70,7 +70,7 @@ A condition with rounds of few positions (the book of 270 thousand positions, `b
 | Rule of v4.5.5-nikque.9 against this version | 4,231 to 4,251 (0.065% of the 6,513,834 positions) |
 
 - The added positions and the moves of the links were the same in every pair. Of the 4,231 positions that differ between the rule of v4.5.5-nikque.9 and this version, 1,377 have another leaf move (the best move that is not a link yet) and 1,626 another value (by 1 for 1,420, by 2 for 167, by 3 to 6 for 39).
-- The runs of this version all gave the same book: a one-thread search of a given position always gives the same result. **It is not verified that they always will** (the order of the expansions running at the same time can matter, for example when two expansions of a round reach the same position). With the rule of v4.5.5-nikque.9 (2-thread searches), a few hundred positions differ from one run to the next with the same settings.
+- Runs of this version made one after the other (2 runs, and 3 runs at another time) gave the same book each time: a one-thread search of a given position always gives the same result. **It is not verified that they always will** (the order of the expansions running at the same time can matter, for example when two expansions of a round reach the same position). With the rule of v4.5.5-nikque.9 (2-thread searches), a few hundred positions differ from one run to the next with the same settings.
 - As before, the positions expanded at the same time do not see each other (32 of them now, instead of 16).
 
 To get the previous rule back, write `book-expand-tasks = 16` (half of `n-tasks`).
