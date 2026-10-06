@@ -4753,6 +4753,41 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
  *
  * @param book opening book.
  */
+/** Remove the links to missing positions in a range of buckets (see book_remove_missing_links). */
+static void book_remove_links_range(BookTask *task)
+{
+	int b, k;
+	for (b = task->first; b < task->last; ++b) {
+		PositionArray *a = task->book->array + b;
+		for (k = 0; k < a->n; ++k) position_remove_links(a->positions + k, task->book);
+	}
+}
+
+/**
+ * @brief Remove the links to the positions removed from the book (after pruning).
+ *
+ * With several threads, each thread does a range of buckets: removing the links of a position
+ * only reads the boards of the other positions (no position is added, removed or moved) and
+ * only changes the links and the leaf of this position, so the book is the same as with one thread.
+ *
+ * @param book opening book.
+ */
+static void book_remove_missing_links(Book *book)
+{
+#ifndef BOOK_TEST_REMOVE_LINKS_OLD
+	if (book_n_task() > 1) {
+		BookTask task[MAX_THREADS];
+		book_parallel(book, book_remove_links_range, task, NULL);
+		return;
+	}
+#endif
+	{
+		PositionArray *a;
+		Position *p;
+		foreach_position(p, a, book) position_remove_links(p, book);
+	}
+}
+
 #ifdef BOOK_TEST_PRUNE_OLD
 #define PRUNE_SEEN_A 0
 #define PRUNE_SEEN_B 0
@@ -4763,7 +4798,6 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 void book_prune(Book *book)
 {
 	PositionArray *a;
-	Position *p;
 	Position *root = book_root(book);
 	int i;
 
@@ -4793,12 +4827,12 @@ void book_prune(Book *book)
 #endif
 		SUBTREE_STAT("mark");
 		for (a = book->array; a < book->array + book->n; ++a)
-		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
-		SUBTREE_STAT("remove");
-		foreach_position(p, a, book) {
-			p->state &= (unsigned char) ~(PRUNE_SEEN_A | PRUNE_SEEN_B);
-			position_remove_links(p, book);
+		for (i = 0; i < a->n; ++i) {
+			if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
+			else a->positions[i].state &= (unsigned char) ~(PRUNE_SEEN_A | PRUNE_SEEN_B);
 		}
+		SUBTREE_STAT("remove");
+		book_remove_missing_links(book);
 		SUBTREE_STAT("remove_links");
 		bprint("done\n");
 	}
@@ -4814,7 +4848,6 @@ void book_prune(Book *book)
 void book_subtree(Book *book, const Board *board)
 {
 	PositionArray *a;
-	Position *p;
 	Position *root = book_probe(book, board);
 	int i;
 
@@ -4846,7 +4879,7 @@ void book_subtree(Book *book, const Board *board)
 		for (a = book->array; a < book->array + book->n; ++a)
 		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
 		SUBTREE_STAT("remove");
-		foreach_position(p, a, book) position_remove_links(p, book);
+		book_remove_missing_links(book);
 		SUBTREE_STAT("remove_links");
 		bprint("done\n");
 	}
