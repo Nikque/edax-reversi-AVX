@@ -1439,6 +1439,9 @@ static void position_prune(Position *position, Book *book, const int player_devi
 		if (!position_is_done(position, book)) ++subtree_stat_new;
 #endif
 		position_set_done(position, book); position->state |= seen; book->stats.n_todo++;
+#ifndef BOOK_TEST_PRUNE_PROGRESS_OLD
+		if (book->stats.n_todo % BOOK_INFO_RESOLUTION == 0) bprint("Book prune %lld to keep\r", book->stats.n_todo); // (once: not at each return to this count)
+#endif
 
 		// prune all children close to the best move
 		foreach_link(l, position) {
@@ -1448,10 +1451,12 @@ static void position_prune(Position *position, Book *book, const int player_devi
 				if (child) position_prune(child, book, opponent_deviation, player_deviation, -upper, -lower, seen_next, seen);
 			}
 		}
+#ifdef BOOK_TEST_PRUNE_PROGRESS_OLD
 		if (book->stats.n_todo % BOOK_INFO_RESOLUTION == 0) {
 			bprint("Book prune %lld to keep\r", book->stats.n_todo);
-			
+
 		}
+#endif
 	}
 }
 
@@ -4753,6 +4758,46 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
  *
  * @param book opening book.
  */
+/**
+ * @brief Give back the memory of the positions removed from the book pool.
+ *
+ * A loaded book keeps its positions in one block (the pool), bucket after bucket. After many
+ * positions were removed, the kept positions are moved down to the start of the pool, in the same
+ * order, and the end of the block is released in place (the positions of a bucket stay together
+ * and in the same order: the book and what is saved do not change).
+ *
+ * @param book opening book.
+ */
+static void book_pool_compact(Book *book)
+{
+#if defined(_MSC_VER) && !defined(BOOK_TEST_NO_POOL_COMPACT)
+	PositionArray *a;
+	Position *end = book->pool;
+	long long in_pool = 0;
+
+	if (book->pool == NULL) return;
+	for (a = book->array; a < book->array + book->n; ++a) {
+		if (a->size < 0 && a->n > 0) {
+			if (a->positions < end) return; // not in the order of the buckets (never the case after book_load): leave the rest as it is
+			if (a->positions != end) memmove(end, a->positions, a->n * sizeof (Position));
+			a->positions = end;
+			end += a->n;
+			in_pool += a->n;
+		} else if (a->size < 0) { // an emptied bucket no longer points into the pool
+			a->positions = NULL; a->size = 0;
+		}
+	}
+	if (in_pool == 0) {
+		free(book->pool);
+		book->pool = NULL;
+	} else {
+		_expand(book->pool, (size_t) in_pool * sizeof (Position));
+	}
+#else
+	(void) book;
+#endif
+}
+
 /** Remove the links to missing positions in a range of buckets (see book_remove_missing_links). */
 static void book_remove_links_range(BookTask *task)
 {
@@ -4834,6 +4879,8 @@ void book_prune(Book *book)
 		SUBTREE_STAT("remove");
 		book_remove_missing_links(book);
 		SUBTREE_STAT("remove_links");
+		book_pool_compact(book);
+		SUBTREE_STAT("compact");
 		bprint("done\n");
 	}
 }
@@ -4881,6 +4928,8 @@ void book_subtree(Book *book, const Board *board)
 		SUBTREE_STAT("remove");
 		book_remove_missing_links(book);
 		SUBTREE_STAT("remove_links");
+		book_pool_compact(book);
+		SUBTREE_STAT("compact");
 		bprint("done\n");
 	}
 }
@@ -5952,7 +6001,7 @@ void book_check_base(Book *book, const Base *base)
 		book_check_game(book, &hash, base->game + i, &stat);
 	}
 	movehash_delete(&hash);
-    bprint("Positions : %llu missing, %llu good, %llu bad (%.2f%% bad)\n", stat.missing, stat.good, stat.bad, (100.0 * stat.bad)/(stat.bad + stat.good));
+    bprint("Positions : %llu missing, %llu good, %llu bad (%.2f%% bad)\n", stat.missing, stat.good, stat.bad, stat.bad + stat.good ? (100.0 * stat.bad)/(stat.bad + stat.good) : 0.0); // (no move found in the book: 0%, not 0/0)
 }
 
 
