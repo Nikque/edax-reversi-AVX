@@ -95,6 +95,7 @@ void book_fill(Book *book, const int);
 void book_deviate(Book*, Board*, const int, const int);
 void book_deviate2(Book*, Board*, const int, const int);
 void book_deviate3(Book*, Board*, const int, const int);
+void book_leaf_recalculate(Book*, Board*, const int, const int, const int);
 void book_enhance(Book*, Board*, const int, const int);
 void book_subtree(Book*, const Board*);
 void book_play(Book*);

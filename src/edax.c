@@ -840,6 +840,18 @@ void ui_loop_edax(UI *ui)
 					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
 					book_deviate3(book, &play->board, val_1, val_2);
 
+				// search again the leaves that book deviate (1, 3) or book deviate2 (2, 4) reaches:
+				// the leaves it would expand (1, 2), or the leaves of all the positions of its walk (3, 4)
+				} else if (strcmp(book_cmd, "leaf-recalculate") == 0 || strcmp(book_cmd, "leaf-recalculate3") == 0) {
+					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, -129, 129, "relative error");
+					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 65, "absolute error");
+					book_leaf_recalculate(book, &play->board, book_cmd[16] == '3' ? 3 : 1, val_1, val_2);
+
+				} else if (strcmp(book_cmd, "leaf-recalculate2") == 0 || strcmp(book_cmd, "leaf-recalculate4") == 0) {
+					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
+					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+					book_leaf_recalculate(book, &play->board, book_cmd[16] == '4' ? 4 : 2, val_1, val_2);
+
 				// add position using the "enhance algorithm"
 				} else if (strcmp(book_cmd, "enhance") == 0) {
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "midgame error");

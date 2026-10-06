@@ -2016,6 +2016,67 @@ LIBEDAX_API void edax_book_deviate3(int move_loss, int total_loss)
 	lib_book_end(book);
 }
 
+/** book leaf-recalculate commands (the caller checked g_ui) */
+static void lib_book_leaf_recalculate(const int kind, int x, int y)
+{
+	Book *book = lib_book_begin_change();
+
+	if (kind == 1 || kind == 3) {
+		BOUND(x, -129, 129, "relative error");
+		BOUND(y, 0, 65, "absolute error");
+	} else {
+		BOUND(x, 0, 129, "per-move loss");
+		BOUND(y, 0, 7740, "cumulative loss");
+	}
+	book_leaf_recalculate(book, &g_ui->play->board, kind, x, y);
+
+	lib_book_end(book);
+}
+
+/**
+ * @brief book leaf-recalculate command: search again the leaves that book deviate would expand (one pass).
+ * @param relative_error relative error.
+ * @param absolute_error absolute error.
+ */
+LIBEDAX_API void edax_book_leaf_recalculate(int relative_error, int absolute_error)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_recalculate(1, relative_error, absolute_error);
+}
+
+/**
+ * @brief book leaf-recalculate2 command: search again the leaves that book deviate2 would expand (one pass).
+ * @param move_loss per-move loss limit.
+ * @param total_loss cumulative loss limit for both players.
+ */
+LIBEDAX_API void edax_book_leaf_recalculate2(int move_loss, int total_loss)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_recalculate(2, move_loss, total_loss);
+}
+
+/**
+ * @brief book leaf-recalculate3 command: search again the leaves of all the positions that book deviate walks.
+ * @param relative_error relative error.
+ * @param absolute_error absolute error.
+ */
+LIBEDAX_API void edax_book_leaf_recalculate3(int relative_error, int absolute_error)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_recalculate(3, relative_error, absolute_error);
+}
+
+/**
+ * @brief book leaf-recalculate4 command: search again the leaves of all the positions that book deviate2 walks.
+ * @param move_loss per-move loss limit.
+ * @param total_loss cumulative loss limit for both players.
+ */
+LIBEDAX_API void edax_book_leaf_recalculate4(int move_loss, int total_loss)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_recalculate(4, move_loss, total_loss);
+}
+
 /**
  * @brief book enhance command.
  * @param midgame_error midgame error.

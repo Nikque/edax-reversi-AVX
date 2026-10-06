@@ -494,6 +494,20 @@ int main(int argc, char **argv)
 		printf("after deviate2 & deviate3 1 1: %d positions\n", info.n_nodes);
 		CHECK(info.n_nodes >= n);
 	}
+	{
+		// book leaf-recalculate (v4.5.5-nikque.12): the leaves are searched again, no position is added
+		static const char *const leaf_recalculate[] = {"edax_book_leaf_recalculate", "edax_book_leaf_recalculate2", "edax_book_leaf_recalculate3", "edax_book_leaf_recalculate4"};
+		edax_book_info(&info);
+		n = info.n_nodes;
+		for (i = 0; i < 4; ++i) {
+			Deviate f = (Deviate) optional(dll, leaf_recalculate[i]);
+			if (f) {
+				f(2, 4);
+				edax_book_info(&info);
+				CHECK_INT(info.n_nodes, n);
+			}
+		}
+	}
 	edax_book_enhance(4, 4);
 	edax_book_fill(1);
 	edax_book_fix();

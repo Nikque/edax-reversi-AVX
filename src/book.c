@@ -1764,6 +1764,32 @@ static bool position_has_missing_link(const Position *position, const Book *book
 	return false;
 }
 
+/*
+ * book leaf-recalculate: the walks of book deviate / deviate2 are used to select the leaves to
+ * search again, instead of the positions to expand.
+ * - LEAF_RECALC_SELECTED: the positions that the walk would expand (leaf inside the limits),
+ * - LEAF_RECALC_WALKED: every position that the walk goes through, and the positions just under
+ *   the depth of the walk that its links lead to (they only have a leaf, that gives its score to the link).
+ * In both cases, only a leaf that a search can give again and that is not solved (exact, whatever eval.dat).
+ */
+enum { LEAF_RECALC_OFF = 0, LEAF_RECALC_SELECTED, LEAF_RECALC_WALKED };
+static int leaf_recalc_mode = LEAF_RECALC_OFF;
+
+static bool position_is_solved(const Position*);
+
+/** @return true if the leaf of the position can be searched again by book leaf-recalculate. */
+static bool leaf_recalc_wanted(const Position *p)
+{
+	return p->leaf.move != NOMOVE && !position_is_solved(p)
+		&& p->n_link < get_mobility(p->board.player, p->board.opponent);
+}
+
+/** @return true if the position is just under the depth of the walks and gets its leaf searched again (LEAF_RECALC_WALKED). */
+static bool leaf_recalc_bottom(const Book *book, const Position *p)
+{
+	return leaf_recalc_mode == LEAF_RECALC_WALKED && board_count_empties(&p->board) == book->options.n_empties - 1 && leaf_recalc_wanted(p);
+}
+
 /**
  * @brief Deviate a position.
  *
@@ -1801,10 +1827,18 @@ static void position_deviate(Position *position, Book *book, const int player_de
 		}
 
 		// expand the best remaining move
+		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
+			 || (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper))) {
+				book_mark_todo(book, position); book->stats.n_todo++;
+			}
+		} else
 		if (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper) {
 			book_mark_todo(book, position); book->stats.n_todo++;
 			if (book->stats.n_todo % 10 == 0) bprint("Book deviate %lld todo\r", book->stats.n_todo);
 		}
+	} else if (leaf_recalc_bottom(book, position) && !position_is_todo(position, book) && lower <= position->score.value && position->score.value <= upper) {
+		book_mark_todo(book, position); book->stats.n_todo++;
 	}
 }
 
@@ -1840,6 +1874,10 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 	Position *child;
 	int move_error;
 
+	if (loss <= total_loss && leaf_recalc_bottom(book, position) && !position_is_todo(position, book)) {
+		book_mark_todo(book, position);
+		book->stats.n_todo++;
+	}
 	if (loss > total_loss || board_count_empties(&position->board) < book->options.n_empties || board_is_game_over(&position->board)) return;
 
 	// A transposed position can be reached by different lines. Revisit it only
@@ -1868,6 +1906,13 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 		&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) return;
 
 	move_error = position->score.value - position->leaf.score;
+	if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+		if (leaf_recalc_wanted(position) && !position_is_todo(position, book) && (leaf_recalc_mode == LEAF_RECALC_WALKED
+		 || (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss))) {
+			book_mark_todo(book, position);
+			book->stats.n_todo++;
+		}
+	} else
 	if (position->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss && !position_is_todo(position, book)) {
 		book_mark_todo(book, position);
 		book->stats.n_todo++;
@@ -4878,6 +4923,8 @@ static void* loss_worker_run(void *v)
 				child = book_probe(book, &target);
 				if (child && deviate_total_walkable(book, child) && deviate_total_relax(book, child, loss + move_error)) {
 					if (!position_list_push(move_error ? lw->next + loss + move_error : &lw->same, child)) w->oom = true;
+				} else if (child && leaf_recalc_bottom(book, child)) {
+					deviate_worker_todo(w, child);
 				}
 			}
 		}
@@ -4886,6 +4933,10 @@ static void* loss_worker_run(void *v)
 			&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) continue;
 
 		move_error = position->score.value - position->leaf.score;
+		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
+			 || (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss))) deviate_worker_todo(w, position);
+		} else
 		if (position->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss) {
 			deviate_worker_todo(w, position);
 		}
@@ -4976,7 +5027,10 @@ static void* depth_worker_run(void *v)
 		const Link *l;
 		unsigned char *v;
 
-		if (!(lower <= position->score.value && position->score.value <= upper && board_count_empties(&position->board) >= book->options.n_empties && !board_is_game_over(&position->board))) continue;
+		if (!(lower <= position->score.value && position->score.value <= upper && board_count_empties(&position->board) >= book->options.n_empties && !board_is_game_over(&position->board))) {
+			if (leaf_recalc_bottom(book, position) && lower <= position->score.value && position->score.value <= upper) deviate_worker_todo(w, position);
+			continue;
+		}
 		v = book_visit(book, position);
 		if (atomic_load_uchar(v) || !atomic_cas_uchar(v, 0, mark)) {
 			if (atomic_load_uchar(v) != mark) *w->conflict = true;
@@ -4990,6 +5044,10 @@ static void* depth_worker_run(void *v)
 				if (child && atomic_load_uchar(book_visit(book, child)) != child_mark && !position_list_push(&lw->same, child)) w->oom = true;
 			}
 		}
+		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
+			 || (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper))) deviate_worker_todo(w, position);
+		} else
 		if (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper) {
 			deviate_worker_todo(w, position);
 		}
@@ -5183,6 +5241,234 @@ void book_deviate2(Book *book, Board *board, const int move_loss, const int tota
 void book_deviate3(Book *book, Board *board, const int move_loss, const int total_loss)
 {
 	book_deviate_total(book, board, move_loss, total_loss, false);
+}
+
+/*
+ * book leaf-recalculate: search again the leaves that a walk of book deviate / deviate2 selects
+ * (after eval.dat was changed, for instance). No position is added, removed or moved.
+ */
+
+/** what the searches changed */
+typedef struct LeafRecalcStats {
+	long long n_done, n_score, n_up, n_down, n_move;
+	int max_up, max_down;
+} LeafRecalcStats;
+
+/** state shared by the threads of book leaf-recalculate */
+typedef struct LeafRecalcShared {
+	Book *book;
+	Lock lock;                  /**< guards the book, the counters and the output */
+	long long next;             /**< next todo_list item to take */
+	long long n_round;          /**< leaves searched in this walk */
+	LeafRecalcStats *stats;
+	const char *name, *tmp_file;
+	unsigned long long t;       /**< time of the last timed save */
+} LeafRecalcShared;
+
+typedef struct LeafRecalcWorker {
+	LeafRecalcShared *shared;
+	Search *search;
+} LeafRecalcWorker;
+
+/** Count a searched leaf and show the progress (as book deviate does for its expansions). */
+static void leaf_recalc_count(LeafRecalcShared *s, const Link *old_leaf, const Link *leaf)
+{
+	LeafRecalcStats *stats = s->stats;
+	const int d = leaf->score - old_leaf->score;
+
+	++stats->n_done; ++s->n_round;
+	if (d) ++stats->n_score;
+	if (d > 0) { ++stats->n_up; if (d > stats->max_up) stats->max_up = d; }
+	if (d < 0) { ++stats->n_down; if (-d > stats->max_down) stats->max_down = -d; }
+	if (leaf->move != old_leaf->move) ++stats->n_move;
+	bprint("%s...%lld/%lld done: %lld scores changed, %lld moves changed\r", s->name, s->n_round, s->book->stats.n_todo, stats->n_score, stats->n_move);
+	if (book_save_interval_elapsed((long long) s->t)) {
+		book_save_progress(s->book, s->tmp_file); // timed progress save (the other threads wait for the lock)
+		s->t = real_clock();
+	}
+}
+
+/**
+ * @brief Search the leaves of the todo positions again, in a thread.
+ *
+ * As book_correct_worker: the position is searched on a copy, without the lock (it stays where it is:
+ * nothing is added to the book); the book is only read and written with the lock held. Each search
+ * starts with clean hash tables: with one thread, its result does not depend on the searches before it.
+ */
+static void* leaf_recalc_worker(void *v)
+{
+	LeafRecalcWorker *w = (LeafRecalcWorker*) v;
+	LeafRecalcShared *s = w->shared;
+	Book *book = s->book;
+
+	for (;;) {
+		Position copy, *p = NULL;
+		Link old_leaf;
+
+		lock(s);
+		while (s->next < book->todo_list.n) {
+			p = book_position(book, book->todo_list.item[s->next++]);
+			if (leaf_recalc_wanted(p)) break;
+			p = NULL;
+		}
+		if (p == NULL) { unlock(s); break; }
+		old_leaf = p->leaf;
+		if (position_copy(&copy, p)) {
+			unlock(s);
+			copy.leaf = BAD_LINK;
+			search_cleanup(w->search);
+			position_search_with(&copy, w->search);
+			lock(s);
+			p->leaf = copy.leaf;
+			p->score.value = copy.score.value;
+			position_free(&copy);
+		} else { // no memory for the copy: search the position itself, with the lock held
+			p->leaf = BAD_LINK;
+			search_cleanup(w->search);
+			position_search_with(p, w->search);
+		}
+		book->need_saving = true;
+		leaf_recalc_count(s, &old_leaf, &p->leaf);
+		unlock(s);
+	}
+	return NULL;
+}
+
+/**
+ * @brief Search the leaves of the todo positions again.
+ *
+ * Several at the same time, with the searches, threads and hash tables that book deviate uses to
+ * expand as many positions (book-expand-tasks); one after the other with the main search otherwise.
+ *
+ * @param book opening book.
+ * @param name Name of the command (output).
+ * @param tmp_file File of the timed saves.
+ * @param stats Counters (updated).
+ */
+static void book_leaf_recalc_search(Book *book, const char *name, const char *tmp_file, LeafRecalcStats *stats)
+{
+	LeafRecalcShared shared;
+	LeafRecalcWorker *w = NULL, one;
+	const long long n = book->todo_list.n;
+	int n_workers = 1, i;
+
+	if (n == 0) return;
+	shared.book = book; shared.next = 0; shared.n_round = 0; shared.stats = stats;
+	shared.name = name; shared.tmp_file = tmp_file; shared.t = real_clock();
+	lock_init(&shared);
+	bprint("%s...\r", name);
+
+	if (n > 1 && options.n_task > 1 && book_expand_task_count(book, n) > 1) {
+		const int n_tasks = MAX(1, options.n_task / book_expand_task_count(book, n));
+		int bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
+
+		if (options.book_expand_tasks <= 0 && n_tasks == 1) bits = book_plan_hash_bits(book, 1); // (as book_expand_concurrent)
+		n_workers = search_pool_get(&expand_pool, (int) MIN(book_expand_task_count(book, n), n), n_tasks, bits);
+		if (n_workers >= 2) w = (LeafRecalcWorker*) calloc(n_workers, sizeof *w);
+	}
+	if (w) {
+		for (i = 0; i < n_workers; ++i) {
+			w[i].shared = &shared;
+			w[i].search = expand_pool.search[i];
+			w[i].search->options.verbosity = book->search->options.verbosity;
+			w[i].search->options.header = book->search->options.header;
+			w[i].search->options.separator = book->search->options.separator;
+		}
+		thread_run_workers(leaf_recalc_worker, w, sizeof *w, n_workers, false, false);
+		free(w);
+	} else { // one after the other, with the main search
+		one.shared = &shared; one.search = book->search;
+		leaf_recalc_worker(&one);
+	}
+	lock_free(&shared);
+	bprint("%s...%lld/%lld done: %lld scores changed, %lld moves changed\n", name, shared.n_round, book->stats.n_todo, stats->n_score, stats->n_move);
+}
+
+/**
+ * @brief Search again the leaves that book deviate or book deviate2 reaches (book leaf-recalculate, 2, 3, 4).
+ *
+ * The walks are done once (the commands do not loop as book deviate does):
+ * - kind 1: as book deviate, the leaves of the positions that it would expand,
+ * - kind 2: as book deviate2, the leaves of the positions that it would expand,
+ * - kind 3: as book deviate, the leaves of all the positions of its walks,
+ * - kind 4: as book deviate2, the leaves of all the positions of its walk.
+ * The leaves of the solved positions are never searched again. As a round of book deviate, the kinds 1
+ * and 3 walk twice: with the deviation for the player, then (after the first leaves were searched again)
+ * with the deviation for the opponent; a leaf is searched once.
+ *
+ * @param book opening book.
+ * @param board Position to start from.
+ * @param kind Command (1 to 4).
+ * @param x Relative error (kinds 1, 3) or loss for one move (kinds 2, 4).
+ * @param y Absolute error (kinds 1, 3) or cumulative loss (kinds 2, 4).
+ */
+void book_leaf_recalculate(Book *book, Board *board, const int kind, const int x, const int y)
+{
+	static const char *const names[] = {"Book leaf-recalculate", "Book leaf-recalculate2", "Book leaf-recalculate3", "Book leaf-recalculate4"};
+	static const char *const exts[] = {".leaf", ".leaf2", ".leaf3", ".leaf4"};
+	Position *root = book_probe(book, board);
+	const char *name;
+	LeafRecalcStats stats = {0, 0, 0, 0, 0, 0, 0};
+	char file[FILENAME_MAX + 1];
+
+	if (kind < 1 || kind > 4 || root == NULL) return;
+	name = names[kind - 1];
+	file_add_ext(options.book_file, exts[kind - 1], file);
+	book_clean(book);
+	book_negamax_position(root, book);
+
+	leaf_recalc_mode = (kind >= 3 ? LEAF_RECALC_WALKED : LEAF_RECALC_SELECTED);
+	if (kind == 2 || kind == 4) {
+		bprint("%s %d %d:\n", name, x, y);
+		book_clean(book);
+		book_select_deviate_total(book, root, x, y, true);
+		if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+		bprint("%s %lld todo\n", name, book->stats.n_todo);
+		if (book->todo_list.valid) book_leaf_recalc_search(book, name, file, &stats);
+	} else {
+		const int score = root->score.value;
+		unsigned long long *first = NULL;
+		long long n_first, i, n;
+
+		bprint("%s %d %d:\n", name, x, y);
+		book_clean(book);
+		book_select_deviate(book, root, x, 0, score - y, score + y);
+		if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+		bprint("%s %lld todo\n", name, book->stats.n_todo);
+		n_first = book->todo_list.valid ? book->todo_list.n : 0;
+		if (n_first) {
+			first = (unsigned long long*) malloc(n_first * sizeof *first);
+			if (first) memcpy(first, book->todo_list.item, n_first * sizeof *first);
+			book_leaf_recalc_search(book, name, file, &stats);
+		}
+
+		// the second walk of a round of book deviate, without the leaves already searched
+		bprint("%s %d %d:\n", name, x, y);
+		book_clean(book);
+		book_select_deviate(book, root, 0, x, score - y, score + y);
+		if (book->todo_list.valid) {
+			qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+			if (first) {
+				for (i = n = 0; i < book->todo_list.n; ++i) {
+					if (!bsearch(book->todo_list.item + i, first, n_first, sizeof *first, todo_item_cmp)) book->todo_list.item[n++] = book->todo_list.item[i];
+				}
+				book->todo_list.n = n;
+				book->stats.n_todo = n;
+			}
+		}
+		bprint("%s %lld todo\n", name, book->stats.n_todo);
+		if (book->todo_list.valid) book_leaf_recalc_search(book, name, file, &stats);
+		free(first);
+	}
+	leaf_recalc_mode = LEAF_RECALC_OFF;
+	if (!book->todo_list.valid) warn("%s: not enough memory for the list of the leaves\n", name);
+
+	book_clean(book);
+	book_negamax_position(root, book);
+	if (stats.n_done) book_save_progress(book, file);
+	bprint("%s %d %d...finished: %lld leaves, %lld scores changed (%lld up, %lld down, largest +%d / -%d), %lld moves changed\n",
+		name, x, y, stats.n_done, stats.n_score, stats.n_up, stats.n_down, stats.max_up, stats.max_down, stats.n_move);
+	search_pool_release(&expand_pool);
 }
 
 /**
