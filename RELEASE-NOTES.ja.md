@@ -2,6 +2,29 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-nikque.12
+
+新しい命令 `book leaf-recalculate`（Leafの再計算）を足し、`book subtree`・`book prune` をさらに速くしました。`eval.dat`、bookのファイル形式、探索のコードは変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+
+新しい命令：
+
+- `book leaf-recalculate X Y`・`book leaf-recalculate2 X Y`：`book deviate X Y`・`book deviate2 X Y` が「展開する」と選ぶ局面のLeaf（Linkになっていない手のうちの最善手と評価値）を、探索し直します。`book leaf-recalculate3 X Y`・`book leaf-recalculate4 X Y`：同じたどり方で、たどった局面の全部のLeafを探索し直します。`eval.dat` を新しいものに替えた後で、bookの評価値を新しい評価関数の値に置き換えるための命令です。局面は足しません。1回たどって終わります。完全読みの局面のLeafは計算し直しません。`book-save-interval` 分ごとと終わりに、`book.dat.leaf`〜`.leaf4` に保存します。
+- 探索ごとにハッシュ表を空にしてから始めるので、1スレッドの探索で行われる場合は、スレッドの数によらず同じ結果になります。**`eval.dat` を替えなくても、bookは変わります**：`book deviate` が作ったLeafは、同じ値に戻るものがほとんどですが（この版の1スレッドの探索で作ったLeafで 98.4〜99.9%）、複数スレッドの探索で作ったLeafや、`book subtree` の切り出しで入った値は変わります（READMEに調べた結果があります）。
+- libedax：`edax_book_leaf_recalculate`・`2`・`3`・`4`。
+
+速さ（できるbookは同じ）：
+
+- `book subtree`・`book prune`：残す局面に印を付ける処理を、`n-tasks` スレッドで行います（`-n 1` は従来と同じ処理）。649万局面のbookで、印付けが 32スレッドで 2.2秒 → 0.25秒、2スレッドで 2.2秒 → 0.89秒（PGOなしのビルドどうし、各1回）。保存したbook・表示される数・最大メモリは同じでした（45通り）。
+- 6億6162万局面の実bookで、深さを40から39に減らす切り出し（`book depth 39`・`book subtree`）が、読み込みから終わりまで 603.6秒 → 176.6秒（印付け 369.5秒 → 22.0秒、Linkの張り直し 110秒 → なし。PGOなしのビルド、各1回、別の日の計測）。最大メモリは同じ（31.8GB）です。
+- 実bookで `book leaf-recalculate2 5 5` を7分で止めた試し：対象 2,753,399件（`book deviate2 5 5` と同じ数）、1分に約2,350件（同じ条件の `book deviate2 5 5` の展開は1分に約1,500件）。全部を行った時間は測っていません。
+
+動作が変わるところ：
+
+- **`book subtree` は、切り出しの後にLinkを張り直さなくなりました。** 切り出しは局面を足さないので、張り直しで足されていたのは「切り出す前からbookに欠けていたLink」だけです（`book deviate` は、合流する局面へのLinkをその場では張りません）。必要なら `book fix`・`book link` を行ってください。Linkの欠けていないbookでは、できるbookは同じです。`book prune` は変えていません。
+- `book`・`base` の後ろの語は、大文字でも通ります（`book Deviate 5 5`）。ファイル名などの引数は、書いたとおりに使います。
+
+確認：bookの回帰試験（v4.5.5-nikque.11 の配布版と全ファイル一致。`book deviate`・`deviate2`・`deviate3` も同じ）、変更ごとの保存したbookの比較、API試験197項目、ThreadSanitizer、1スレッドの `-solve` の結果とノード数。配布用ビルドどうしを静かな状態で比べる計測は、今回変えたのがbookの命令だけなので、行っていません。
+
 ## v4.5.5-nikque.11
 
 bookを切り詰める命令 `book subtree`・`book prune` と、`book correct`・`book enhance` を速くしました。新しい機能・設定はありません。`eval.dat`、bookのファイル形式、探索のコードは変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。

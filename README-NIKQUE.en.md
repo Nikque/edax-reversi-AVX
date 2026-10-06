@@ -4,6 +4,138 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.12
+
+Adds the new commands `book leaf-recalculate` (searching the leaves of a book again) and makes `book subtree` and `book prune` faster again. The word after `book` may now be written with capitals. `eval.dat`, the book file format and the search code are unchanged. One of the former commands can give another book: `book subtree` no longer links the book again after the cut (see "What behaves differently").
+
+### New commands: book leaf-recalculate (searching the leaves again)
+
+For the positions that `book deviate` or `book deviate2` walks through, these commands search the leaf again (the leaf is the best move that is not a link yet, with its score). They are meant for the day `eval.dat` is replaced by a new one: the old scores of the book are replaced by the scores of the new evaluation function. No position is added.
+
+| Command | Walk | Leaves searched again |
+|---|---|---|
+| `book leaf-recalculate X Y` | as `book deviate X Y` | the leaves of the positions that `book deviate X Y` would expand |
+| `book leaf-recalculate2 X Y` | as `book deviate2 X Y` | the leaves of the positions that `book deviate2 X Y` would expand |
+| `book leaf-recalculate3 X Y` | as `book deviate X Y` | the leaves of all the positions of the walk (also when the leaf is outside the limits) |
+| `book leaf-recalculate4 X Y` | as `book deviate2 X Y` | the leaves of all the positions of the walk (also when the leaf is outside the limits) |
+
+- X and Y have the meaning, defaults and limits of the matching `book deviate` / `book deviate2`. As for them, the walk starts from the current position and stays within `book depth`.
+- **The walk is done once** (the commands do not loop as `book deviate` does): negamax from the current position, selection, search of the selected leaves, negamax, save. As a round of `book deviate`, `book leaf-recalculate` and `3` select twice (the side to move may deviate by X, then the opponent may; the second selection is made on the book whose first leaves were searched again, and only takes the leaves not searched yet).
+- **The leaf of a solved position is never searched again** (21 empties or fewer at level 18: its score does not depend on the evaluation function). A position whose moves are all links has no leaf and is skipped.
+- `3` and `4` also search the leaves of the positions one ply under the depth of the book that the links of the walk lead to (the deepest layer: no link, only a leaf). `book leaf-recalculate` and `2` leave that layer alone, as `book deviate` and `book deviate2` do.
+- A position is searched at the level recorded in it. **Every search starts with empty hash tables.** The number of searches run at the same time, their threads and their hash tables are those of the expansions of `book deviate` (`book-expand-tasks`). When the searches have one thread each (`book-expand-tasks = auto`, level 18 or lower, at least 32 times `n-tasks` leaves), the same command on the same book gives the same result whatever the number of threads and the order.
+- Saves: every `book-save-interval` minutes to `book.dat.leaf`, `.leaf2`, `.leaf3` or `.leaf4` (one name per command), and once more at the end. A timed save holds a book with only some new leaves and no negamax yet: run `book negamax` after loading it. There is no way to resume (running the command again starts from the beginning).
+- The leaves of the positions outside the walk are left as they are. When the current position is not the initial one, the link scores of the positions that cannot be reached from it stay as they were until `book negamax` is run (as with `book deviate`).
+
+Output (on a book of 6.49 million positions):
+
+```
+Book leaf-recalculate2 3 6:
+Book leaf-recalculate2 23013 todo
+Book leaf-recalculate2...16794/23013 done: 7714 scores changed, 2721 moves changed
+Book leaf-recalculate2 3 6...finished: 23013 leaves, 10521 scores changed (4630 up, 5891 down, largest +9 / -11), 3742 moves changed
+```
+
+(The first three lines are real output. The last one shows the format: its numbers are not real.)
+
+**Checked** (test builds without PGO)
+
+- The number of leaves is the `todo` that `book deviate X Y` / `book deviate2 X Y` first print on the same book (6 and 43 on a small book, 23,013 on the book of 6.49 million positions).
+- On a small book (level 10, 1,563 positions, 120 of them solved) whose leaf scores were all altered, `book leaf-recalculate4` brought the 1,437 unsolved leaves back to their original scores. The 120 solved ones stayed altered (they are skipped).
+- For each of the four commands, five settings of threads and searches (1 thread; 8 one-thread searches, twice; 8 threads with `auto`; 32 one-thread searches) gave the same book. On the book of 6.49 million positions, 32 threads with `auto` and 8 one-thread searches gave the same book. Running the same command a second time changed no score and no move.
+- Speed, as an indication (6.49 million positions, level 18, 32 threads, count after 60 s, one run each): 16,794 leaves for `book leaf-recalculate2 3 6`, 8,698 expansions for `book deviate2 3 6`. **These are figures of a small book, not a forecast for a large one.**
+- The peak memory was about that of the expansions of `book deviate` (992 to 1,007 MB against 999 to 1,028 MB for `book deviate2`, 6.49 million positions).
+
+**The book changes even with the same `eval.dat`.** Share of the leaves whose score changed, on the book of 6.49 million positions (itself cut from a larger book by depth):
+
+| Where the leaf came from | Scores changed |
+|---|---|
+| Leaf of a position added by `book deviate2` of this version (one-thread searches) | 0.1% (11 of 12,810) |
+| Leaf of a position expanded by `book deviate2` of this version (one-thread searches) | 1.6% (225 of 14,180) |
+| Leaves made by `book deviate2` of v4.5.5-nikque.9 (two-thread searches) | 3.3% and 4.9% |
+| Leaves already in the book, except its deepest layer | 23 to 31% |
+| Leaves already in the book, deepest layer (values set by the cut) | 72% |
+
+- `book deviate` searches the leaf of an expanded position right after the search of its child, without emptying the hash tables. With a test build that empties them, all 6,676 leaves came back to the same score.
+- Searches with several threads give slightly different scores from run to run (the same leaves searched twice with 32-thread searches differed for 1.7% of them, and for about 5% from the one-thread result).
+- **When `book subtree` reduces the depth, the leaf of a position of the new deepest layer becomes the score of a link to a removed position (the negamaxed value of the searches below it). `book leaf-recalculate3` and `4` replace it by the score of a search of that position at its level** (77% of the values changed on a layer that had just been cut). When that layer is solved (21 empties or fewer at level 18), it is skipped and nothing changes.
+- The cause of the 23 to 31% of the row "already in the book, except its deepest layer" was not found (the version and the settings that made that book are not known).
+
+**Not checked**: another `eval.dat`, levels above 18, a whole run on a book of 600 million positions, not enough memory for the searches, going on from a timed save.
+
+libedax: `edax_book_leaf_recalculate(X, Y)`, `edax_book_leaf_recalculate2`, `3` and `4` were added.
+
+### book subtree, book prune: the positions to keep are marked with several threads (same book)
+
+With v4.5.5-nikque.11, reducing the depth of the real book (661.62 million positions) from 40 to 39 with `book subtree` took about 10 minutes, about 6 of them to mark the positions to keep (one thread). This is now done with `n-tasks` threads: each thread walks on from the positions that it marked itself (no position is walked by two threads). With `-n 1` nothing changes.
+
+Book of 6.49 million positions (level 18, builds without PGO from the same sources, one run each, other programs running; time of the marking in `book subtree` at the initial position):
+
+| Threads | Before | This version |
+|---|---|---|
+| 1 | 2.22 s | 2.23 s (same code) |
+| 2 | 2.23 s | 0.89 s |
+| 4 | 2.20 s | 0.53 s |
+| 8 | 2.16 s | 0.39 s |
+| 32 | 2.16 s | 0.25 s |
+
+- The saved books and the counts printed (`Book subtree N`, `Book prune N`) were the same as before: 9 cases of position and depth (2 of them `book prune`) with 1, 2, 4, 8 and 32 threads, 45 comparisons. On a small book (1,563 positions) and on damaged books with links that go back (5,820 positions), the counts were the same and the commands ended.
+- The peak memory was the same (568 MB with 32 threads). The only memory added is the list of the positions still to walk, for each thread.
+- The progress line `Book prune N to keep` shows round numbers, every 100,000 positions.
+
+**Real book of 661.62 million positions (level 18, 32 threads, builds without PGO, one run each, other programs running)**: `book depth 39`, then `book subtree` at the initial position, reducing the depth from 40 to 39 (661,617,883 → 524,075,811 positions).
+
+| Step | v4.5.5-nikque.11 (as measured then) | This version |
+|---|---|---|
+| Loading | 29.0 s | 36.7 s |
+| Negamax | 23.5 s | 33.5 s |
+| **Marking the positions to keep** | **369.5 s** | **22.0 s** |
+| Removing the positions | 4.1 s | 4.7 s |
+| Removing the links | 23.0 s | 26.5 s |
+| Giving the memory back | 3.1 s | 4.0 s |
+| Check after the cut | 17 s | 22 s |
+| **Linking again** | **110 s** | **none** (next section) |
+| Negamax, sort | 21 s | 23 s |
+| **Whole run (from loading to the end)** | **603.6 s** | **176.6 s** |
+
+- The v4.5.5-nikque.11 column was measured when that version was released (another day). The unchanged steps are a little slower in the new run, probably because other programs were running (the same day, a test build that still links again took 271.5 s in all: 20.8 s for the marking, 108.7 s for the link step).
+- The peak memory was 31.8 GB (as right after loading, and as with v4.5.5-nikque.11), and 24.3 GB after the cut (the same).
+- After the cut `book info` showed 524,075,811 positions, 542,873,357 links and 523,794,779 leaves, the same numbers with the build that still links again (on this book the link step added no link; only the counts were compared, the books were not saved).
+
+`book leaf-recalculate2 5 5` on the real book, stopped after 7 minutes (same build, `book-expand-tasks = auto`, one run): 2,753,399 leaves to search, the number of positions that `book deviate2 5 5` selects. 12,268 leaves were done in about 5 minutes of searches (about 2,350 a minute). `book deviate2 5 5`, run right after in the same conditions, expanded 7,900 positions in about 5 minutes (about 1,500 a minute). Of the 12,268 leaves, 274 got another score (2.2%) and 951 another move (7.8%), with the same `eval.dat`. The peak memory was 33.4 GB, as for `book deviate2 5 5`. **A whole run was not timed** (at this rate it would take about 20 hours).
+
+### book subtree: the book is no longer linked again after the cut (the book can differ)
+
+After the cut, `book subtree` ran a check (as `book fix`), linked the book again (as `book link`), then negamax and sort. On the real book the link step took 110 s (v4.5.5-nikque.11). This version does not link again.
+
+- Cutting a book adds no position, so the only links that this step added were those that the book already lacked before the cut. `book deviate` does not link, on the spot, the positions that can also reach a new position by another line of play (transpositions): `book fix`, `book link` and `book merge` do. **`book subtree` used to add these links on the way; it does not any more.** Run `book fix` (or `book link`) before or after the cut if they are wanted.
+- On a book that lacks no link (6.49 million positions, 7 cases with 2 and 32 threads), the saved books were the same as before.
+- On a book right after one round of `book deviate2` (6.51 million positions), cut at the initial position, 17,232 positions differed from the former result (999 with a link that was not added, 393 with another leaf move, 289 with another score; the others only in the counts of wins, draws, losses and lines).
+- In that case the whole run went from 7.3 s to 2.3 s, and the peak memory from 998 MB to 569 MB (the link step created searches for its leaf searches).
+- `book prune` is unchanged (it links again after the cut).
+
+### book, base: the word after them is not case sensitive
+
+`book Deviate 5 5`, `BOOK INFO` or `base Unique a.txt b.txt` are accepted. So far only the first word (`book`) could have capitals; with capitals in the second word the command ended with `Unknown book command`. The arguments, as file names, are used as typed (`book save MixedCase.DAT` saves `MixedCase.DAT`).
+
+### What behaves differently (summary)
+
+| Case | Up to v4.5.5-nikque.11 | v4.5.5-nikque.12 |
+|---|---|---|
+| After `book subtree` | The book is linked again (links missing before the cut are added) | It is not (missing links stay missing; `book fix` or `book link` adds them) |
+| Marking of `book subtree`, `book prune` | One thread | `n-tasks` threads (same book, same counts) |
+| Capitals in the word after `book` or `base` | `Unknown book command`, `Unknown base command` | Handled as lower case |
+| `book leaf-recalculate`, `2`, `3`, `4` | `Unknown book command` | New commands |
+
+### Checks
+
+- Book regression (all book commands; 1 and 8 threads; including the book of 6.49 million positions): all files identical to the release build of v4.5.5-nikque.11 (except the files that hold a date). The books of `book deviate`, `book deviate2` and `book deviate3` are the same.
+- The selection walk of `book deviate` / `book deviate2` was timed in turn with a build of the v4.5.5-nikque.11 sources, 6 runs each: no difference could be read (6.49 million positions, `deviate2 8 20` with 32 threads: 451 to 473 ms against 454 to 481 ms).
+- libedax: the 197 checks of the API test (the former 193 and the 4 new functions; 3 Windows libraries).
+- ThreadSanitizer (Linux, 8 threads): no report about the new marking or about the code of the leaf recalculation themselves.
+- The search code is unchanged: results and node counts of single-thread `-solve` are those of v4.5.5-nikque.11 (release builds).
+- **Not measured**: the release builds against each other on an idle machine (only book commands changed), `book prune` on the real book, the speed on Linux, macOS, 32-bit and ARM64 builds, the marking when memory runs out.
+
 ## Changes in v4.5.5-nikque.11
 
 This version makes the commands that cut a book down, `book subtree` and `book prune`, and `book correct` and `book enhance`, faster. Since the upstream version, `book subtree` and `book prune` walked again from a position once for every line of play leading to it, which took a very long time on a large book. There is no new feature or setting. The evaluation data `eval.dat`, the book file format and the search code are unchanged. The resulting book differs in two cases (see "What behaves differently" below): `book subtree` from another position than the initial one with a reduced depth, and `book correct` when it runs several searches at the same time.
