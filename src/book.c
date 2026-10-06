@@ -5131,7 +5131,11 @@ void book_enhance(Book *book, Board *board, const int midgame_error, const int e
 		book->options.endcut_error = endcut_error;
 
 		book_clean(book);
+#ifdef BOOK_TEST_ENHANCE_NEGAMAX_OLD
 		position_negamax(root, book);
+#else
+		book_negamax_position(root, book); // with n-tasks threads (the same values), as book deviate
+#endif
 
 		do {
 			bprint("Book enhance %d %d...%lld %lld:\n", midgame_error, endcut_error, book->stats.n_nodes, book->stats.n_links);
@@ -5142,7 +5146,11 @@ void book_enhance(Book *book, Board *board, const int midgame_error, const int e
 
 			root = book_probe(book, board);
 			book_clean(book);
+#ifdef BOOK_TEST_ENHANCE_NEGAMAX_OLD
 			position_negamax(root, book);
+#else
+			book_negamax_position(root, book);
+#endif
 			if (n_diffs) book_save_progress(book, file);
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("Book enhance %d %d...finished\n", midgame_error, endcut_error);
