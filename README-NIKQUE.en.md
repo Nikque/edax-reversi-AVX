@@ -4,6 +4,117 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.10
+
+This version fixes three bugs found after v4.5.5-nikque.9, and makes `book negamax`, `book fix` and `book merge` on large books, and the expansion of `book deviate`, `deviate2` and `deviate3`, faster. There is no new feature or setting. The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. Two things behave differently (see "What behaves differently" below): the bundled setting `book-expand-tasks = auto` in the rounds with many positions to expand (the resulting book differs a little), and `edax_stop` during `edax_bench` in libedax.
+
+### Bug fixes
+
+- **A game of more than 80 plies wrote outside the game record** (from upstream): the record had room for 80 moves and passes. From a board set with `setboard`, a game with many passes can be longer, and the move counter and the clocks that follow the record were overwritten (the example found: after a game of 56 moves and 29 passes = 85 plies, the display shows "ply 5" and a clock of "6313 days"; the program does not crash). libedax (`edax_play`, `edax_move`, ...) had the same problem. The record now holds 128 entries (from any board there are at most 62 moves, and a pass is only recorded before a move: 124 at most). The same kind of write in the `force` line and in the saving of a game (60 moves) is fixed too. Games of 80 plies or less are unchanged. `edax_get_moves` still returns 80 plies at most (its buffer is documented as 161 characters).
+- **The previous string was not released when a string setting was set again** (from upstream): `book-file`, `eval-file`, `game-file`, `name`, the log file names, and so on. Repeated calls of `edax_set_option` in libedax left a few dozen bytes each time.
+- **libedax: `edax_stop` during `edax_bench` did not end the bench** (from the original libedax): `edax_stop` only cut the problem being solved, and the bench went on with the other problems. The time of the cut search was added as a clock value, so the result showed a time of several days. `edax_stop` now ends the bench. The problem that was cut is not counted in the positions, the nodes or the time.
+
+### Faster book functions (same results)
+
+`book negamax` (with several threads) and the "linking" step of `book fix`, `book link` and `book merge` looked in the book, for each position, for the positions its moves lead to, one after the other. On a large book, each of these lookups waits for memory. Now the places of all of them are computed first and asked for (prefetch), and then they are looked for together. The same positions are looked for in the same order, so the results do not change.
+
+The real book of 661.62 million positions (level 18, 32 threads, builds without PGO, two runs each in the order previous, new, new, previous):
+
+| Step | Previous | This version | |
+|---|---|---|---|
+| One `book negamax` | 18.8-19.0 s | 17.6-18.0 s | about 6% shorter (all 4 runs) |
+| Linking of `book fix` | 153.7 s | 136.3 s | about 11% shorter |
+| Whole `book fix` (load to save) | 240.8 s, 247.9 s | 222.0 s (242.0 s in the other run, whose load took 7 s more) | |
+| Linking of `book merge` (merging a book of 6.49 million positions) | 139.6 s | 127.2 s | about 9% shorter |
+| Whole `book merge` | 235.3 s, 239.8 s | 223.6 s, 217.6 s | about 7% shorter |
+
+The saved books had the same content in all 12 runs, and the peak memory was the same (31.8 GB). Neither `book fix` nor `book merge` had anything to change in this book, so "the same result when the book changes" is checked by the 6.49 million position book below and by the regression tests.
+
+The book of 6.49 million positions (previous and new in turn, 10 to 12 pairs, while other programs were running; time of the whole command):
+
+| Command | Threads | Previous | This version | Pairs where this version was faster |
+|---|---|---|---|---|
+| 20 `book negamax` | 32 | 4.36 s | 4.16 s | 11 of 12 |
+| | 8 | 6.99 s | 6.09 s | 12 of 12 |
+| | 2 | 21.16 s | 17.04 s | 6 of 6 |
+| `book fix` | 32 | 2.54 s | 2.38 s | 10 of 10 |
+| | 8 | 3.87 s | 2.54 s | 10 of 10 |
+| `book merge` (6.49 million positions into an empty book) | 32 | 5.53 s | 5.32 s | 10 of 10 |
+| | 8 | 7.14 s | 5.63 s | 10 of 10 |
+
+The books after `book fix`, after `book merge` and after `book negamax` (32 and 3 threads) had the same content with the previous code and with this version. `book negamax` with one thread (`-n 1`) is another function and is unchanged.
+
+### book-expand-tasks = auto: one-thread searches, as many as threads, in the rounds with many positions
+
+With `book-expand-tasks = auto` (the bundled `config.ini`), up to level 18, `n-tasks / 2` searches of 2 threads ran at the same time. In this version, up to level 18, a round with **at least 32 times `n-tasks`** positions to expand (1,024 with 32 threads) runs `n-tasks` searches of one thread. Rounds with fewer positions, levels above 18, and `book-expand-tasks` given as a number are as in v4.5.5-nikque.9. The hash tables of the one-thread searches have the size of the one-thread searches of the learning of games (19 bits = 14 MB up to level 18).
+
+A round with many positions (the book of 6.49 million positions, level 18, `book deviate3 2 6`: 22,750 positions to expand; positions expanded in 60 s; builds without PGO):
+
+| `n-tasks` | Rule of v4.5.5-nikque.9 | This version | Peak memory |
+|---|---|---|---|
+| 32 | 8,270, 8,086 | 10,247, 10,195 (about 1.25 times) | 1,432 MB → 1,001 MB |
+| 8 | 2,628 | 3,988 (1.52 times) | 663 MB → 556 MB |
+
+With the same book, the first round (22,750 positions) was done and saved after 154 s and 156 s before, 122 s and 123 s now (two runs each while no other program was running; load and selection included).
+
+**On the real book (661.62 million positions) with `book deviate2 5 5` (2,753,399 positions to expand in a round), the difference is smaller.** The positions expanded there need heavier searches (about 33 million nodes for each position), and a 2-thread search wastes little. Over the first 420 s, where the same positions are expanded in the same order, the nodes for each position went from 3.49×10^7 to 3.26-3.29×10^7 (about 6.5% fewer; 4 runs of this version), and the speed of all the threads together was about the same. The two pairs measured by time gave 35.1 → 37.4 and 34.2 → 35.5 positions per second, but the same build varied from 32 to 40 positions per second from one hour to the next, so **the gain in time is "6 to 7% expected"; what was verified is the difference in nodes.**
+
+A condition with rounds of few positions (the book of 270 thousand positions, `book deviate 1 2`: rounds of 0 to a few hundred positions, total of 8 runs each) took 11.45 ms → 11.10 ms for each position: no change (no round reaches 1,024 positions there, so the code path is the one of v4.5.5-nikque.9). Trials with a lower limit (one thread each from 1 and from 4 times `n-tasks`) took 19% and 9% more time for each position in this condition, hence 32 times.
+
+**The resulting book is not the same as with `auto` in v4.5.5-nikque.9** (the number of positions expanded at the same time changes, as when the number of `book-expand-tasks` is changed). With the book of 6.49 million positions, the books after the first round (22,750 positions expanded, 22,671 positions added) were compared position by position:
+
+| Books compared | Positions that differ |
+|---|---|
+| Two runs of the rule of v4.5.5-nikque.9 (2 pairs) | 464, 885 |
+| Runs of this version (2 runs, then 3 runs) | 0 |
+| Rule of v4.5.5-nikque.9 against this version | 4,231 to 4,251 (0.065% of the 6,513,834 positions) |
+
+- The added positions and the moves of the links were the same in every pair. Of the 4,231 positions that differ between the rule of v4.5.5-nikque.9 and this version, 1,377 have another leaf move (the best move that is not a link yet) and 1,626 another value (by 1 for 1,420, by 2 for 167, by 3 to 6 for 39).
+- The runs of this version all gave the same book: a one-thread search of a given position always gives the same result. **It is not verified that they always will** (the order of the expansions running at the same time can matter, for example when two expansions of a round reach the same position). With the rule of v4.5.5-nikque.9 (2-thread searches), a few hundred positions differ from one run to the next with the same settings.
+- As before, the positions expanded at the same time do not see each other (32 of them now, instead of 16).
+
+To get the previous rule back, write `book-expand-tasks = 16` (half of `n-tasks`).
+
+### Speed and memory (release builds)
+
+`wEdax-x86-64-v4.exe` for Windows, the release of v4.5.5-nikque.9 against this version (PGO build made the same way). Ryzen 9 9950X, 32 threads (1 thread on the first line), measured only while no other program was running, 8 to 32 runs. The ratio is this version ÷ v4.5.5-nikque.9, ± is the standard error.
+
+| Condition | v4.5.5-nikque.9 | This version | Ratio | Peak memory |
+|---|---|---|---|---|
+| `-solve` (fforum-20-39), 1 thread | 1.207 s | 1.199 s | 0.994 ± 0.005 | same |
+| the same, 32 threads | 0.362 s | 0.359 s | 0.992 ± 0.008 | same |
+| 30 midgame positions, level 18 | 0.954 s | 0.954 s | 1.000 ± 0.005 | same |
+| 30 midgame positions, level 21 | 4.031 s | 3.990 s | 0.990 ± 0.008 | same |
+| 20 `book negamax` (6.49 million positions) | 3.986 s | 3.739 s | 0.938 ± 0.004 | same |
+| `book fix` (6.49 million positions) | 2.223 s | 2.180 s | 0.981 ± 0.004 | same |
+| `book merge` (6.49 million positions) | 4.966 s | 4.887 s | 0.984 ± 0.011 | same |
+| `book fix`, 1000 leaves (level 18) | 9.169 s | 9.176 s | 1.001 ± 0.015 | same |
+| `book deviate 0 2` (270 thousand positions, `auto`, rounds of 1 to 7 positions, 32 runs) | 8.386 s | 8.329 s | 0.993 ± 0.015 | same |
+| `book learn`, level 21, 8 games | 10.265 s | 10.315 s | 1.004 ± 0.014 | same |
+| `book learn`, level 24, 4 games | 10.182 s | 10.240 s | 1.006 ± 0.009 | same |
+| 30 games stored one by one with `book store` (level 18) | 19.854 s | 19.948 s | 1.005 ± 0.008 | same |
+| `book learn`, level 18, 128 games | 30.438 s | 30.312 s | 0.996 ± 0.003 | same |
+
+No condition is slower beyond the error, and the peak memory is the same in every condition.
+
+**Not measured**: `book deviate` in rounds with many positions with the release (PGO) builds (the comparison of `auto` above is between builds of the same source without PGO), the book of 657 million positions with the release builds, the speed of the 32-bit, Linux, macOS and ARM64 builds, `book deviate` above level 18 (its rule is unchanged).
+
+### What behaves differently (summary)
+
+| Case | Up to v4.5.5-nikque.9 | v4.5.5-nikque.10 |
+|---|---|---|
+| `book-expand-tasks = auto`, up to level 18, a round with at least 32 times `n-tasks` positions | `n-tasks / 2` searches of 2 threads | `n-tasks` searches of one thread (the book differs a little: see the table above) |
+| A game of more than 80 plies (moves + passes) | writes outside the record (the move counter and the clocks are damaged) | recorded correctly (up to 124 plies are possible) |
+| libedax: `edax_stop` during `edax_bench` | cuts one problem, the others go on; the time is wrong | ends the bench |
+
+### Checks
+
+- `-solve`: single-thread results and node counts are the same as v4.5.5-nikque.9 (the 5 Windows release executables, the 4 Linux ones, a 32-bit test build).
+- Book regression tests (every book command; 1 and 8 threads, including the book of 6.49 million positions): every file is the same as with the code of v4.5.5-nikque.8 (only the files that hold a date differ).
+- The tests of v4.5.5-nikque.9 were all run again on the code of this version: identical books with test builds that fix the searches to one thread, 240 runs of `book fix` with the "stop and continue" searches, repeated multi-thread `-solve` (8,000 positions on Windows, 3,000 on Linux, no wrong result), test builds where threads cannot be created (Windows and Linux), running out of memory in the 32-bit build, 94 cases of damaged books and 23 cases of settings, ThreadSanitizer on 8 cases (no new kind of report for the code added here), the Android build.
+- libedax: 193 API checks (2 were added: `edax_stop` from another thread during `edax_bench`; 3 Windows and 3 Linux libraries), 81 cases of edge values and wrong calls, the tests of libedax4dart 7.67.0 (28 of 29; the remaining one is the same since v4.5.5-nikque.7).
+- `book fix` (2 leaves) at levels 31 to 36 and the learning of one game at levels 31 and 32 end normally (v4.5.5-nikque.9 was checked up to level 30; one game took 104 s at level 31 and 188 s at level 32, with a peak of 2.15 GB; build without PGO, one run while other programs were running).
+
 ## Changes in v4.5.5-nikque.9
 
 This version fixes the bugs found by a final audit of v4.5.5-nikque.8 and edax_runner v5.3.0-nikque.2, and makes the learning of games (`book learn`) a little faster. There is no new feature (two functions were added to libedax, and one setting). The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. What behaves differently is listed under "What behaves differently" below.
@@ -402,7 +513,7 @@ int main(void)
   | `libedax-x64-v4.dll` | 92 million nodes/s | 82 MB |
 
   The library and the edax program (for the same CPU) search the same number of nodes at the same speed.
-- Tests: `tests/libedax_test.c` calls every function (147 checks, 191 in v4.5.5-nikque.9; passed by the 3 Windows and the 3 Linux libraries; the original libedax gives the same results on the checks it supports). 28 of the 29 tests of libedax4dart 7.67.0 pass; the other one compares a search score (it differs because of the default level and of the state left by the previous searches: a fresh search at the same level gives the same score as the original libedax). The books saved by the libedax of Edax 4.4 are read by this version, and the books saved by this version are read by the libedax of Edax 4.4 (all the positions of a 270,000-position book are the same).
+- Tests: `tests/libedax_test.c` calls every function (147 checks, 191 in v4.5.5-nikque.9, 193 in v4.5.5-nikque.10; passed by the 3 Windows and the 3 Linux libraries; the original libedax gives the same results on the checks it supports). 28 of the 29 tests of libedax4dart 7.67.0 pass; the other one compares a search score (it differs because of the default level and of the state left by the previous searches: a fresh search at the same level gives the same score as the original libedax). The books saved by the libedax of Edax 4.4 are read by this version, and the books saved by this version are read by the libedax of Edax 4.4 (all the positions of a 270,000-position book are the same).
 - Build: on Windows, `nmake -f NMakefile vc-lib` (`vc-lib-x64`, `vc-lib-x64-v3`, `vc-lib-x64-v4`); elsewhere, `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`. For Android: `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib` (it makes `src/libs-lib/<ABI>/libedax.so`; checked with NDK r27d). Test: `tests\build-libedax-test.cmd`. For macOS, the release-binaries workflow builds the arm64 and x86-64 libraries and joins them in one file, `libedax.universal.dylib` (the name loaded by the programs written for libedax).
 
 ### Bug fix: the book was sometimes not saved on exit after learning
@@ -513,6 +624,8 @@ Checks: in the book regression tests (every book command with 1 and 8 threads; n
 ### book-expand-tasks = auto
 
 `book-expand-tasks = auto` (the value of the bundled `config.ini`; `-book-expand-tasks auto` on the command line) chooses the number of positions expanded at the same time from the book level: each search uses 2 threads at level 18 or below, 4 up to level 24 and 8 above, and `n-tasks` divided by that number of positions are expanded at the same time (16 positions with 32 threads at level 18). Without `config.ini`, the default remains 1. Only level 18 was measured (2 threads per search was the fastest). The book is not the same as with one-by-one expansion: read the notes of "Book learning on several positions at the same time" in v4.5.5-nikque.4 below.
+
+**Since v4.5.5-nikque.10**, up to level 18, a round with at least 32 times `n-tasks` positions to expand (1,024 with 32 threads) runs `n-tasks` searches of one thread (see "Changes in v4.5.5-nikque.10" above). Rounds with fewer positions are as described here.
 
 ### Experimental setting: probcut-model = refit
 
@@ -809,6 +922,8 @@ Values from 10 to 30 are accepted (10 to 25 for the 32-bit executables). `auto` 
 With `book-expand-tasks = 1` (the default without `config.ini`), the learning commands (`book deviate`, `deviate2`, `deviate3`, `enhance`, `play`) expand the selected positions one by one, each search using all `n-tasks` threads, exactly as before. With `book-expand-tasks = n`, n positions are expanded at the same time, each with `n-tasks / n` threads.
 
 `book-expand-tasks = auto` (bundled value) chooses n from the book level (each search uses 2 threads at level 18 or below, 4 up to level 24 and 8 above; n is `n-tasks` divided by that number).
+
+**Since v4.5.5-nikque.10**, up to level 18, a round with at least 32 times `n-tasks` positions to expand (1,024 with 32 threads) runs `n-tasks` searches of one thread (see "Changes in v4.5.5-nikque.10" above). Rounds with fewer positions are as described here.
 
 A search at a low level cannot use many threads: at level 18, 32 threads were only 2.5 times faster than one thread. Expanding several positions at the same time uses the other threads. With 32 threads at level 18, `book-expand-tasks = 16` made learning on the real book 4.7 times faster. Read the notes in "Book learning on several positions at the same time" above before using it: the resulting book is not the same as with 1.
 
