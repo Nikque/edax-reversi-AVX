@@ -630,6 +630,7 @@ void ui_loop_edax(UI *ui)
 				book->search->options.verbosity = book->options.verbosity;
 				book->failed = false; // see book_add()
 				book_param = parse_word(param, book_cmd, FILENAME_MAX);
+				string_to_lowercase(book_cmd); // "book Deviate 5 5" as "book deviate 5 5" (the arguments, as file names, are kept as typed)
 
 				// store the last played game
 				if (strcmp(book_cmd, "store") == 0) {
