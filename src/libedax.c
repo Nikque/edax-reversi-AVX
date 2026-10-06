@@ -1748,7 +1748,11 @@ LIBEDAX_API void edax_book_subtree(void)
 	// subtree an opening book
 	book_subtree(book, &g_ui->play->board); // remove unreachable lines.
 	book_fix(book); // do nothing (or edax is buggy)
+#ifdef BOOK_TEST_SUBTREE_LINK_OLD
 	book_link(book); // links nodes
+#endif
+	// (up to v4.5.5-nikque.11 the book was linked again here. Cutting a book adds no position: the only links
+	// to add were those that the book already lacked before, and book fix or book link still adds them.)
 	book_negamax(book); // negamax nodes
 	book_negamax_subtree(book, &g_ui->play->board); // (from this position, when the initial one is no longer in the book)
 	book_sort(book); // sort moves

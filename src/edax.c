@@ -757,7 +757,11 @@ void ui_loop_edax(UI *ui)
 				} else if (strcmp(book_cmd, "subtree") == 0) {
 					book_subtree(book, &play->board); // remove unreachable lines.
 					book_fix(book); // do nothing (or edax is buggy)
+#ifdef BOOK_TEST_SUBTREE_LINK_OLD
 					book_link(book); // links nodes
+#endif
+					// (up to v4.5.5-nikque.11 the book was linked again here. Cutting a book adds no position: the only links
+					// to add were those that the book already lacked before, and book fix or book link still adds them.)
 					book_negamax(book); // negamax nodes
 					book_negamax_subtree(book, &play->board); // (from this position, when the initial one is no longer in the book)
 					book_sort(book); // sort moves
@@ -893,6 +897,7 @@ void ui_loop_edax(UI *ui)
 
 				base_init(&base);
 				base_param = parse_word(param, base_cmd, 511);
+				string_to_lowercase(base_cmd); // "base Problem ..." as "base problem ..." (the file names are kept as typed)
 				base_param = parse_word(base_param, base_file, FILENAME_MAX);
 
 				// extract problem from a game base

@@ -5328,6 +5328,9 @@ static void* leaf_recalc_worker(void *v)
 			position_search_with(p, w->search);
 		}
 		book->need_saving = true;
+#ifdef BOOK_TEST_LEAF_LOG // test builds: every searched leaf, before and after
+		fprintf(stderr, "<leaf %016llx %016llx %d %d %d %d>\n", p->board.player, p->board.opponent, old_leaf.move, old_leaf.score, p->leaf.move, p->leaf.score);
+#endif
 		leaf_recalc_count(s, &old_leaf, &p->leaf);
 		unlock(s);
 	}
