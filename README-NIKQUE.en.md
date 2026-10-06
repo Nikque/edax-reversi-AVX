@@ -77,27 +77,30 @@ To get the previous rule back, write `book-expand-tasks = 16` (half of `n-tasks`
 
 ### Speed and memory (release builds)
 
-`wEdax-x86-64-v4.exe` for Windows, the release of v4.5.5-nikque.9 against this version (PGO build made the same way). Ryzen 9 9950X, 32 threads (1 thread on the first line), measured only while no other program was running, 8 to 32 runs. The ratio is this version ÷ v4.5.5-nikque.9, ± is the standard error.
+`wEdax-x86-64-v4.exe` for Windows, the release of v4.5.5-nikque.9 against this version (PGO build made the same way). Ryzen 9 9950X, 32 threads (1 thread on the first line), measured only while no other program was running, 8 to 64 runs. The ratio is this version ÷ v4.5.5-nikque.9, ± is the standard error.
 
 | Condition | v4.5.5-nikque.9 | This version | Ratio | Peak memory |
 |---|---|---|---|---|
-| `-solve` (fforum-20-39), 1 thread | 1.207 s | 1.199 s | 0.994 ± 0.005 | same |
-| the same, 32 threads | 0.362 s | 0.359 s | 0.992 ± 0.008 | same |
-| 30 midgame positions, level 18 | 0.954 s | 0.954 s | 1.000 ± 0.005 | same |
-| 30 midgame positions, level 21 | 4.031 s | 3.990 s | 0.990 ± 0.008 | same |
-| 20 `book negamax` (6.49 million positions) | 3.986 s | 3.739 s | 0.938 ± 0.004 | same |
-| `book fix` (6.49 million positions) | 2.223 s | 2.180 s | 0.981 ± 0.004 | same |
-| `book merge` (6.49 million positions) | 4.966 s | 4.887 s | 0.984 ± 0.011 | same |
-| `book fix`, 1000 leaves (level 18) | 9.169 s | 9.176 s | 1.001 ± 0.015 | same |
-| `book deviate 0 2` (270 thousand positions, `auto`, rounds of 1 to 7 positions, 32 runs) | 8.386 s | 8.329 s | 0.993 ± 0.015 | same |
-| `book learn`, level 21, 8 games | 10.265 s | 10.315 s | 1.004 ± 0.014 | same |
-| `book learn`, level 24, 4 games | 10.182 s | 10.240 s | 1.006 ± 0.009 | same |
-| 30 games stored one by one with `book store` (level 18) | 19.854 s | 19.948 s | 1.005 ± 0.008 | same |
-| `book learn`, level 18, 128 games | 30.438 s | 30.312 s | 0.996 ± 0.003 | same |
+| `-solve` (fforum-20-39), 1 thread | 1.211 s | 1.209 s | 0.999 ± 0.003 | same |
+| the same, 32 threads (64 runs) | 0.361 s | 0.365 s | 1.012 ± 0.005 (see the note below) | same |
+| `-solve` (fforum-40-59), 32 threads | 23.270 s | 23.326 s | 1.002 ± 0.006 | same |
+| 30 midgame positions, level 18 | 0.940 s | 0.938 s | 0.998 ± 0.005 | same |
+| 30 midgame positions, level 21 | 4.149 s | 4.119 s | 0.993 ± 0.008 | same |
+| 20 `book negamax` (6.49 million positions) | 4.034 s | 3.786 s | 0.939 ± 0.003 | same |
+| `book fix` (6.49 million positions) | 2.244 s | 2.216 s | 0.988 ± 0.006 | same |
+| `book merge` (6.49 million positions) | 5.084 s | 4.979 s | 0.980 ± 0.007 | same |
+| `book fix`, 1000 leaves (level 18) | 9.045 s | 9.135 s | 1.010 ± 0.011 | same |
+| `book deviate 0 2` (270 thousand positions, `auto`, rounds of 1 to 7 positions) | 8.541 s | 8.494 s | 0.994 ± 0.042 (0.993 ± 0.006 for the time for each position) | same |
+| `book learn`, level 21, 8 games | 10.314 s | 10.363 s | 1.005 ± 0.008 | same |
+| `book learn`, level 24, 4 games | 10.166 s | 10.249 s | 1.008 ± 0.009 | same |
+| 30 games stored one by one with `book store` (level 18) | 20.003 s | 20.227 s | 1.011 ± 0.013 | same |
+| `book learn`, level 18, 128 games | 30.732 s | 30.731 s | 1.000 ± 0.004 | same |
 
-No condition is slower beyond the error, and the peak memory is the same in every condition.
+The peak memory is the same in every condition. For the time, only the short `-solve` with 32 threads (0.36 s; the clock ticks every 0.016 s) came out slower beyond the error, 1.012 ± 0.005. fforum-40-59, which takes 23 s with the same 32 threads, shows no difference (1.002 ± 0.006), and 120 runs of this condition in turn with v4.5.5-nikque.9, while other programs were running, gave 0.999 ± 0.006. The search code is unchanged since v4.5.5-nikque.9. No other condition is slower beyond the error.
 
-**Not measured**: `book deviate` in rounds with many positions with the release (PGO) builds (the comparison of `auto` above is between builds of the same source without PGO), the book of 657 million positions with the release builds, the speed of the 32-bit, Linux, macOS and ARM64 builds, `book deviate` above level 18 (its rule is unchanged).
+`book deviate` in a round with many positions (the book of 6.49 million positions, `book deviate3 2 6`, `auto`, positions expanded in 60 s; release builds, 3 runs): 8,529, 8,484, 8,462 → 10,801, 10,883, 10,848 (about 1.28 times), peak memory 1,432 MB → 1,002 MB.
+
+**Not measured**: the book of 661.62 million positions with the release builds (the numbers of the real book above are between builds of the same source without PGO), the speed of the 32-bit, Linux, macOS and ARM64 builds, `book deviate` above level 18 (its rule is unchanged).
 
 ### What behaves differently (summary)
 
