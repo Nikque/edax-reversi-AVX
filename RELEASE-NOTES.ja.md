@@ -2,6 +2,26 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-nikque.11
+
+bookを切り詰める命令 `book subtree`・`book prune` と、`book correct`・`book enhance` を速くしました。新しい機能・設定はありません。`eval.dat`、bookのファイル形式、探索のコードは変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+
+速さ（できるbookは同じ）：
+
+- `book subtree`・`book prune`：残す局面に印を付けるとき、同じ局面を「そこへ行き着く手順の数」だけたどり直していました（上流から）。たどり直しをやめ、切り詰めの前の negamax と、消した局面へのLinkを外す処理を複数スレッドにしました。649万局面のbook・32スレッドで、深さを1減らす切り出し（`book depth 19` の後に初期局面で `book subtree`）が 120.4秒 → 5.5秒、`book prune` が 6.3秒 → 1.6秒（PGOなしのビルドどうし、各1回）。保存したbookは同じ、最大メモリも同じです。
+- 6億6162万局面の実bookで、深さを40から39に減らす切り出し（`book depth 39`・`book subtree`）が、読み込みから終わりまで 603.6秒、最大メモリ 31.8GB でした（1回。従来の版では測っていません。上流の版では非常に長い時間がかかっていました）。
+- 切り詰めた後、消した局面のメモリを返します（Windows版だけ）。実bookの上の条件で、31.8GB → 24.3GB。
+- `book enhance`：始めと各周の negamax を複数スレッドにしました。
+
+動作が変わるところ：
+
+- `book subtree` を初期局面以外から、`book depth` で深さも減らして行ったとき：切り出した局面から negamax を行います。これまでは negamax が何もせず（上流から）、勝ち・引き分け・負け・手順の数と評価値の範囲が、切り出す前のbookのままでした。手と評価値は変わりません。これらの値を使うのは `book show` の表示だけです。
+- `book correct`：`book-expand-tasks` が2以上か `auto` のとき、完全読みの局面を複数同時に探索します（`book deviate` の展開と同じ数）。120局面の小さいbook・32スレッドで 2.0秒 → 0.47秒。同時に行う探索のぶんメモリが増えます。同じ評価値の手が複数あるときのLeafの手の選び方は、従来どおり実行ごとに変わることがあります。`book-expand-tasks = 1`・`-n 1` では従来と同じです。
+- 表示：`Book subtree N... done`・`Book prune N... done` の N は、たどり直しを数えなくなったので小さくなります。途中経過 `Book prune N to keep` は10万局面ごとに1回出ます。
+- `book check`：棋譜の手がbookに1つもないとき、悪手の割合を 0% と表示します（0÷0 になっていました）。
+
+確認：bookの回帰試験（v4.5.5-nikque.10 の配布版と全ファイル一致）、変更ごとの保存したbookの比較、API試験193項目、1スレッドの `-solve` の結果とノード数。配布用ビルドどうしを静かな状態で比べる計測は、今回変えたのがbookの命令だけなので、行っていません。
+
 ## v4.5.5-nikque.10
 
 v4.5.5-nikque.9 の後に見つかった不具合を3件直し、大きなbookの `book negamax`・`book fix`・`book merge` と、`book deviate` の展開を速くしました。新しい機能・設定はありません。`eval.dat`、bookのファイル形式、1スレッドの探索の結果とノード数は変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。

@@ -2,6 +2,26 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.11
+
+Makes the commands that cut a book down, `book subtree` and `book prune`, and `book correct` and `book enhance`, faster. No new feature or setting. `eval.dat`, the book file format and the search code are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+
+Speed (same book):
+
+- `book subtree`, `book prune`: while marking the positions to keep, a position was walked again once for every line of play leading to it (since upstream). The repeated walks are gone, and the negamax before the cut and the removal of the links to the removed positions use several threads. On a book of 6.49 million positions with 32 threads, reducing the depth by one (`book depth 19`, then `book subtree` at the initial position) went from 120.4 s to 5.5 s, and `book prune` from 6.3 s to 1.6 s (builds without PGO, one run each). The saved books and the peak memory are the same.
+- On the real book of 661.62 million positions, reducing the depth from 40 to 39 (`book depth 39`, `book subtree`) took 603.6 s from loading to the end, with a peak memory of 31.8 GB (one run; not timed with the former version; with the upstream version it took a very long time).
+- After the cut, the memory of the removed positions is given back (Windows builds only): 31.8 GB → 24.3 GB in the case above.
+- `book enhance`: the negamax at the start and after each round uses several threads.
+
+What behaves differently:
+
+- `book subtree` from another position than the initial one, with a depth reduced by `book depth`: the negamax is run from the position the book was cut from. So far the negamax did nothing (since upstream), and the counts of wins, draws, losses and lines and the score bounds were those of the former book. Moves and scores do not change. Only the display of `book show` uses these values.
+- `book correct`: with `book-expand-tasks` 2 or more, or `auto`, several solved positions are searched at the same time (as many as `book deviate` expands). A small book with 120 solved positions, 32 threads: 2.0 s → 0.47 s. It uses more memory, for the searches run at the same time. When several moves have the same score, the choice of the leaf move can vary from a run to the next, as before. Unchanged with `book-expand-tasks = 1` or `-n 1`.
+- Display: the N of `Book subtree N... done` and `Book prune N... done` no longer counts repeated walks, so it is smaller. The progress line `Book prune N to keep` is printed once per 100,000 positions.
+- `book check`: when no move of the games is in the book, the percentage of bad moves is shown as 0% (it was 0/0).
+
+Checks: book regression (all files identical to the release build of v4.5.5-nikque.10), comparison of the saved books for each change, the 193 checks of the API test, results and node counts of single-thread `-solve`. The release builds were not compared on an idle machine, since only book commands changed.
+
 ## v4.5.5-nikque.10
 
 Fixes three bugs found after v4.5.5-nikque.9, and makes `book negamax`, `book fix` and `book merge` on large books, and the expansion of `book deviate`, faster. No new feature or setting. `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.

@@ -4,6 +4,75 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.11
+
+This version makes the commands that cut a book down, `book subtree` and `book prune`, and `book correct` and `book enhance`, faster. Since the upstream version, `book subtree` and `book prune` walked again from a position once for every line of play leading to it, which took a very long time on a large book. There is no new feature or setting. The evaluation data `eval.dat`, the book file format and the search code are unchanged. The resulting book differs in two cases (see "What behaves differently" below): `book subtree` from another position than the initial one with a reduced depth, and `book correct` when it runs several searches at the same time.
+
+### Faster book subtree and book prune (same book)
+
+`book subtree` keeps only the positions that can be reached from the current board. Reducing the depth first (for example `book depth 39`) and running `book subtree` at the initial position reduces the depth of the book. `book prune` keeps only the positions reached through best moves. Four things changed:
+
+- **No repeated walks.** When a position already marked as kept was reached again through another line, everything below it was walked again. `book subtree` keeps the same positions whatever the line, so it no longer walks below a marked position. `book prune` skips the walk only when the position is reached again with the same conditions (there are only two sets of them).
+- **The negamax before the cut uses several threads**, with the same code as `book negamax` (the former code with `-n 1`).
+- **The links to the removed positions are removed with several threads** (the former code with `-n 1`).
+- **The memory of the removed positions is given back** (Windows builds only). So far the memory did not shrink until the program ended or the book was loaded again.
+
+A book of 6.49 million positions (level 18, 32 threads, builds of the same source without PGO, one run each, with other programs running; whole run from loading to saving):
+
+| Case | Before | This version | Walks |
+|---|---|---|---|
+| `book subtree` at the initial position (same depth) | 113.8 s | 7.1 s | 496.17 million → 6.49 million |
+| `book depth 19`, then `book subtree` at the initial position (depth reduced by one; 5.11 million positions left) | 120.4 s | 5.5 s | 335.44 million → 5.11 million |
+| `book subtree` after `play f5d6c3d3c4` (0.88 million positions left) | 2.2 s | 1.2 s | 4.67 million → 0.88 million |
+| `book prune` (1.30 million positions left) | 6.3 s | 1.6 s | 11.71 million → 1.30 million |
+
+The saved books had the same content before and after each change (9 to 18 cases per change: root position, depth, and 1, 2, 4 and 32 threads). The peak memory is the same (568 MB). The memory after the cut, with one thread, went from 388 MB to 341 MB after reducing the depth by one, and from 388 MB to 113 MB after cutting down to 0.5 million positions.
+
+**The real book of 661.62 million positions (level 18, 32 threads, build without PGO, one run)**: `book depth 39`, then `book subtree` at the initial position, reducing the depth from 40 to 39. Positions: 661,617,883 → 524,075,811. From loading to the end: **603.6 s** (loading 29 s, negamax 23.5 s, marking the positions to keep 369.5 s, removing positions 4 s, removing links 23 s, giving memory back 3 s, then the check 17 s, the links 110 s and the negamax 20 s). The peak memory was 31.8 GB (the same as right after loading), and 24.3 GB after the cut. **This case was not timed with the former version** (it is not known how long it takes; with the upstream version it took a very long time). The resulting book was not saved, so its content was not checked (only the displayed number of positions and depth).
+
+Display: the N of `Book subtree N... done` and `Book prune N... done` was the number of walks; repeated walks are no longer counted, so it is smaller (for `book subtree` it is the number of kept positions). The progress line `Book prune N to keep` is printed once per 100,000 positions (it used to be printed many times, or not at all).
+
+### book subtree: negamax after a cut from another position than the initial one
+
+The negamax after `book subtree` starts from the initial position. After a cut from another position, the initial position is no longer in the book and the negamax did nothing (since upstream). So, **after a cut from another position with a depth reduced by `book depth`**, the positions whose links were cut, and the positions above them, kept the counts of wins, draws, losses and lines and the score bounds of the former book. This version runs the negamax from the position the book was cut from when the initial position is not in the book.
+
+On the book of 6.49 million positions, `play f5d6c3d3c4`, `book depth 17`, `book subtree` (294,289 positions left): 226,357 positions have other counts and 150,102 other bounds than before. Link moves and scores, leaf moves and scores and position scores are all the same. The counts and bounds are only used by the display of `book show`; the choice of book moves in games and `book deviate` do not use them. A cut without a depth change, and a cut from the initial position, give the same book as before.
+
+In a book without the initial position, the negamax of `book negamax`, `book fix`, `book prune` and others still does nothing in this version (`book deviate` and `book enhance` run it from the current board).
+
+### book correct: several solved positions searched at the same time
+
+`book correct` searches the exactly solved positions again (21 empties and fewer at level 18) to find wrong scores. It ran searches of `n-tasks` threads one after the other. This version searches as many positions at the same time as `book deviate` expands (`book-expand-tasks`; the same number of searches, threads and hash table size). With `book-expand-tasks = 1`, `-n 1`, `-cpu`, or without memory for the searches, the positions are searched one after the other as before.
+
+A small book with 120 solved positions (level 10, 1,563 positions, `book-expand-tasks = auto`, 3 runs each, whole run): 2.03–2.08 s → 0.46–0.47 s with 32 threads, 2.04–2.06 s → 0.82–0.83 s with 8 threads, 2.42–2.58 s → 1.89–1.92 s with 2 threads.
+
+- **It uses more memory, for the searches run at the same time** (as much as the expansion of `book deviate`). With 2 threads the peak went from 95 MB to 106 MB. With 32 and 8 threads the runs were too short to measure it.
+- **The resulting book can differ a little from a run to the next, as it already did.** The score of a solved position does not depend on the search, but when several moves have the same score, the one that becomes the leaf can change. The former version gave three different books in three runs with 32 threads (only leaf moves differ, in 1 to 3 positions). The differences of this version are of the same kind.
+- The case where a wrong score is actually found, the timed saves and the lack of memory were not run. The time on a large book was not measured.
+
+### Other changes
+
+- **`book enhance`**: the negamax at the start and after each round used one thread. It now uses several threads, with the same code as `book deviate`. On the book of 6.49 million positions, a run with no position to expand went from 6.9 s to 1.2 s, and the saved book was the same.
+- **`book check`**: when no move of the games is in the book, the percentage of bad moves was 0/0. It now shows 0% (not run).
+- `book fill` was reviewed; nothing could be changed without changing the resulting book, so it is unchanged.
+
+### What behaves differently (summary)
+
+| Case | Up to v4.5.5-nikque.10 | v4.5.5-nikque.11 |
+|---|---|---|
+| `book subtree` from another position than the initial one, with a reduced depth | counts of wins/draws/losses/lines and score bounds of the former book | negamax from the position the book was cut from (same moves and scores) |
+| `book correct`, `book-expand-tasks` 2 or more, or `auto` | searches of `n-tasks` threads, one after the other | several searches at the same time (more memory; the choice of the leaf move can vary between runs, as before) |
+| N of `Book subtree N` and `Book prune N` | number of walks | repeated walks not counted (smaller) |
+| Memory after the cut (Windows builds) | does not shrink | the memory of the removed positions is given back |
+
+### Checks
+
+- Book regression (all book commands; 1 and 8 threads, including the book of 6.49 million positions): all files identical to the release build of v4.5.5-nikque.10 (only the files holding a date differ).
+- For each change, the saved books were compared with a test build that keeps the former behaviour (see the sections above).
+- libedax: the 193 checks of the API test (3 Windows libraries). `edax_book_subtree` has the same change; its books were not compared.
+- The search code is unchanged. The results and node counts of single-thread `-solve` are the same as v4.5.5-nikque.10 with the release builds.
+- **Not measured**: times with the release builds (PGO; the figures above are from builds of the same source without PGO), a comparison of the release builds on an idle machine (only book commands changed, so it was not done), `book prune`, `book correct` and `book enhance` on the real book, the speed on Linux, macOS, 32-bit and ARM64, `book subtree` and `book prune` on a damaged book with links going back.
+
 ## Changes in v4.5.5-nikque.10
 
 This version fixes three bugs found after v4.5.5-nikque.9, and makes `book negamax`, `book fix` and `book merge` on large books, and the expansion of `book deviate`, `deviate2` and `deviate3`, faster. There is no new feature or setting. The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. Two things behave differently (see "What behaves differently" below): the bundled setting `book-expand-tasks = auto` in the rounds with many positions to expand (the resulting book differs a little), and `edax_stop` during `edax_bench` in libedax.
