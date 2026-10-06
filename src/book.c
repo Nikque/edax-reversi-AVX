@@ -4772,7 +4772,11 @@ void book_prune(Book *book)
 		subtree_stat_new = 0; subtree_stat_t0 = real_clock();
 #endif
 		book_clean(book);
+#ifdef BOOK_TEST_SUBTREE_NEGAMAX_OLD
 		position_negamax(root, book);
+#else
+		book_negamax_position(root, book); // with n-tasks threads (the same values)
+#endif
 		SUBTREE_STAT("negamax");
 
 		book_clean(book);
@@ -4819,7 +4823,11 @@ void book_subtree(Book *book, const Board *board)
 		subtree_stat_new = 0; subtree_stat_t0 = real_clock();
 #endif
 		book_clean(book);
+#ifdef BOOK_TEST_SUBTREE_NEGAMAX_OLD
 		position_negamax(root, book);
+#else
+		book_negamax_position(root, book); // with n-tasks threads (the same values)
+#endif
 		SUBTREE_STAT("negamax");
 
 		book_clean(book);
