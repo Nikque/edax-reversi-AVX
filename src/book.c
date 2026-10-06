@@ -3793,6 +3793,8 @@ void book_deepen(Book *book)
 	bprint("Deepening book...%d done\n", i);
 }
 
+static bool book_correct_concurrent(Book*, const char*, int*, int*);
+
 /**
  * @brief Correct wrong solved score in the book.
  *
@@ -3812,6 +3814,14 @@ void book_correct_solved(Book *book)
 	char s[4];
 	
 	file_add_ext(options.book_file, ".err", file);
+
+#ifndef BOOK_TEST_CORRECT_OLD
+	// several positions at the same time (book-expand-tasks), when the memory for the searches is available
+	if (book_correct_concurrent(book, file, &i, &n_error)) {
+		bprint("Correcting solved positions...%d done (%d error found)\n", i, n_error);
+		return;
+	}
+#endif
 
 	bprint("Correcting solved positions...\r"); 
 	foreach_position(p, a, book) {
@@ -4160,6 +4170,145 @@ static bool book_expand_concurrent(Book *book, const char *action, const char *t
 	lock_free(&shared);
 	free(w);
 	bprint("%s...%d/%lld done: %lld positions, %lld links\n", action, shared.n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+	return true;
+}
+
+/** state shared by the threads of a concurrent book_correct_solved */
+typedef struct CorrectShared {
+	Book *book;
+	Lock lock;                  /**< guards the book, the counters and the output */
+	PositionArray *a;           /**< next position to look at: bucket, */
+	int k;                      /**< and index in the bucket */
+	int n_done, n_error;
+	const char *tmp_file;
+	unsigned long long t;       /**< time of the last timed save */
+} CorrectShared;
+
+/** one thread of a concurrent book_correct_solved, with its own search (and hash tables) */
+typedef struct CorrectWorker {
+	CorrectShared *shared;
+	Search *search;
+} CorrectWorker;
+
+/** @return true if the level of the position solves it exactly. */
+static bool position_is_solved(const Position *p)
+{
+	const int n_empties = board_count_empties(&p->board);
+	return LEVEL[p->level][n_empties].depth == n_empties && LEVEL[p->level][n_empties].selectivity == NO_SELECTIVITY;
+}
+
+/**
+ * @brief Search the solved positions again in a thread.
+ *
+ * The positions are taken in the order of the book. No position is added, removed or moved by
+ * book correct, so a position stays where it is while it is searched (on a copy, without the
+ * lock); the book is only read and written with the lock held (a timed save sees whole positions).
+ */
+static void* book_correct_worker(void *v)
+{
+	CorrectWorker *w = (CorrectWorker*) v;
+	CorrectShared *s = w->shared;
+	Book *book = s->book;
+	char str[4];
+
+	for (;;) {
+		Position copy, *p = NULL;
+		Link old_leaf;
+		bool copied;
+		int r;
+
+		lock(s);
+		while (s->a < book->array + book->n) {
+			if (s->k >= s->a->n) { ++s->a; s->k = 0; continue; }
+			p = s->a->positions + s->k++;
+			if (position_is_solved(p)) break;
+			p = NULL;
+		}
+		if (p == NULL) { unlock(s); break; }
+		old_leaf = p->leaf;
+		copied = position_copy(&copy, p);
+		if (copied) {
+			unlock(s);
+			copy.leaf = BAD_LINK;
+			r = position_search_with(&copy, w->search);
+			lock(s);
+			p->leaf = copy.leaf;
+			p->score.value = copy.score.value;
+			position_free(&copy);
+		} else { // no memory for the copy: search the position itself, with the lock held
+			p->leaf = BAD_LINK;
+			r = position_search_with(p, w->search);
+		}
+		if (r) book->need_saving = true;
+		++s->n_done;
+		if (p->leaf.score != old_leaf.score) {
+			++s->n_error;
+			bprint("\nError found:\n");
+			position_print(p, &p->board, stdout);
+			move_to_string(old_leaf.move, board_count_empties(&p->board) & 1, str);
+			bprint("instead of <%s:%d>\n\n", str, old_leaf.score);
+		}
+		if (s->n_done % 10 == 0 || p->leaf.score != old_leaf.score) {
+			bprint("Correcting solved positions...%d (%d error found)\r", s->n_done, s->n_error);
+		}
+		if (book_save_interval_elapsed((long long) s->t)) {
+			book_save_progress(book, s->tmp_file); // timed progress save (the other threads wait for the lock)
+			s->t = real_clock();
+		}
+		unlock(s);
+	}
+	return NULL;
+}
+
+/**
+ * @brief Search the solved positions again, several at the same time (see book_correct_solved).
+ *
+ * As many searches as book deviate uses to expand as many positions (book-expand-tasks), with the
+ * same threads and hash tables. The scores are exact: they do not depend on the search that finds them.
+ *
+ * @param book opening book.
+ * @param tmp_file Temporary file name (timed saves).
+ * @param n_done Number of positions searched (out).
+ * @param n_error Number of positions with another score (out).
+ * @return false if the positions are to be searched one after the other (nothing was done).
+ */
+static bool book_correct_concurrent(Book *book, const char *tmp_file, int *n_done, int *n_error)
+{
+	CorrectShared shared;
+	CorrectWorker *w;
+	PositionArray *a;
+	Position *p;
+	long long n_solved = 0;
+	int n_workers, n_tasks, bits, i;
+
+	if (options.n_task < 2 || book_one_search_at_a_time()) return false;
+	foreach_position(p, a, book) if (position_is_solved(p)) ++n_solved;
+	n_workers = (int) MIN(book_expand_task_count(book, n_solved), n_solved);
+	if (n_workers < 2) return false;
+	n_tasks = MAX(1, options.n_task / book_expand_task_count(book, n_solved));
+	bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
+	if (options.book_expand_tasks <= 0 && n_tasks == 1) bits = book_plan_hash_bits(book, 1); // (as book_expand_concurrent)
+	n_workers = search_pool_get(&expand_pool, n_workers, n_tasks, bits);
+	if (n_workers < 2) { search_pool_release(&expand_pool); return false; }
+	w = (CorrectWorker*) calloc(n_workers, sizeof *w);
+	if (w == NULL) { search_pool_release(&expand_pool); return false; }
+	shared.book = book; shared.a = book->array; shared.k = 0; shared.n_done = shared.n_error = 0;
+	shared.tmp_file = tmp_file; shared.t = real_clock();
+	lock_init(&shared);
+
+	bprint("Correcting solved positions...\r");
+	for (i = 0; i < n_workers; ++i) {
+		w[i].shared = &shared;
+		w[i].search = expand_pool.search[i];
+		w[i].search->options.verbosity = book->search->options.verbosity;
+		w[i].search->options.header = book->search->options.header;
+		w[i].search->options.separator = book->search->options.separator;
+	}
+	thread_run_workers(book_correct_worker, w, sizeof *w, n_workers, false, false);
+	lock_free(&shared);
+	free(w);
+	search_pool_release(&expand_pool);
+	*n_done = shared.n_done; *n_error = shared.n_error;
 	return true;
 }
 
