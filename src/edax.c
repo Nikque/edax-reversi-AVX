@@ -758,6 +758,7 @@ void ui_loop_edax(UI *ui)
 					book_fix(book); // do nothing (or edax is buggy)
 					book_link(book); // links nodes
 					book_negamax(book); // negamax nodes
+					book_negamax_subtree(book, &play->board); // (from this position, when the initial one is no longer in the book)
 					book_sort(book); // sort moves
 
 				// show the current position as stored in the book

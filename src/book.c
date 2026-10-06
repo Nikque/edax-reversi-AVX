@@ -3610,6 +3610,32 @@ void book_negamax(Book *book)
 }
 
 /**
+ * @brief Negamax a book cut from a position (after book subtree).
+ *
+ * book_negamax() starts from the initial position: it does nothing when the book was cut from
+ * another position. The counts of lines and the score bounds of the positions whose links were
+ * cut (book depth reduced) then kept the values of the former book.
+ *
+ * @param book opening book.
+ * @param board Position the book was cut from.
+ */
+void book_negamax_subtree(Book *book, const Board *board)
+{
+#ifndef BOOK_TEST_SUBTREE_NO_NEGAMAX
+	Position *root = book_probe(book, board);
+
+	if (root && !book_root(book)) {
+		bprint("Negamaxing book...");
+		book_clean(book);
+		book_negamax_position(root, book);
+		bprint("done\n");
+	}
+#else
+	(void) book; (void) board;
+#endif
+}
+
+/**
  * @brief Link a book.
  *
  * @param book opening book.

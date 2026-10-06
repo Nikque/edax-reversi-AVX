@@ -85,6 +85,7 @@ void book_link_parallel(Book*);
 void book_sort_parallel(Book*);
 void book_sort(Book *book);
 void book_negamax(Book*);
+void book_negamax_subtree(Book*, const Board*);
 void book_prune(Book*);
 void book_deepen(Book*);
 void book_correct_solved(Book*);

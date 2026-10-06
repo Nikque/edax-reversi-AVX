@@ -1747,7 +1747,11 @@ LIBEDAX_API void edax_book_subtree(void)
 
 	// subtree an opening book
 	book_subtree(book, &g_ui->play->board); // remove unreachable lines.
-	lib_book_fix(book);
+	book_fix(book); // do nothing (or edax is buggy)
+	book_link(book); // links nodes
+	book_negamax(book); // negamax nodes
+	book_negamax_subtree(book, &g_ui->play->board); // (from this position, when the initial one is no longer in the book)
+	book_sort(book); // sort moves
 
 	lib_book_end(book);
 }
