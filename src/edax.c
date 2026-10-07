@@ -157,7 +157,7 @@ void ui_init_edax(UI *ui)
  */
 void ui_free_edax(UI *ui)
 {
-	if (ui->book.need_saving) book_save(&ui->book, options.book_file);
+	if (ui->book.need_saving) book_save_to_book_file(&ui->book); // (a book file replaced by "book new" is kept under another name)
 	book_free(&ui->book);
 	play_free(ui->play);
 	log_close(edax_log);
@@ -664,6 +664,7 @@ void ui_loop_edax(UI *ui)
 					} else {
 						book_free(book) ;
 						book_new(book, val_1, 61 - val_2);
+						book_set_replaced_file(options.book_file); // the book file still holds the previous book: see book_save_to_book_file()
 					}
 
 				// load an opening book (binary format) from the disc

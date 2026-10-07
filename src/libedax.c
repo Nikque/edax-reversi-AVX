@@ -475,7 +475,7 @@ static void ui_init_libedax(UI *ui)
  */
 static void ui_free_libedax(UI *ui)
 {
-	if (ui->book.need_saving) book_save(&ui->book, options.book_file);
+	if (ui->book.need_saving) book_save_to_book_file(&ui->book); // (a book file replaced by edax_book_new() is kept under another name)
 	book_free(&ui->book);
 	play_free(ui->play);
 	book_verbose = false;
@@ -1513,6 +1513,7 @@ LIBEDAX_API void edax_book_new(const int level, const int depth)
 	// create a new empty book
 	book_free(book);
 	book_new(book, level, 61 - depth);
+	book_set_replaced_file(options.book_file); // the book file still holds the previous book: see book_save_to_book_file()
 
 	lib_book_end(book);
 }

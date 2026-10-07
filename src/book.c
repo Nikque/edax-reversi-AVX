@@ -2677,12 +2677,58 @@ static void book_set_unloaded(Book *book)
 }
 
 /**
- * @brief Keep a file that could not be loaded under another name ("<file>.damaged").
+ * Book file that still holds the book that was in use before "book new" (or edax_book_new) made a new one
+ * in memory. When the new book is saved to that file without the file being named (when Edax ends, or by
+ * "book save" without a file name), the file is kept under another name ("<file>.old") instead of being
+ * replaced. Up to v4.5.5-nikque.12 "book new" then "quit" left a book of one position in its place.
+ * "book save <file>", with the name, replaces the file as asked.
+ */
+static char *book_replaced_file = NULL;
+
+/**
+ * @brief Tell that the book in memory was made new, and no longer is the book of this file.
+ *
+ * @param file Book file name (NULL: no such file).
+ */
+void book_set_replaced_file(const char *file)
+{
+	free(book_replaced_file);
+	book_replaced_file = file ? string_duplicate(file) : NULL;
+}
+
+/**
+ * @brief Number of positions that the header of a book file tells.
  *
  * @param file File name.
+ * @return the number of positions, or -1 if the file cannot be read as a book of this version.
+ */
+static long long book_file_positions(const char *file)
+{
+	unsigned int header_edax, header_book, n;
+	unsigned char header_version, header_release;
+	long long count = -1;
+	FILE *f = fopen(file, "rb");
+
+	if (f) {
+		if (fread(&header_edax, sizeof header_edax, 1, f) == 1 && fread(&header_book, sizeof header_book, 1, f) == 1
+		 && fread(&header_version, 1, 1, f) == 1 && fread(&header_release, 1, 1, f) == 1
+		 && header_edax == EDAX && header_book == BOOK && header_version == VERSION
+		 && fseek(f, (long) (sizeof ((Book*) NULL)->date + sizeof ((Book*) NULL)->options), SEEK_CUR) == 0
+		 && fread(&n, sizeof n, 1, f) == 1) count = n;
+		fclose(f);
+	}
+	return count;
+}
+
+/**
+ * @brief Keep a file under another name ("<file><ext>", then "<file><ext>.1", ...) instead of replacing it.
+ *
+ * @param file File name.
+ * @param ext Extension added to the name (".damaged": a file that could not be loaded; ".old": the book in use before "book new").
+ * @param reason Why the file is kept (for the message).
  * @return true if the file was renamed or does not exist any more.
  */
-static bool book_set_aside(const char *file)
+static bool book_set_aside(const char *file, const char *ext, const char *reason)
 {
 	char *name = (char*) malloc(strlen(file) + 32);
 	FILE *f;
@@ -2697,14 +2743,14 @@ static bool book_set_aside(const char *file)
 	}
 	fclose(f);
 	for (i = 0; i < 100 && !ok; ++i) {
-		if (i) sprintf(name, "%s.damaged.%d", file, i); else sprintf(name, "%s.damaged", file);
+		if (i) sprintf(name, "%s%s.%d", file, ext, i); else sprintf(name, "%s%s", file, ext);
 		if ((f = fopen(name, "rb")) != NULL) { fclose(f); continue; } // never replace a file kept before
 #ifdef _WIN32
 		if (MoveFileExA(file, name, 0)) {
 #else
 		if (rename(file, name) == 0) {
 #endif
-			warn("%s could not be loaded: it is kept as %s\n", file, name);
+			warn("%s %s: it is kept as %s\n", file, reason, name);
 			ok = true;
 		}
 	}
@@ -2860,6 +2906,7 @@ bool book_load(Book *book, const char *file)
 		info("done\n");
 		fclose(f);
 		if (book_unread_file && strcmp(file, book_unread_file) == 0) book_unread_set(NULL);
+		if (book_replaced_file && strcmp(file, book_replaced_file) == 0) book_set_replaced_file(NULL); // (the book in memory is the one of the file again)
 		*book = loaded;
 		return true;
 
@@ -3048,9 +3095,11 @@ static void book_remove_stale_tmp(const char *file)
  *
  * @param book Opening book.
  * @param file File name.
+ * @param keep_replaced Keep, under another name, a file that still holds the book in use before "book new" (see book_replaced_file).
  */
-bool book_save(Book *book, const char *file)
+static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 {
+	const bool replaced = (book_replaced_file != NULL && strcmp(file, book_replaced_file) == 0);
 	unsigned int header_edax = EDAX, header_book = BOOK;
 	unsigned char header_version = VERSION, header_release = RELEASE;
 	char *tmp_file;
@@ -3110,13 +3159,24 @@ bool book_save(Book *book, const char *file)
 	}
 	// the file could not be loaded: its content is not in this book, so it is kept under another name
 	if (book_unread_file && strcmp(file, book_unread_file) == 0) {
-		if (!book_set_aside(file)) {
+		if (!book_set_aside(file, ".damaged", "could not be loaded")) {
 			error("\nCannot keep the book that could not be loaded; %s was not replaced\n", file);
 			remove(tmp_file);
 			free(tmp_file);
 			return false;
 		}
 		book_unread_set(NULL);
+	}
+	// the file holds the book in use before "book new", and the save was not asked for this file by its name:
+	// it is kept under another name (not a file that only holds the initial position)
+	if (keep_replaced && replaced) {
+		const long long n = book_file_positions(file);
+		if (n != 0 && n != 1 && !book_set_aside(file, ".old", "holds the book in use before \"book new\"")) {
+			error("\nCannot keep the book in use before \"book new\"; %s was not replaced\n", file);
+			remove(tmp_file);
+			free(tmp_file);
+			return false;
+		}
 	}
 #ifdef _WIN32
 	if (!MoveFileExA(tmp_file, file, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
@@ -3129,9 +3189,36 @@ bool book_save(Book *book, const char *file)
 		return false;
 	}
 	free(tmp_file);
+	if (replaced) book_set_replaced_file(NULL); // (the file now holds the book in memory)
 	book->need_saving = false;
 	info("done\n");
 	return true;
+}
+
+/**
+ * @brief Save an opening book to a file given by its name.
+ *
+ * @param book Opening book.
+ * @param file File name.
+ * @return true if the book was saved.
+ */
+bool book_save(Book *book, const char *file)
+{
+	return book_save_to(book, file, false);
+}
+
+/**
+ * @brief Save an opening book to the book file of the settings, when no file was named: when Edax
+ * ends, and for "book save" without a file name.
+ *
+ * A file that still holds the book in use before "book new" is kept under another name.
+ *
+ * @param book Opening book.
+ * @return true if the book was saved.
+ */
+bool book_save_to_book_file(Book *book)
+{
+	return book_save_to(book, options.book_file, true);
 }
 
 /**
