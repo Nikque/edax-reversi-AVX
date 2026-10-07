@@ -1521,7 +1521,7 @@ typedef struct PruneMarkShared {
 typedef struct PruneMarkWorker {
 	PruneMarkShared *shared;
 	PruneMarkList stack;
-	long long n_marked, n_new, n_flushed;
+	long long n_marked, n_new, n_flushed; /**< marks; marks of positions that were not kept yet (only counted in the test builds); marks given to the shared count */
 	bool busy;
 } PruneMarkWorker;
 
@@ -1550,7 +1550,9 @@ static void prune_mark_push(PruneMarkWorker *w, Position *p, const int kind)
 		if (position_state_is(state, book, seen)) return; // already walked
 	} while (!atomic_cas_uchar(&p->state, state, (unsigned char) (position_state_set(state, book->epoch, POSITION_DONE) | seen)));
 	++w->n_marked;
+#ifdef BOOK_TEST_SUBTREE_STAT
 	if (!position_state_is(state, book, POSITION_DONE)) ++w->n_new;
+#endif
 	if (!prune_mark_reserve(&w->stack, 1)) { atomic_store_uchar(&s->oom, 1); return; }
 	w->stack.item[w->stack.n++] = (uintptr_t) p | (uintptr_t) kind;
 }
@@ -6153,7 +6155,7 @@ typedef struct BookPlan {
 	int next, n_done;
 	struct PlanWorker *worker;     /**< threads doing the searches (book_plan_search) */
 	int n_worker, n_threads;       /**< workers started, threads that they share */
-	int n_continued;               /**< searches stopped and continued with more threads */
+	int n_continued;               /**< searches stopped and continued with more threads (only counted in the test builds) */
 } BookPlan;
 
 /** a thread doing planned searches */
@@ -6449,7 +6451,9 @@ static void* plan_worker_run(void *v)
 			done = (position_search_with(&p, w->search) & 2) != 0;
 			lock(plan);
 			w->run_tasks = 0;
+#ifdef BOOK_TEST_STORE
 			if (done && w->search->stop == STOP_ON_DEMAND) ++plan->n_continued;
+#endif
 			unlock(plan);
 			if (!done || w->search->stop != STOP_ON_DEMAND) break; // the search ended by itself
 			// stopped to get more threads: search again, with what the hash tables kept
