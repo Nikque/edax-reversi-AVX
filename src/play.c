@@ -612,7 +612,7 @@ void play_stop(Play *play)
 	}
 	unlock(&play->no_stop);
 	if (stopped) info("[stop on user demand]\n");
-	else printf("[stop: nothing is stopped while a book or base command is running]\n");
+	else fprintf(stderr, "[stop: nothing is stopped while a book or base command is running]\n"); // (stderr: the standard output is the channel of the protocols)
 }
 
 /**
