@@ -39,6 +39,8 @@ void play_init(Play *play, Book *book)
 	play->time[1].extra = 0;
 	play_new(play);
 	lock_init(&play->ponder);
+	lock_init(&play->no_stop);
+	play->no_stop.n = 0;
 	play->ponder.launched = false;
 	spin_init(&play->result);
 	play->ponder.verbose = false;
@@ -174,7 +176,7 @@ void play_save(Play *play, const char *file)
 	game.initial_board = play->initial_board;
 	game.player = play->initial_player;
 	for (i = j = 0; i < play->n_game; ++i) {
-		if (play->game[i].x != PASS) {
+		if (play->game[i].x != PASS && j < 60) { // a Game holds 60 moves
 			game.move[j++] = play->game[i].x;
 		}
 	}
@@ -598,8 +600,34 @@ void play_stop_pondering(Play *play)
  */
 void play_stop(Play *play)
 {
-	search_stop_all(&play->search, STOP_ON_DEMAND);
-	info("[stop on user demand]\n");
+	bool stopped = false;
+
+	// A book or base command, or the store of a game, does not look at the stop: only the search that is
+	// running would be cut short, and its unfinished result would go to the book or to the game file
+	// (up to v4.5.5-nikque.12 it did). The stop is checked and done under the lock that sets the state.
+	lock(&play->no_stop);
+	if (play->no_stop.n == 0) {
+		search_stop_all(&play->search, STOP_ON_DEMAND);
+		stopped = true;
+	}
+	unlock(&play->no_stop);
+	if (stopped) info("[stop on user demand]\n");
+	else fprintf(stderr, "[stop: nothing is stopped while a book or base command is running]\n"); // (stderr: the standard output is the channel of the protocols)
+}
+
+/**
+ * @brief Tell that a command whose searches give their results to the book or to a game file starts or ends.
+ *
+ * While such a command runs, play_stop() does not stop the search.
+ *
+ * @param play Play.
+ * @param on true when the command starts, false when it ends.
+ */
+void play_no_stop(Play *play, const bool on)
+{
+	lock(&play->no_stop);
+	play->no_stop.n += (on ? 1 : -1);
+	unlock(&play->no_stop);
 }
 
 /**
@@ -892,10 +920,16 @@ void play_analyze(Play *play, int n)
 		if (play->search.stop == STOP_ON_DEMAND) break;
 	}
 	puts("\n      | rejections : discs | errors    : discs | error rate |");
-	printf("Black | %3d / %3d  :  %+4d | %3d / %3d :  %+4d |      %5.3f |\n",
-		n_rejection[BLACK], n_eval[BLACK], disc_rejection[BLACK], n_error[BLACK], n_exact[BLACK], disc_error[BLACK], 1.0 * disc_error[BLACK] / n_exact[BLACK]);
-	printf("White | %3d / %3d  :  %+4d | %3d / %3d :  %+4d |      %5.3f |\n",
-		n_rejection[WHITE], n_eval[WHITE], disc_rejection[WHITE], n_error[WHITE], n_exact[WHITE], disc_error[WHITE], 1.0 * disc_error[WHITE] / n_exact[WHITE]);
+	{
+		static const char *const name[2] = {"Black", "White"};
+		int c;
+		for (c = BLACK; c <= WHITE; ++c) {
+			printf("%s | %3d / %3d  :  %+4d | %3d / %3d :  %+4d |      ",
+				name[c], n_rejection[c], n_eval[c], disc_rejection[c], n_error[c], n_exact[c], disc_error[c]);
+			if (n_exact[c] > 0) printf("%5.3f |\n", 1.0 * disc_error[c] / n_exact[c]);
+			else puts("    - |"); // no move was checked by an exact search (up to v4.5.5-nikque.12: a division by zero, printed as "nan")
+		}
+	}
 
 	if (i < 0 || i < play->i_game - n) ++i;
 	for (; i < play->i_game; ++i) {
@@ -990,6 +1024,7 @@ void play_store(Play *play)
 
 	file_add_ext(options.book_file, ".store", file);
 
+	play_no_stop(play, true); // (the searches of the positions of the game are not cut short by a stop)
 	play->book->stats.n_nodes = play->book->stats.n_links = 0;
 
 	if (book_store_task_count() > 1 && book_plan_begin(play->book)) { // book-store-tasks: search the positions at the same time
@@ -1005,6 +1040,7 @@ void play_store(Play *play)
 		book_negamax(play->book);
 		if (options.book_store_auto_save) book_save_progress(play->book, file);
 	}
+	play_no_stop(play, false);
 }
 
 /**
@@ -1040,7 +1076,7 @@ static void play_store_boards(Book *book, const Board *initial_board, Move *game
 typedef struct LearnGame {
 	const char *moves;         /**< first moves of the game */
 	int randomness;            /**< randomness of the book moves */
-	Move game[80];             /**< moves of the game */
+	Move game[PLAY_GAME_SIZE]; /**< moves of the game (with the passes: as Play.game; 80 up to v4.5.5-nikque.12) */
 	int n_game;                /**< number of moves */
 	bool legal;                /**< the first moves are legal */
 } LearnGame;
@@ -1102,7 +1138,7 @@ static int learn_game_start(LearnGame *g, Board *board)
 	g->n_game = 0;
 	next = opening_get_line(string);
 	if (next) string = next;
-	while (g->n_game < 80 && ((next = parse_move(string, board, &move)) != string || move.x == PASS)) { // as play_game()
+	while (g->n_game < PLAY_GAME_SIZE && ((next = parse_move(string, board, &move)) != string || move.x == PASS)) { // as play_game()
 		string = next;
 		board_update(board, &move);
 		g->game[g->n_game++] = move;
@@ -1179,7 +1215,7 @@ static void* learn_lane_run(void *v)
 		player = learn_game_start(g, &board);
 		search_cleanup(search); // as play_new()
 		left[0] = left[1] = options.time;
-		while (g->legal && g->n_game < 80 && !board_is_game_over(&board)) {
+		while (g->legal && g->n_game < PLAY_GAME_SIZE && !board_is_game_over(&board)) {
 			long long t_real = -real_clock();
 
 			move = MOVE_INIT;

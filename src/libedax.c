@@ -49,6 +49,7 @@ static bool lib_is_started = false;
 static struct {
 	Lock lock;
 	LibedaxBenchResult *result;
+	bool stop;                  /**< edax_stop was called during the bench */
 } lib_bench;
 
 /**
@@ -474,7 +475,7 @@ static void ui_init_libedax(UI *ui)
  */
 static void ui_free_libedax(UI *ui)
 {
-	if (ui->book.need_saving) book_save(&ui->book, options.book_file);
+	if (ui->book.need_saving) book_save_to_book_file(&ui->book); // (a book file replaced by edax_book_new() is kept under another name)
 	book_free(&ui->book);
 	play_free(ui->play);
 	book_verbose = false;
@@ -824,8 +825,20 @@ LIBEDAX_API void edax_force(char *moves)
 	play_force_init(g_ui->play, moves);
 }
 
+/** @brief Was edax_stop called during the running bench? */
+static bool lib_bench_stopped(void)
+{
+	bool stop;
+
+	lock(&lib_bench);
+	stop = lib_bench.stop;
+	unlock(&lib_bench);
+	return stop;
+}
+
 /**
  * @brief Test edax speed (see obf_speed), giving the progress to edax_bench_get_result.
+ * edax_stop (from another thread) ends it: the problem that was being solved is not counted.
  * @param search Search.
  * @param n Number of problems (-1: 1 minute).
  */
@@ -847,11 +860,12 @@ static void lib_obf_speed(Search *search, const int n)
 	search->options.verbosity = (options.verbosity == 1 ? 0 : options.verbosity);
 	options.width -= 4;
 
-	for (i = 0; n == - 1 ? real_clock() - t < 60000 : i < n; ++i) {
+	for (i = 0; (n == - 1 ? real_clock() - t < 60000 : i < n) && !lib_bench_stopped(); ++i) {
 		const int ply = MAX(30, 40 - i / 5);
 		obf.player = ply & 1;
 		board_rand(&obf.board, ply, &r);
 		obf_search(search, &obf, i + 1);
+		if (lib_bench_stopped()) break; // edax_stop: this search was cut (and its time is not valid): the bench ends here
 		T += search_time(search);
 		n_nodes += search_count_nodes(search);
 
@@ -892,6 +906,7 @@ LIBEDAX_API void edax_bench(LibedaxBenchResult *result, int n)
 
 	lock(&lib_bench);
 	lib_bench.result = result;
+	lib_bench.stop = false;
 	unlock(&lib_bench);
 
 	lib_obf_speed(&g_ui->play->search, n);
@@ -1197,6 +1212,9 @@ LIBEDAX_API void edax_stop(void)
 	if (g_ui == NULL) return;
 	// stop thinking
 	g_ui->mode = 3;
+	lock(&lib_bench);
+	if (lib_bench.result != NULL) lib_bench.stop = true; // a running bench ends (see lib_obf_speed)
+	unlock(&lib_bench);
 	lock(&lib_book_change);
 	if (!lib_book_change.running) play_stop(g_ui->play);
 	unlock(&lib_book_change);
@@ -1495,6 +1513,7 @@ LIBEDAX_API void edax_book_new(const int level, const int depth)
 	// create a new empty book
 	book_free(book);
 	book_new(book, level, 61 - depth);
+	book_set_replaced_file(options.book_file); // the book file still holds the previous book: see book_save_to_book_file()
 
 	lib_book_end(book);
 }
@@ -1507,14 +1526,18 @@ LIBEDAX_API void edax_book_load(const char *book_file)
 {
 	Book *book;
 	Book next = {0};
+	FILE *exists;
 	if (g_ui == NULL) return;
 	book = lib_book_begin_change();
 
 	// load an opening book (binary format) from the disc
 	next.search = book->search;
-	if (book_load(&next, book_file)) {
+	if (book_file == NULL || (exists = fopen(book_file, "rb")) == NULL) { // (no "New book ..." line for a file that is not there)
+		warn("Book %s was not loaded; current book retained\n", book_file ? book_file : "(no name)");
+	} else if (fclose(exists), book_load(&next, book_file)) {
 		book_free(book);
 		*book = next;
+		book_set_loaded_file(book_file, false); // the book file may still hold the previous book: see book_save_to_book_file()
 	} else {
 		book_free(&next);
 		warn("Book %s was not loaded; current book retained\n", book_file);
@@ -1594,6 +1617,7 @@ LIBEDAX_API void edax_book_import(const char *import_file)
 		if (book_import(&next, import_file)) {
 			book_free(book);
 			*book = next;
+			book_set_loaded_file(import_file, true); // the book file still holds the previous book: see book_save_to_book_file()
 			book_link(book);
 			book_fix(book);
 			book_negamax(book);
@@ -1729,7 +1753,15 @@ LIBEDAX_API void edax_book_subtree(void)
 
 	// subtree an opening book
 	book_subtree(book, &g_ui->play->board); // remove unreachable lines.
-	lib_book_fix(book);
+	book_fix(book); // do nothing (or edax is buggy)
+#ifdef BOOK_TEST_SUBTREE_LINK_OLD
+	book_link(book); // links nodes
+#endif
+	// (up to v4.5.5-nikque.11 the book was linked again here. Cutting a book adds no position: the only links
+	// to add were those that the book already lacked before, and book fix or book link still adds them.)
+	book_negamax(book); // negamax nodes
+	book_negamax_subtree(book, &g_ui->play->board); // (from this position, when the initial one is no longer in the book)
+	book_sort(book); // sort moves
 
 	lib_book_end(book);
 }
@@ -1994,6 +2026,67 @@ LIBEDAX_API void edax_book_deviate3(int move_loss, int total_loss)
 	lib_book_end(book);
 }
 
+/** book leaf-recalculate commands (the caller checked g_ui) */
+static void lib_book_leaf_recalculate(const int kind, int x, int y)
+{
+	Book *book = lib_book_begin_change();
+
+	if (kind == 1 || kind == 3) {
+		BOUND(x, -129, 129, "relative error");
+		BOUND(y, 0, 65, "absolute error");
+	} else {
+		BOUND(x, 0, 129, "per-move loss");
+		BOUND(y, 0, 7740, "cumulative loss");
+	}
+	book_leaf_recalculate(book, &g_ui->play->board, kind, x, y);
+
+	lib_book_end(book);
+}
+
+/**
+ * @brief book leaf-recalculate command: search again the leaves that book deviate would expand (one pass).
+ * @param relative_error relative error.
+ * @param absolute_error absolute error.
+ */
+LIBEDAX_API void edax_book_leaf_recalculate(int relative_error, int absolute_error)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_recalculate(1, relative_error, absolute_error);
+}
+
+/**
+ * @brief book leaf-recalculate2 command: search again the leaves that book deviate2 would expand (one pass).
+ * @param move_loss per-move loss limit.
+ * @param total_loss cumulative loss limit for both players.
+ */
+LIBEDAX_API void edax_book_leaf_recalculate2(int move_loss, int total_loss)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_recalculate(2, move_loss, total_loss);
+}
+
+/**
+ * @brief book leaf-recalculate3 command: search again the leaves of all the positions that book deviate walks.
+ * @param relative_error relative error.
+ * @param absolute_error absolute error.
+ */
+LIBEDAX_API void edax_book_leaf_recalculate3(int relative_error, int absolute_error)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_recalculate(3, relative_error, absolute_error);
+}
+
+/**
+ * @brief book leaf-recalculate4 command: search again the leaves of all the positions that book deviate2 walks.
+ * @param move_loss per-move loss limit.
+ * @param total_loss cumulative loss limit for both players.
+ */
+LIBEDAX_API void edax_book_leaf_recalculate4(int move_loss, int total_loss)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_recalculate(4, move_loss, total_loss);
+}
+
 /**
  * @brief book enhance command.
  * @param midgame_error midgame error.
@@ -2181,7 +2274,11 @@ LIBEDAX_API void edax_base_correct(const char *base_file, const int n_empties)
 
 	// correct erroneous games
 	if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+		// as the commands which change the book: edax_stop() would only cut one search short, and
+		// its unfinished result would go to the file
+		const bool running = lib_book_change_set(true);
 		base_analyze(&base, &g_ui->play->search, n_empties, true);
+		lib_book_change_set(running);
 		remove(base_file);
 		base_save(&base, base_file);
 	}
@@ -2202,7 +2299,9 @@ LIBEDAX_API void edax_base_complete(const char *base_file)
 
 	// terminate unfinished base
 	if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+		const bool running = lib_book_change_set(true); // (see edax_base_correct)
 		base_complete(&base, &g_ui->play->search);
+		lib_book_change_set(running);
 		remove(base_file);
 		base_save(&base, base_file);
 	}
@@ -2269,6 +2368,11 @@ LIBEDAX_API void edax_set_option(const char *option_name, const char *val)
 		if (search_count_tasks(&play->search) != options.n_task) {
 			play_stop_pondering(play);
 			search_set_task_number(&play->search, options.n_task);
+		}
+		// hash table size changes (the tables of the search kept the size they had at the start):
+		if (play->search.options.hash_size != options.hash_table_size) {
+			play_stop_pondering(play);
+			search_resize_hashtable(&play->search);
 		}
 		lib_auto_go();
 	}

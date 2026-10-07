@@ -68,6 +68,10 @@ OTHER_FILES = (
 )
 
 
+# the user manual (since v4.5.5-nikque.13): every page of manual/, manual/ja and manual/en
+MANUAL_FILES = tuple(sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "manual").rglob("*.md")))
+
+
 def main() -> None:
     without_macos = "--without-macos" in argv[2:]
     if len(argv) < 2 or (len(argv) > 2 and not without_macos):
@@ -80,7 +84,7 @@ def main() -> None:
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(output, "w") as archive:
-        for name in (*OTHER_FILES, *BINARIES, *LIBRARIES):
+        for name in (*OTHER_FILES, *MANUAL_FILES, *BINARIES, *LIBRARIES):
             if without_macos and name in MACOS_FILES:
                 print(f"left out: {name}")
                 continue

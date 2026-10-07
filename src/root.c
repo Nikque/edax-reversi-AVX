@@ -355,6 +355,7 @@ int PVS_root(Search *search, const int alpha, const int beta, const int depth)
 	// special cases: pass or game over
 	if (movelist_is_empty(movelist)) {
 		move = movelist->move->next = movelist->move + 1;
+		move->next = NULL; // (the list was left open: the next aspiration_search() followed a pointer that nothing had set)
 		move->flipped = 0;
 		if (can_move(search->board.opponent, search->board.player)) {
 			search_update_pass_midgame(search, &eval0);

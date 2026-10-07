@@ -94,6 +94,7 @@ Options options = {
 	0, // book depth: auto (the depth of the loaded book)
 	0, // games learned at the same time: auto
 	true, // save the book to <book-file>.store after book store
+	1, // passes of book leaf-recalculate
 };
 
 /**
@@ -142,6 +143,7 @@ void options_usage(void)
 		"  -book-expand-tasks <n|auto>   expand n book positions at the same time (n-tasks / n threads each).\n"
 		"  -book-store-tasks <n|auto>    learn n games at the same time (n-tasks / n threads each); auto (default): n-tasks; 1: as before.\n"
 		"  -book-store-auto-save <on/off> save the book to <book-file>.store after book store and book learn (default on).\n"
+		"  -book-leaf-recalculate-rounds <n> passes of book leaf-recalculate (2, 3, 4) at most; a pass that changes no leaf is the last (default 1).\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
@@ -176,6 +178,20 @@ static int option_int(const char *option, const char *value, const int current)
 static int option_int_or_auto(const char *option, const char *value, const int current, const int auto_value)
 {
 	return strcmp(value, "auto") == 0 ? auto_value : option_int(option, value, current);
+}
+
+/**
+ * @brief Set a string option: the previous string is released (it was lost each time an option
+ * was set again, by a second file of settings or by edax_set_option).
+ *
+ * @param option Option to set.
+ * @param value New value (copied).
+ */
+static void option_string(char **option, const char *value)
+{
+	char *s = string_duplicate(value);
+	free(*option);
+	*option = s;
 }
 
 /**
@@ -270,10 +286,10 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "inc-cutnode-sort-depth") == 0) options.inc_sort_depth[CUT_NODE] = option_int(option, value, options.inc_sort_depth[CUT_NODE]);
 		else if (strcmp(option, "inc-allnode-sort-depth") == 0) options.inc_sort_depth[ALL_NODE] = option_int(option, value, options.inc_sort_depth[ALL_NODE]);
 
-		else if (strcmp(option, "ggs-host") == 0) options.ggs_host = string_duplicate(value);
-		else if (strcmp(option, "ggs-login") == 0) options.ggs_login = string_duplicate(value);
-		else if (strcmp(option, "ggs-password") == 0) options.ggs_password = string_duplicate(value);
-		else if (strcmp(option, "ggs-port") == 0) options.ggs_port = string_duplicate(value);
+		else if (strcmp(option, "ggs-host") == 0) option_string(&options.ggs_host, value);
+		else if (strcmp(option, "ggs-login") == 0) options.ggs_login = string_duplicate(value); // (kept: the GGS client holds this pointer)
+		else if (strcmp(option, "ggs-password") == 0) option_string(&options.ggs_password, value);
+		else if (strcmp(option, "ggs-port") == 0) option_string(&options.ggs_port, value);
 		else if (strcmp(option, "ggs-open") == 0) option_boolean(option, value, &options.ggs_open);
 
 		else if (strcmp(option, "probcut-d") == 0) parse_real(value, &options.probcut_d);
@@ -287,23 +303,23 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "pv-check") == 0) option_boolean(option, value, &options.pv_check);
 		else if (strcmp(option, "pv-guess") == 0) option_boolean(option, value, &options.pv_guess);
 
-		else if (strcmp(option, "game-file") == 0) options.game_file = string_duplicate(value);
+		else if (strcmp(option, "game-file") == 0) option_string(&options.game_file, value);
 
-		else if (strcmp(option, "eval-file") == 0) options.eval_file = string_duplicate(value);	// 11/13/2015
+		else if (strcmp(option, "eval-file") == 0) option_string(&options.eval_file, value);	// 11/13/2015
 
 		else if (strcmp(option, "book-file") == 0) {
 			// the book commands add an extension (".store", ".dev2", ...) to this name, in buffers of FILENAME_MAX characters
 			if (strlen(value) > FILENAME_MAX - 8) warn("the name of the book file is too long: ignored\n");
-			else options.book_file = string_duplicate(value);
+			else option_string(&options.book_file, value);
 		}
 		else if (strcmp(option, "book-usage") == 0) option_boolean(option, value, &options.book_allowed);
 		else if (strcmp(option, "book-randomness") == 0) options.book_randomness = option_int(option, value, options.book_randomness);
 
-		else if (strcmp(option, "search-log-file") == 0) options.search_log_file = string_duplicate(value);
-		else if (strcmp(option, "ui-log-file") == 0) options.ui_log_file = string_duplicate(value);
-		else if (strcmp(option, "ggs-log-file") == 0) options.ggs_log_file = string_duplicate(value);
+		else if (strcmp(option, "search-log-file") == 0) option_string(&options.search_log_file, value);
+		else if (strcmp(option, "ui-log-file") == 0) option_string(&options.ui_log_file, value);
+		else if (strcmp(option, "ggs-log-file") == 0) option_string(&options.ggs_log_file, value);
 
-		else if (strcmp(option, "name") == 0) options.name = string_duplicate(value);
+		else if (strcmp(option, "name") == 0) option_string(&options.name, value);
 		else if (strcmp(option, "echo") == 0) option_boolean(option, value, &options.echo);
 
 		else if (strcmp(option, "auto-start") == 0) option_boolean(option, value, &options.auto_start);
@@ -318,6 +334,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "book-store-tasks") == 0) options.book_store_tasks = option_int_or_auto(option, value, options.book_store_tasks, 0);	// 0 = auto
 		else if (strcmp(option, "book-merge-auto-save") == 0) option_boolean(option, value, &options.book_merge_auto_save);
 		else if (strcmp(option, "book-store-auto-save") == 0) option_boolean(option, value, &options.book_store_auto_save);
+		else if (strcmp(option, "book-leaf-recalculate-rounds") == 0) options.book_leaf_recalculate_rounds = option_int(option, value, options.book_leaf_recalculate_rounds);
 
 		else read = 0;
 	}
@@ -508,6 +525,7 @@ void options_bound(void)
 	BOUND(options.time, 1000, TIME_MAX, "time");
 	BOUND(options.book_save_interval, 0, 525600, "book-save-interval");
 	BOUND(options.book_deviate_save_rounds, 0, 1000000, "book-deviate-save-rounds");
+	BOUND(options.book_leaf_recalculate_rounds, 1, 1000000, "book-leaf-recalculate-rounds");
 
 	BOUND(options.alpha, SCORE_MIN, SCORE_MAX, "alpha");
 	BOUND(options.beta, SCORE_MIN, SCORE_MAX, "beta");
@@ -572,6 +590,7 @@ void options_dump(FILE *f)
 	fprintf(f, "\tbook deviate-save interval: %d productive rounds (0 = completion only)\n", options.book_deviate_save_rounds);
 	fprintf(f, "\tbook merge auto-save: %s\n", boolean_string[options.book_merge_auto_save]);
 	fprintf(f, "\tbook store auto-save: %s\n", boolean_string[options.book_store_auto_save]);
+	fprintf(f, "\tbook leaf-recalculate rounds: %d\n", options.book_leaf_recalculate_rounds);
 	if (options.book_store_tasks > 0) fprintf(f, "\tbook store tasks: %d\n\n", options.book_store_tasks);
 	else fprintf(f, "\tbook store tasks: auto\n\n");
 
@@ -599,9 +618,9 @@ void options_dump(FILE *f)
 	fprintf(f, "Game play\n");
 	fprintf(f, "\tmode: %s\n", mode[options.mode]);
 	fprintf(f, "\tstart a new game after a game is over: %s\n", boolean_string[options.auto_start]);
-	fprintf(f, "\tstore each played game in the opening book: %s\n", boolean_string[options.auto_start]);
-	fprintf(f, "\tchange computer's side after each game: %s\n", boolean_string[options.auto_start]);
-	fprintf(f, "\tquit when game is over: %s\n", boolean_string[options.auto_start]);
+	fprintf(f, "\tstore each played game in the opening book: %s\n", boolean_string[options.auto_store]);
+	fprintf(f, "\tchange computer's side after each game: %s\n", boolean_string[options.auto_swap]);
+	fprintf(f, "\tquit when game is over: %s\n", boolean_string[options.auto_quit]);
 	fprintf(f, "\trepeat %d games (before exiting)\n\n\n", options.repeat);
 }
 

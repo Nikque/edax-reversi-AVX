@@ -10,11 +10,11 @@
  * Options:
  * Options must be entered in the form '[set] <option> [=] <value>', with [set] and\n[=] being optional.
  *   -verbose [n]          set Edax verbosity (default 1).
- *   -noise [n]            start displaying Edax search result from this depth\n  (default 5).
- *   -witdh [n]            display edax search results using <width> characters\n  (default 80).
- *   -hash-table-size [n]  set hashtable size (default 22 bits).
- *   -n-tasks [n]          control the number of parallel threads used in searching\n  (default 1).
- *   -l|level [n]          search using limited depth (default 21).
+ *   -noise [n]            start displaying Edax search result from this depth\n  (default 0).
+ *   -width [n]            display edax search results using <width> characters\n  (default 80).
+ *   -hash-table-size [n]  set hashtable size (default 21 bits).
+ *   -n-tasks [n]          control the number of parallel threads used in searching\n  (default: the number of logical CPUs).
+ *   -l|level [n]          search using limited depth (default 18).
  *   -t|game-time <time>   search using limited time per game.
  *   -move-time <time>     search using limited time per move.
  *   -ponder [on/off]      set pondering on/off.
@@ -157,7 +157,7 @@ void ui_init_edax(UI *ui)
  */
 void ui_free_edax(UI *ui)
 {
-	if (ui->book.need_saving) book_save(&ui->book, options.book_file);
+	if (ui->book.need_saving) book_save_to_book_file(&ui->book); // (a book file replaced by "book new" is kept under another name)
 	book_free(&ui->book);
 	play_free(ui->play);
 	log_close(edax_log);
@@ -172,11 +172,11 @@ void help_options(void)
 	printf(	"Options:\n"
 		"Options must be entered in the form '[set] <option> [=] <value>', with [set] and\n[=] being optional.\n"
 		"  verbose [n]          set Edax verbosity (default 1).\n"
-		"  noise [n]            start displaying Edax search result from this depth\n  (default 5).\n"
-		"  witdh [n]            display edax search results using <width> characters\n  (default 80).\n"
-		"  hash-table-size [n]  set hashtable size (default 22 bits).\n"
-		"  n-tasks [n]          control the number of parallel threads used in searching\n  (default 1).\n"
-		"  l|level [n]          search using limited depth (default 21).\n"
+		"  noise [n]            start displaying Edax search result from this depth\n  (default 0).\n"
+		"  width [n]            display edax search results using <width> characters\n  (default 80).\n"
+		"  hash-table-size [n]  set hashtable size (default 21 bits).\n"
+		"  n-tasks [n]          control the number of parallel threads used in searching\n  (default: the number of logical CPUs).\n"
+		"  l|level [n]          search using limited depth (default 18).\n"
 		"  t|game-time <time>   search using limited time per game.\n"
 		"  move-time <time>     search using limited time per move.\n"
 		"  ponder [on/off]      set pondering on/off.\n"
@@ -374,7 +374,7 @@ void ui_loop_edax(UI *ui)
 
 			// open a saved game
 			} else if (strcmp(cmd, "o") == 0 || strcmp(cmd, "open") == 0 || strcmp(cmd, "load") == 0) {
-				play_load(play, param);
+				if (!play_load(play, param)) warn("%s", play->error_message); // (a load that failed used to say nothing here; the "loadsgf" of GTP gives this message)
 
 			// save a game
 			} else if (strcmp(cmd, "s") == 0 || strcmp(cmd, "save") == 0) {
@@ -626,10 +626,12 @@ void ui_loop_edax(UI *ui)
 				int val_1, val_2;
 				Book *book = play->book;
 
+				play_no_stop(play, true); // the word "stop" does not cut the searches of a book command short (see play_stop)
 				book->search = &play->search;
 				book->search->options.verbosity = book->options.verbosity;
 				book->failed = false; // see book_add()
 				book_param = parse_word(param, book_cmd, FILENAME_MAX);
+				string_to_lowercase(book_cmd); // "book Deviate 5 5" as "book deviate 5 5" (the arguments, as file names, are kept as typed)
 
 				// store the last played game
 				if (strcmp(book_cmd, "store") == 0) {
@@ -662,16 +664,23 @@ void ui_loop_edax(UI *ui)
 					} else {
 						book_free(book) ;
 						book_new(book, val_1, 61 - val_2);
+						book_set_replaced_file(options.book_file); // the book file still holds the previous book: see book_save_to_book_file()
 					}
 
 				// load an opening book (binary format) from the disc
 				} else if (strcmp(book_cmd, "load") == 0 || strcmp(book_cmd, "open") == 0) {
 					Book next = {0};
+					FILE *exists;
 					parse_word(book_param, book_file, FILENAME_MAX);
 					next.search = book->search;
-					if (book_load(&next, book_file)) {
+					// (book_load() makes a new book when the file cannot be opened, and says "New book ...":
+					// that line was printed here before the warning, about a book that is dropped at once)
+					if ((exists = fopen(book_file, "rb")) == NULL) {
+						warn("Book %s was not loaded; current book retained\n", book_file);
+					} else if (fclose(exists), book_load(&next, book_file)) {
 						book_free(book);
 						*book = next;
+						book_set_loaded_file(book_file, false); // the book file may still hold the previous book: see book_save_to_book_file()
 					} else {
 						book_free(&next);
 						warn("Book %s was not loaded; current book retained\n", book_file);
@@ -680,7 +689,10 @@ void ui_loop_edax(UI *ui)
 				// save an opening book (binary format) to the disc
 				} else if (strcmp(book_cmd, "save") == 0) {
 					parse_word(book_param, book_file, FILENAME_MAX);
-					book_save(book, book_file);
+					if (*book_file == '\0') {
+						// without a file name: the book file of the settings (up to v4.5.5-nikque.12: an error, nothing was saved)
+						if (book_save_to_book_file(book)) printf("Book saved to %s\n", options.book_file);
+					} else book_save(book, book_file);
 
 				// import an opening book (text format)
 				} else if (strcmp(book_cmd, "import") == 0) {
@@ -690,6 +702,7 @@ void ui_loop_edax(UI *ui)
 					if (book_import(&next, book_file)) { // as book load: the current book is kept when nothing is imported
 						book_free(book);
 						*book = next;
+						book_set_loaded_file(book_file, true); // the book file still holds the previous book: see book_save_to_book_file()
 						book_link(book);
 						book_fix(book);
 						book_negamax(book);
@@ -756,8 +769,13 @@ void ui_loop_edax(UI *ui)
 				} else if (strcmp(book_cmd, "subtree") == 0) {
 					book_subtree(book, &play->board); // remove unreachable lines.
 					book_fix(book); // do nothing (or edax is buggy)
+#ifdef BOOK_TEST_SUBTREE_LINK_OLD
 					book_link(book); // links nodes
+#endif
+					// (up to v4.5.5-nikque.11 the book was linked again here. Cutting a book adds no position: the only links
+					// to add were those that the book already lacked before, and book fix or book link still adds them.)
 					book_negamax(book); // negamax nodes
+					book_negamax_subtree(book, &play->board); // (from this position, when the initial one is no longer in the book)
 					book_sort(book); // sort moves
 
 				// show the current position as stored in the book
@@ -838,6 +856,18 @@ void ui_loop_edax(UI *ui)
 					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
 					book_deviate3(book, &play->board, val_1, val_2);
 
+				// search again the leaves that book deviate (1, 3) or book deviate2 (2, 4) reaches:
+				// the leaves it would expand (1, 2), or the leaves of all the positions of its walk (3, 4)
+				} else if (strcmp(book_cmd, "leaf-recalculate") == 0 || strcmp(book_cmd, "leaf-recalculate3") == 0) {
+					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, -129, 129, "relative error");
+					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 65, "absolute error");
+					book_leaf_recalculate(book, &play->board, book_cmd[16] == '3' ? 3 : 1, val_1, val_2);
+
+				} else if (strcmp(book_cmd, "leaf-recalculate2") == 0 || strcmp(book_cmd, "leaf-recalculate4") == 0) {
+					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
+					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+					book_leaf_recalculate(book, &play->board, book_cmd[16] == '4' ? 4 : 2, val_1, val_2);
+
 				// add position using the "enhance algorithm"
 				} else if (strcmp(book_cmd, "enhance") == 0) {
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "midgame error");
@@ -870,6 +900,7 @@ void ui_loop_edax(UI *ui)
 				if (strcmp(book_cmd, "store") != 0) book_store_release();
 				book->options.verbosity = book->search->options.verbosity;
 				book->search->options.verbosity = options.verbosity;
+				play_no_stop(play, false);
 
 			/* base TODO: add more actions... */
 			} else if (strcmp(cmd, "base") == 0) {
@@ -877,8 +908,10 @@ void ui_loop_edax(UI *ui)
 				char base_cmd[512], *base_param;
 				Base base;
 
+				play_no_stop(play, true); // (as the book commands)
 				base_init(&base);
 				base_param = parse_word(param, base_cmd, 511);
+				string_to_lowercase(base_cmd); // "base Problem ..." as "base problem ..." (the file names are kept as typed)
 				base_param = parse_word(base_param, base_file, FILENAME_MAX);
 
 				// extract problem from a game base
@@ -952,6 +985,7 @@ void ui_loop_edax(UI *ui)
 				}
 
 				base_free(&base);
+				play_no_stop(play, false);
 
 			/* edax options */
 			} else if (options_read(cmd, param)) {
@@ -960,6 +994,12 @@ void ui_loop_edax(UI *ui)
 				if (search_count_tasks(&play->search) != options.n_task) {
 					play_stop_pondering(play);
 					search_set_task_number(&play->search, options.n_task);
+				}
+				// hash table size changes (as the "memory" command of XBoard does; before, the setting changed
+				// and the tables of the search kept the size they had at the start):
+				if (play->search.options.hash_size != options.hash_table_size) {
+					play_stop_pondering(play);
+					search_resize_hashtable(&play->search);
 				}
 
 			/* switch to another protocol */

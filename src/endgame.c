@@ -469,7 +469,7 @@ static int NWS_endgame_local(Search *search, const int alpha)
 	unsigned long long full[5];
 	MoveList movelist;
 
-	assert(bit_count(~(search->board.player|search->board.opponent)) < DEPTH_TO_USE_LOCAL_HASH);
+	assert(bit_count(~(search->board.player|search->board.opponent)) <= DEPTH_TO_USE_LOCAL_HASH);
 	assert(SCORE_MIN <= alpha && alpha <= SCORE_MAX);
 
 	SEARCH_STATS(++statistics.n_NWS_endgame);
@@ -585,7 +585,7 @@ static int NWS_endgame_local(Search *search, const int alpha)
 			++statistics.n_good_square[search->eval.n_empties][SQUARE_TYPE[bestscore]];
 	}
  	assert(SCORE_MIN <= bestscore && bestscore <= SCORE_MAX);
- 	assert((bestscore & 1) == 0);
+ 	assert(search->stop || (bestscore & 1) == 0); // (a search that was stopped returns alpha: after a pass, alpha + 1 comes here)
 	return bestscore;
 }
 
@@ -694,6 +694,6 @@ int NWS_endgame(Search *search, const int alpha)
 			++statistics.n_good_square[search->eval.n_empties][SQUARE_TYPE[bestscore]];
 	}
  	assert(SCORE_MIN <= bestscore && bestscore <= SCORE_MAX);
- 	assert((bestscore & 1) == 0);
+ 	assert(search->stop || (bestscore & 1) == 0); // (a search that was stopped returns alpha: after a pass, alpha + 1 comes here)
 	return bestscore;
 }

@@ -282,7 +282,10 @@ static void xboard_go(UI *ui, XBoardStats *stats, long long increment)
 {
 	Play *const play = ui->play;
 	Search *const search = &play->search;
-	Result *const result = search->result;
+	// The result of the move that is played: play_go() sets it in every case. (Up to v4.5.5-nikque.12 the result
+	// of the search itself was read, after the pondering had started on it; a move from the book or a forced
+	// move does not fill it, and the totals printed at "quit" were meaningless.)
+	Result *const result = &play->result;
 
 	play_go(play, true);
 	if (options.play_type == EDAX_TIME_PER_GAME)

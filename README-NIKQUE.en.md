@@ -1,10 +1,19 @@
 # Edax 4.5.5 corrected build
 
-[日本語](README-NIKQUE.ja.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [Change list](RELEASE-NOTES.md)
+[日本語](README-NIKQUE.ja.md) · [Releases](https://github.com/Nikque/edax-reversi-AVX/releases) · [Change list](RELEASE-NOTES.md) · [User manual](manual/en/README.md)
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is v4.5.5-eval2.1, a separate series with a different evaluation function.** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.9) only by what is described under "Changes in v4.5.5-eval2.1" just below.
+**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.2).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.13) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+
+## Changes in v4.5.5-eval2.2
+
+v4.5.5-eval2.1 (the source of v4.5.5-nikque.9 plus the change of the evaluation function) now holds **all the changes of v4.5.5-nikque.10 to 13.** The evaluation function and `eval.dat` are those of v4.5.5-eval2.1 (`eval.dat` is the same file, SHA-256 `1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172`), and this series has no new change of its own.
+
+- **What was taken in**: everything described under "Changes in v4.5.5-nikque.13", "Changes in v4.5.5-nikque.12", "Changes in v4.5.5-nikque.11" and "Changes in v4.5.5-nikque.10" below (the book bug fixes, `book leaf-recalculate`, the faster `book subtree` and `book prune`, the change of `book-expand-tasks = auto`, the new libedax functions, ...). The source differs from v4.5.5-nikque.13 by the same 4 files and about 40 lines as v4.5.5-eval2.1 (`src/const.h`, `src/eval.c`, `src/eval.h`, `src/midgame.c`).
+- **The search results are those of v4.5.5-eval2.1**: with one thread, `-solve` on 69 positions (39 exact, 30 midgame positions at level 18) gives the same depth, score, node count and principal variation as the released v4.5.5-eval2.1 program (checked with a test build of the source of this version). With the upstream `eval.dat`, the results and the node counts are those of v4.5.5-nikque.13 (the same 69 positions).
+- **To compute the scores of a book again after `eval.dat` was changed**, the `book leaf-recalculate` commands (added in v4.5.5-nikque.12) can be used. On a small book (level 10, 1,563 positions), the 1,437 leaves that came from the upstream `eval.dat` were searched again with the `eval.dat` of this series: 915 scores changed (by +4 / −5 at most; 273 moves changed). Running it again with the same `eval.dat` changed nothing, and running it with the upstream `eval.dat` gave back the first book (8 one-thread searches). Solved positions are skipped (see the notes of v4.5.5-nikque.12). The time on a large book was not measured for this series.
+- **Not measured**: the speed and the strength of this version. The numbers under "Strength" and "Speed" of v4.5.5-eval2.1 were measured with builds of the source of v4.5.5-nikque.8 and 9 plus the change of the evaluation function. The search code of this version changes by one line (the fix of the search of a pass position) and by three assertions that only the development builds hold (and the test that tells whether a move can be played has one more condition); the search results and the node counts are the same, as said above, but the times were not measured again. The speeds of the book commands (chapters of v4.5.5-nikque.10 to 12) were measured with the upstream `eval.dat`, not with the `eval.dat` of this series.
 
 ## Changes in v4.5.5-eval2.1 (a new series of the evaluation function)
 
@@ -140,6 +149,477 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+
+## Changes in v4.5.5-nikque.13
+
+The changes of the three versions after v4.5.5-nikque.9 (nikque.10 to 12) were audited: the source was read again and all the tests of v4.5.5-nikque.9 were run again. The bugs that were found are fixed (some come from upstream), and one setting is new (`book-leaf-recalculate-rounds`). The evaluation data `eval.dat` and the book file format do not change. In the search code, one line changes (the fix of a bug in the search of a position without a move, a pass), and three assertions that only the development builds hold; the test that tells whether a move can be played (used when a game file is loaded and when the line of play of a search is read back) has one more condition. The search results do not change. The books made by `book deviate`, `deviate2`, `deviate3`, by learning games, by `book fix`, the negamax and the commands that cut a book are the same as with v4.5.5-nikque.12 (except the rounds with many positions to expand when `hash-table-size` is set to a small number: see "What behaves differently" below).
+
+### User manual
+
+Since this version a user manual is in [`manual/en`](manual/en/README.md) (English) and [`manual/ja`](manual/ja/README.md) (Japanese); it is in the ZIP of the package too. Its 16 pages go from starting the program to the commands for playing and analysing, the settings, the search, growing and maintaining a book, large books, game and problem files, the use from other programs, and a list of the messages. The screen examples are real output, and what was not run says so. Among the fixes of this version, those "found while the manual was written" below come from that work.
+
+### Bug fixes
+
+- **`book correct` and `book deepen` erased the leaf of the positions without a move and broke the scores of the book** (from upstream): these two commands forget the leaf of a position, then search it again. A position without any move and without link (the end of the game, or a pass whose next position is not in the book) is not searched when it already has a score, so its leaf stayed erased. `book correct` reported it as an error (`Error found`), the negamax that follows gave −127 to the position and +127 to its parent, and the scores above changed too. A small test book (level 4, 3,185 positions, 329 of them game-over positions and 6 passes without link) gave `335 error found` and ±127 in 2,269 positions. The concurrent search added in v4.5.5-nikque.11 had the same form. Such a position now loses its score with its leaf, and is searched again.
+  - The same book gives `0 error found`, and the saved book has the same scores as after `book fix` alone. With books whose scores of positions without a move were made wrong on purpose, as many errors were found and every score came back (1 thread, 8 threads with `auto`, 8 one-thread searches).
+  - **A book damaged by the `book correct` of an earlier version** was repaired by the `book correct` of this version (checked on the test books: every erased leaf came back, also in the positions that cannot be reached from the initial position).
+  - Counting the real book of 661.62 million positions (level 18) gives 397 positions of this kind (solved, no move, no link). They were only counted: `book correct` was not run on the real book.
+- **`book leaf-recalculate` did not search the leaf of a pass position again** (v4.5.5-nikque.12): the leaf of a position without a move whose next position is not in the book (a leaf that is a pass) comes from a search, but no command selected it. With another `eval.dat`, the score of such a position kept its former value. It is now selected (a solved position is skipped as before; the end of a game is skipped: its score is the result of the game). The real book of 661.62 million positions has 35 such positions. `book leaf-recalculate4 0 0` was tried at 4 of them (33, 30, 26 and 22 empties, level 18): v4.5.5-nikque.12 selected nothing, this version searched each leaf again and found the same 4 scores (the real book was only loaded, not saved).
+- **A game of more than 80 plies (moves + passes) was not learned when several games are learned at the same time** (left over from v4.5.5-nikque.10): v4.5.5-nikque.10 made the game record 128 entries long, but the code that learns several games at the same time (`book learn` with `book-store-tasks` of 2 or more or `auto`, and `edax_book_store_games` of libedax) still had 80 entries and reported a longer line as an "illegal move" (`book-store-tasks = 1` learned it). It now has 128 entries. The notes of v4.5.5-nikque.10 said that a game can be longer than 80 plies "from a board set with `setboard`": **it can also be from the usual initial position** (a game of 60 moves and 22 passes = 82 plies exists). It only happens with 21 passes or more, so a usual learning list is not concerned. `edax_get_moves` still returns 80 plies at most.
+- **The search of a position without a move (a pass) could crash, rarely** (from upstream): for a root without a move, the search makes one move that stands for the pass and links it to the list of moves, but it did not end the list. The next iteration walked the list and, after the pass, followed whatever that place held. When a pass position is the first position that a search ever gets and that place holds anything, the program writes anywhere and crashes (reproduced with `-solve` and a problem file whose first position is a pass; in the book commands too, with a test build that detects memory errors: `book store` of a pass position as the first search of the run stopped at the same place. The usual builds, the released v4.5.5-nikque.9 and 12 included, did not crash in 3 runs each of the same steps). After a search of another position, that place holds the list of moves of that search (from reading the code), and no crash was seen in that case (whether walking these extra moves can change a result was not looked into; they are no longer walked). The list is now ended (one line). The search results do not change (39 problems solved with one thread: same depth, score, node count and principal variation).
+- **A game with a pass saved as SGF could not be loaded again** (from upstream): a pass is written as `B[PA]` or `W[PA]`, and the loader stored it as a move of the game, which then failed its check (`error while importing a SGF game`). A pass is now skipped when the file is read (checked with a game of 26 moves and 2 passes and a game of 60 moves and 22 passes: saved, loaded, and saved again as the same game).
+- **A saved game (`.edx`) held memory that was never set** (from upstream): the rest of the name fields and the padding of the game data (up to 64 bytes) were written to the file as they were. The same game saved twice gave two different files (what is read back is not affected). The data is now cleared first. The "Checks" of the earlier versions said that the only files that differ in the book regression are "the files that hold a date": it was this file (`a17_game.edx`), and it holds no date (corrected).
+- **`book subtree` from a position deeper than the book depth emptied the book** (from upstream): for example after `book depth` has reduced the depth, `book subtree` from a position two plies or more below the depth kept nothing, and the book in memory became empty without a word. It now warns and does nothing.
+- **A book that was cut was not saved when Edax ends** (from upstream): `book subtree` and `book prune` did not mark the book as changed, so unless the negamax that follows changed a score, leaving without `book save` kept the book file as it was before the cut. They now mark it when a position or a link was removed (see "What behaves differently"). Changing the depth with `book depth` alone is still not saved.
+- **More memory in the rounds with many positions of `book-expand-tasks = auto` when `hash-table-size` is set to a small number** (v4.5.5-nikque.10): since v4.5.5-nikque.10 a round with many positions runs `n-tasks` searches of one thread. There are twice as many searches, so each hash table must be half the size at most; with `hash-table-size` set to a number that is not above the limit of a one-thread search (19 bits up to level 18), the tables kept their size and their number doubled (8 threads and `hash-table-size = 19`: 458 MB, against 404 MB with the rule of v4.5.5-nikque.9). The tables of the one-thread searches are now half the tables of the two-thread searches at most (404 MB in the same test; 574 and 578 positions were expanded in 14 seconds, one run each: too few runs to tell whether the speed differs).
+  - The exception is `hash-table-size = 10`, the smallest size: it cannot be halved, so both kinds of search have tables of 10 bits (seen with a trace build; with 11, the sizes are 11 and 10 bits).
+  - When the size changes: with a `level` setting of 18 or less, when `hash-table-size` is 19 or less; with a `level` setting of 19 to 21, when it is 20 or less; with a `level` setting of 22 or more, when it is 21 or less or `auto` (always with a book of level 18 or less, the only ones that have rounds of one-thread searches). **Nothing changes with the bundled settings (`level = 18`, `hash-table-size = auto`).**
+- **`load` accepted a game file with a move that turns over no disc** (from upstream): the test that tells whether a move can be played accepted an empty square as soon as the discs to turn over were computed right, and did not exclude the case where there are none. With such a move in a `.ggf`, `.sgf`, `.pgn` or `.edx` file, the reader printed `WARNING: error while importing a GGF game`, and yet `load` loaded the game with the disc put on the board and nothing turned over (a board that cannot exist). `book store` on that board added impossible positions to the book (a file with Black A1, White H8: two positions with a lone disc more in a corner; no position links to them, so they are not used in a game). A move other than a pass now has to turn over at least one disc (one line). Such a game is not loaded, and the board stays as it was before the load.
+  - The usual games (5 formats) and the games that start from a set-up position in `.ggf`, `.pgn` and `.edx` are loaded as before. `book add` and `book check` already refused such a game with a test of their own.
+  - The same test is used where the line of play of a search is read back; the search results do not change (39 problems solved with one thread: same depth, score, node count and principal variation).
+- **Leaving Edax right after `book new` replaced the file of `book-file` with the new empty book** (from upstream): `book new` drops the book in memory, makes a book with the initial position only and marks it as changed. Leaving then replaced the file of the previous book with a book of one position (a file of 98,976 bytes became 84 bytes). In this version, when a "save without a file name" (the save done when Edax ends, and `book save` without a name) replaces the file of `book-file` after `book new`, the previous file is first renamed to `<book-file>.old` (`.old.1`, `.old.2`, ... if that name is taken) and kept, with the message `WARNING: data/book.dat holds the book in use before "book new": it is kept as data/book.dat.old`. It is the mechanism that keeps a book file that could not be loaded under a `.damaged` name.
+  - Nothing is kept: when the previous file only holds the initial position (the bundled `book.dat`, for example); when there was no file; when the book is saved **by its name** after `book new`, as in `book save data/book.dat` (the file is replaced as asked); when that file is loaded again with `book load` after `book new`.
+  - The same in libedax (`libedax_terminate` after `edax_book_new`; `edax_book_save` takes a name, so the file of that name is replaced). edax_runner does not call `edax_book_new` and is not concerned.
+  - Without `book new` (and without the `book load` and `book import` cases below), a save is as before (the same steps give the same book file, but its date). Edax never deletes an `.old` file (for a large book it is as large as the book: delete it when it is no longer needed).
+- **`book save` without a file name saved nothing** (from upstream; the built-in help shows the name as optional, `save [file]`): it failed with `Cannot save book to ; existing book was not replaced`. Without a name it now saves to the file of `book-file` and prints `Book saved to data/book.dat`.
+- **`book export` then `book import` changed the depth of the book** (from upstream): the text file only holds the positions, and the import took the depth of the book from the deepest positions. But the deepest positions of a book are the layer that it holds one move beyond its depth, with a leaf only: a book of depth 12 came back with depth 13, and the next `book deviate` went one move further. A book that had not reached its depth yet came back shallower (made with depth 30 and holding 4 positions: depth 4). The `book export` of this version ends the file with a line `% depth 12`, and `book import` gives the book that depth.
+  - For a file without the `% depth` line (written by an earlier version, for example), the depth is "the depth that just holds the deepest position" (one less than before: 12 and 3 in the two examples above).
+  - The earlier versions can import a file written by this version. The build of v4.5.5-nikque.12 printed `WARNING: wrong board: % depth 12` and `1 lines of ... hold no position: skipped` for the last line, skipped it and read every position (with depth 13, as before). The upstream version was not run: it stops reading at the first line that is not a position, and this line is the last one, so every position is read (from reading the source).
+  - The position lines are the same as before (checked by comparing the exported files of a book of 2,246 positions; the import links the book again, so a second export made after the import differs in 7 lines, with and without the fix).
+- Three display faults (all from upstream; the behaviour does not change): in the output of `options`, the lines of `auto-store`, `auto-swap` and `auto-quit` all showed the value of `auto-start`. In the summary of `analyze`, the `error rate` of a colour without any move checked by an exact search was 0 / 0, printed as `-nan(ind)` or the like (a dash is printed now). Under XBoard, after a move played without a search (a book move, the forced first move), the totals printed when Edax ends were meaningless large numbers (`0 games played in 1126011578417.18 s. 6192449490255917 nodes searched`: a result that was never set was added).
+- Eight faults of display and of saving, found while the manual was written (all from upstream):
+  - A `load` that failed said nothing (no such file, unknown extension, a move that cannot be played in an `.edx` file). The reason is now printed as a warning (`Cannot open file ...`, `Unknown game format extension: ...`, `Illegal move #2: A1`).
+  - A line of a `.txt` game file with a move that cannot be played was read up to that move without a word (by `load` and by `book add`). The same moves are read, and a warning is printed (`game text: "A1F4" is not a move that can be played here: the rest of the line is not read`).
+  - Loading a PGN of a game that is not finished printed the warning `uncomplete game` (also for a file saved by Edax itself). It is gone.
+  - `book info` printed every position whose level is not the level of the book (a very long output for a large book merged from a book of another level). It prints the first 10, and their number.
+  - `book load` of a file that is not there printed `New book ...` before its warning (a line of the failed attempt, which had nothing to do with the current book).
+  - `hash-table-size` typed while Edax runs (or `n-tasks`, with `hash-table-size = auto`) only changed what `options` shows: the tables of the search kept the size they had at start. They are now rebuilt (started with `-h 16`: 26 MB; after `hash-table-size 24`: 458 MB; back to `16`: 26 MB. Started with `auto` and 1 thread: 79 MB; after `n-tasks 16`: 242 MB). The size at start does not change. The same for `edax_set_option` of libedax.
+  - Some defaults of the built-in help (`help options`) were those of old versions (`noise` 5, `hash-table-size` 22, `n-tasks` 1, `level` 21, where the real values are 0, 21, the number of logical CPUs, 18). `width` was also spelled `witdh`.
+  - **Leaving Edax after `book load` of another file and a change of the book, or after `book import`, replaced the file of `book-file` with that book.** As after `book new`, a save without a file name now keeps the previous file as `<book-file>.old` (message: `... holds the book in use before "book load": it is kept as ...`). But after loading **a file named `book-file` plus an extension** (`data/book.dat.dev2`, `.store`, `.mrg`, ...: the files that the book commands save by themselves), the book is taken as the same book going on and the file is replaced as before (so that going on from an intermediate file does not leave one more copy of a large book each time; after loading `.old` or `.damaged`, the previous file is kept). When Edax ends without a change to the book that was loaded, nothing is saved, as before. The same for `edax_book_load` and `edax_book_import` of libedax.
+- **`book leaf-recalculate4` from a position of the deepest layer of the book searched nothing** (v4.5.5-nikque.12): when the command is given at a position that has no link and only a leaf (the deepest layer), `book leaf-recalculate3` searches its leaf again but `4` selected nothing. `4` now searches it too.
+- **The word `stop` typed during a book or base command put the result of a search that was cut short into the book** (from upstream): these commands do not look at the stop, so `stop` (and a typed `quit`, the `ping` of NBoard, the `?` of XBoard) only cut the one search that the main search was doing, its unfinished result went into the book (or into the game file of a base command), and the command went on. With `stop` sent 94 times during `book correct` on a correct book of 1,563 positions, `Error found` was printed and 37 leaf scores changed. The search is no longer stopped while a book or base command runs, nor while a finished game is stored in the book (`book store`, `auto-store`): `stop` tells that nothing was stopped, and `quit` ends the program when the command has ended. The searches of a game, of `hint`, ... are stopped by `stop` as before.
+- **libedax: `edax_stop` called during `edax_base_complete` or `edax_base_correct` put the result of a search that was cut short into the game file** (from the original libedax): these two functions do not look at the stop, so `edax_stop` only cut the search that was running, its unfinished result went into the game, and the function went on (4 unfinished games completed at level 14 while `edax_stop` was called 52 times: the 4 games were completed with other moves). As for the functions that change the book (v4.5.5-nikque.9), `edax_stop` no longer stops the search while they run.
+- **`base complete` did not set the level of its searches** (from upstream): the searches that finish an unfinished game ran with whatever depth the search held from what was done before. Right after the start (with an existing book file) they tried to solve the game (games of 30 moves were not finished after 10 minutes); after `base correct` had analysed a finished game, the depth was 0 (moves chosen at random), and two runs gave different games. The searches now use the `level` setting, as a move of a game does (`edax_base_complete` of libedax too).
+- `book add` and `book check` keep the moves and passes of a game in a record of 128 entries (it was 99; from upstream: a game with 40 passes or more would have written past it. No such game is known, but 128 entries are enough for any game).
+- The build with gcc (Linux) printed one warning since v4.5.5-nikque.12 (no effect on the behaviour). It is gone.
+- A development build with the assertions on stopped at the exact search of a position with 10 empties (from upstream: the assertion said "fewer than 10", and the function is called with 7 to 10 empties). It now says "10 or fewer". The released builds hold no assertion: nothing changes for them.
+- A development build with the assertions on stopped in two more places (both assertions come from upstream; the released builds are not concerned): when `book merge` takes a book into a new book (the merge first adds the positions without their links and makes the links afterwards; meanwhile a position "without link and without leaf" was refused by the assertion), and when a search that was stopped had gone through a pass (the value of a stopped search is not used, but it reached the assertion "the score is even" of the endgame search; the book commands stop and restart their searches to share the threads, so `book correct` with 8 threads stopped there in 7 runs out of 8). The conditions of the assertions were corrected (found by the first complete run, with the assertions on, of the 88 test cases of the build that detects memory errors).
+- **edax_runner** (5.3.0+nikque.7): a line of more than 80 plies was also skipped as an "illegal move" when the games are learned one by one (`book-store-tasks = 1`, lines with `[relativeError absoluteError]`), because the moves were read back with `edax_get_moves` and compared. The number of discs on the board is now checked.
+
+### New setting: book-leaf-recalculate-rounds (repeating the leaf recalculation)
+
+`book leaf-recalculate` (and `2`, `3`, `4`) walks once. But the scores that it changes move the range that the command walks, so **running the same command again reaches leaves that were out of the range the first time**. On the book of 6.49 million positions, repeating `book leaf-recalculate4 1 1` searches 4,066, then 780, 247, 485 and 386 leaves, and changes 1,419, then 411, 42, 46 and 0 scores. The notes of v4.5.5-nikque.12 said "Running the same command a second time changed no score and no move": this was with the whole book in the range (corrected).
+
+With `book-leaf-recalculate-rounds = n` (`config.ini`, `-book-leaf-recalculate-rounds n` on the command line, `edax_set_option` of libedax), the command repeats "walk, search the leaves again, negamax" up to n times. **It stops after a round that changed no leaf.** The default is 1: the same behaviour and the same output as v4.5.5-nikque.12.
+
+- On the book above, `book-leaf-recalculate-rounds = 10` ends after 5 rounds (`5964 leaves, 1918 scores changed ..., 5 rounds`), with the same book as the command typed 6 times (8 one-thread searches, 61 seconds).
+- A search with several threads (in a round with few leaves, for example) gives slightly different scores from a run to the next, so a round that changes nothing may never come. The command then stops after n rounds.
+- Output: `Book leaf-recalculate4 1 1: round 2/10` before each round, and the number of rounds at the end of the last line (`, 5 rounds`). The counts are the totals of all the rounds.
+- The book is saved as before: once at the end, and every `book-save-interval` minutes.
+- These numbers of rounds are those of a small book and a narrow range, not a forecast for a large book.
+
+`leaf-recalculate` and `leaf-recalculate3` now also warn when the list of the first walk could not be allocated (only the list of the second walk was checked).
+
+### What behaves differently
+
+| Case | up to v4.5.5-nikque.12 | v4.5.5-nikque.13 |
+|---|---|---|
+| `book correct`, `book deepen`: a position without move and without link | its leaf is erased (`book correct` reports an error, the scores are broken) | searched again (nothing changes if it was right) |
+| `book leaf-recalculate` commands: the leaf of a pass position | not searched again | searched again (unless the position is solved) |
+| `book leaf-recalculate4` from a position of the deepest layer of the book | nothing (`0 leaves`) | the leaf of that position is searched again (as `3`) |
+| A line of more than 80 plies learned with other games | not learned ("illegal move") | learned |
+| Loading a SGF file saved from a game with a pass | fails | loads |
+| `book subtree` from a position two plies or more below the book depth | the book becomes empty | a warning, nothing is done |
+| Leaving without `book save` after `book subtree` or `book prune` | the book file is kept as it was, unless a score changed | the cut book is saved to `book-file` (as after `book deviate` or any other change. **To keep the book as it was before the cut, copy the file first**) |
+| A small `hash-table-size` (19 or less with a `level` of 18 or less), rounds with many positions of `book-expand-tasks = auto` | one-thread searches with tables of the given size | half that size (the same size with 10, the smallest); in the test (8 threads, 19) the memory is that of v4.5.5-nikque.9; the search results can differ a little |
+| `stop` (or `quit`) typed during a book or base command | cuts the running search short, its unfinished result goes into the book | does not stop it (`stop` says so; `quit` ends the program after the command) |
+| libedax: `edax_stop` during `edax_base_complete` / `edax_base_correct` | cuts the search short, its unfinished result goes into the game file | does not stop it |
+| Depth of the searches of `base complete` (`edax_base_complete`) | the depth left by the last search (sometimes a full solve, sometimes random moves) | the `level` setting |
+| A saved `.edx` | the bytes that are not set differ from a run to the next | 0 |
+| `load` of a game file with a move that cannot be played (it turns over no disc) | loaded, the disc put down without turning anything over | not loaded (the board stays as it was) |
+| `load` of a `.sgf` saved from a game that starts from a set-up position | the moves are put on the usual initial position without turning anything over | not loaded (the board stays as it was; as before, the SGF reader does not read the first position) |
+| After `book new`, a save without a file name (when Edax ends, `book save` without a name) | the file of `book-file` is replaced with the new book | the previous file is first kept as `<book-file>.old`, then the book is saved (a file with the initial position only is not kept) |
+| `book save` (no file name) | an error (nothing is saved) | saves to `book-file` |
+| The file of `book export` | position lines only | a last line `% depth n` is added |
+| The depth of the book after `book import` | one more than the deepest position | the value of the `% depth` line; without the line, the value that just holds the deepest position (one less than before) |
+| Output of `options` and `analyze`, totals of XBoard at the end | see "Three display faults" above | right values |
+| A `load` that fails | nothing is printed | the reason is printed as a warning |
+| A line of a `.txt` game file with a move that cannot be played | read up to that move without a word | read up to that move, with a warning |
+| `book info`: positions of another level than the book | all printed | the first 10, and their number |
+| `hash-table-size` typed while running (and `n-tasks`, with `auto`) | the tables of the search keep their size | the tables are rebuilt (the size at start is the same) |
+| After `book load` of another file and a change, or after `book import`: a save without a file name | the file of `book-file` is replaced | the previous file is first kept as `<book-file>.old` (after loading a file named `book-file` plus an extension: replaced as before) |
+| `book-leaf-recalculate-rounds` | - | new setting (1, the default: as before) |
+
+### Not changed, and good to know
+
+- **A leaf that was just made can change when it is searched again** (the "0.1%" and "1.6%" of the notes of v4.5.5-nikque.12). What it depends on was looked into (book of 6.49 million positions, level 18, one round of `book deviate2 3 6` from a position 8 plies into the game, one thread: the leaves of the 1,311 added positions and of the 1,315 expanded positions were searched again one by one and compared).
+  - An added position: the book keeps each position on one of its 8 symmetric boards. A new position is searched on the board given by the move of its parent, and every later search uses the board of the book. The score changed for 2 of the 1,311 positions (0.15%, by 1 both times); with a trial change that searches the added position on the board of the book, for none. Why the board on which a position is searched changes the result was not checked (the moves are tried in another order, we think).
+  - An expanded position: its next leaf is searched with the hash tables still holding the search of the added position. The score changed for 19 of the 1,315 positions (1.44%, by 1 or 2); with the same trial change, for 2.
+  - **This change is not in this version.** It takes the leaves that change from 21 to 2 out of 2,626, but the searches of `book deviate`, `deviate2`, `deviate3` visited 0.35 to 0.46% more nodes (two rounds on the book of 6.49 million positions; the time was not measured. The search of the expanded position can no longer reuse the search of the added position when that one is done on another board, we think). Both scores are results of a search at the same level.
+- **`book deepen` does not raise the level of a position** (from upstream): the command searches again the leaf of the positions whose level differs from the level of the book, but at the level that the position already has, and it does not change that level. It does not do what its description says (evaluate the book again at the level of the book). This version only fixes the erased leaf of the positions without a move.
+- **A position that cannot be reached from the initial position is not negamaxed**: the negamax follows the links from the initial position, so the scores of a position that no other position links to are not updated. Such a position that came from the `book merge` of an old version (up to v4.5.5-nikque.2, and upstream) can still have no score (−127). `book deviate`, the negamax and the commands that cut a book do not use these positions. When a parent gets a link to one of them, the next negamax gives it a score. `book subtree` from the initial position removes them.
+- When `book fix` repairs a position, it gives it the level of the book and searches it at that level (from upstream): repairing a book merged from a book of a lower level takes time.
+- A game that uses the book (the moves that `book learn` adds to a line, for example) picks at random among the moves with the same score, and the seed is the clock (from upstream): even with one thread, two runs can give different books.
+- **A game that starts from a set-up position cannot be read back from `.txt` or `.sgf`** (from upstream): the first position is written (`.txt`: `board side;moves`; `.sgf`: `AB[...]AW[...]PL[...]`), but both readers take the moves as played from the usual initial position. The `.sgf` is not loaded (a warning; the board stays as it was) and the `.txt` gives a warning and a game without moves. Save such a game as `.ggf`, `.pgn` or `.edx`.
+- **On Windows, keep the full path of `book-file` (with its folders) within 240 characters**: a book is saved to a temporary file named "the name to save + `.tmp.` + the process id", which is then renamed (a mechanism added by this fork: the existing file is only replaced once the new one is completely written). A save to `book-file` plus an extension (`.store` for `book store`, `.dev2` for `book deviate2`, ...) is longer by that extension. When the full path of the temporary file is longer than what Windows accepts (259 characters), `Cannot open temporary book ...` is printed and that save is not done (the book in memory is kept and the command goes on). With a book name of 203 characters, the save worked with a temporary file of 259 characters, and with 260 only the `.store` file was not saved (v4.5.5-nikque.12 behaves the same). Within 240 characters every save fits (an extension of 6 characters at most, 5 for `.tmp.`, a process id of up to 8 digits). Not checked on Linux.
+
+### Checks
+
+This version is published, for the convenience of its user, **when the Windows part of the complete test set had ended.** What follows tells what was finished at that time and what was not; the results of what was not finished will be added to this section.
+
+**Finished on the final source**
+
+- **One-thread search**: for 69 positions (39 solved exactly, 30 at level 18), depth, score, node count and principal variation are those of v4.5.5-nikque.12 and before (test builds for Windows 64-bit and the two 32-bit targets). The distribution executables give the node counts of the earlier versions too: the 5 Windows ones and the 4 Linux ones (105,079,412 and 68,850,986; on Windows also 2,175,751).
+- **Book regression** (every book command, against v4.5.5-nikque.12; 1 thread, 8 threads, a book of 6.49 million positions): 165 files the same and 21 different with the test builds, 167 the same and 22 different between the distribution executables. **The files that differ are the three kinds that this version changes**: the file of `book export` (one more line at the end, `% depth n`), the book saved after an import and the books cut from it (only the depth of the header differs; not one byte of the positions), and the game file `a17_game.edx` (the fix of the memory that was never set).
+- **libedax**: 198 API checks (the 197 of before and one for `edax_base_complete`), 0 failures (3 Windows test builds, the 3 Windows distribution libraries, the 3 Linux distribution libraries); 81 edge cases, 0 failures.
+- With a limited number of threads (9, 12, 20): learning, import and the repair of damaged books give the books of the usual build, 0 errors. Repeated exact solves (6,000 positions with 32 threads, 2,000 with 8): 0 wrong results. 240 repeated runs of learning several games: 0 failures.
+- 23 settings tests and 94 file-name tests: the outputs only differ by what this version changes on purpose (`book info`, `book save` without a name, ...), the line of the new setting, the function names and line numbers of the error messages, and counts that depend on the time.
+- The 33 checks of the fixes of this version and 3 with the library (each one with its control: the build without the fix must show the fault).
+- edax_runner (5.3.0+nikque.7): its 27 tests, and 9 learning lists (same books as with the libraries of v4.5.5-nikque.12; the list with random lines differs from a run to the next).
+- The Linux distribution build (gcc) and the build of the two Android libraries.
+
+**Speed and memory** (idle PC, Ryzen 9 9950X, 32 threads; v4.5.5-nikque.12 and this version in turn)
+
+| `book deviate2 5 5` on the real book of 661.62 million positions (level 18, 2 runs each) | v4.5.5-nikque.12 | this version |
+|---|---|---|
+| Positions selected | 2,753,399 | 2,753,399 |
+| Expanded in the 5 minutes after the selection (distribution executables) | 11,900 / 11,565 | 11,688 / 11,885 |
+| The same (builds without PGO) | 11,926 / 11,980 | 12,032 / 12,003 |
+| Peak memory | 33,409 - 33,412 MB | 33,410 - 33,413 MB |
+
+- On the real book, two runs of the same executable differ more than the two versions do: no slowdown and no more memory were measured (2 runs each). One round of `book deviate2 3 6` on the book of 6.49 million positions took the same time (read in steps of 0.5 s).
+- A small book command file (120 rounds of `book deviate` from an empty book): 8 threads 17.82 s -> 17.77 s (distribution executables, medians of 4 runs). 1 thread 22.87 s -> 22.96 s (the same; +0.4%), and +0.3% (4 runs each) and +0.1% (6 more runs each; same processor time) with builds without PGO: too few runs to tell a difference. Same peak memory.
+
+**Not finished on the final source when this version was published** (the results will be added)
+
+- The Linux test set (gcc warnings, searches with 8 and 32 threads, a limited number of threads, ThreadSanitizer) and the 88 book and game cases with a build that detects memory errors (AddressSanitizer of MSVC). **Both were run completely on the source before the last 17 fixes of this version** (0 gcc warnings, only the ThreadSanitizer reports known from before, 0 memory errors). The last 17 fixes are small ones (loading games, saving the book, displays), and every check listed above was made with them.
+- More runs of the one-thread timing of the small book with the distribution executables.
+- **Not measured**: the speed on Linux, macOS, 32-bit and ARM64; concurrent searches with books of level 19 or more. The Android version was only built. The macOS files come from the automatic build of the release.
+
+### Corrections to the notes of the earlier versions
+
+- The only files that differ in the book regression are "the files that hold a date" ("Checks" of v4.5.5-nikque.9 to 12): it was a saved game that held memory that was never set, not a date.
+- A game can be longer than 80 plies "from a board set with `setboard`" (v4.5.5-nikque.10): also from the usual initial position.
+- Leaf recalculation, "running the same command a second time changed no score and no move" (v4.5.5-nikque.12): with the whole book in the range. The leaves that are skipped did not mention the pass positions (they are now searched again).
+- The steps after `book subtree` are those of `book fix` (section of v4.5.5-nikque.7): since v4.5.5-nikque.12 the links are not rebuilt.
+- A command "`book link`" (sections of v4.5.5-nikque.10 and 12): there is no such command (typing it prints `Unknown book command`). Linking is a step done inside `book fix` (and `book merge`, `book import`, `book correct`, `book prune`). The places that named it now name `book fix` only.
+- The list of functions and the number of checks of the libedax chapter now include the 4 functions of v4.5.5-nikque.12 (197 checks). This version has 198: one check of `edax_base_complete` was added.
+
+## Changes in v4.5.5-nikque.12
+
+Adds the new commands `book leaf-recalculate` (searching the leaves of a book again) and makes `book subtree` and `book prune` faster again. The word after `book` may now be written with capitals. `eval.dat`, the book file format and the search code are unchanged. One of the former commands can give another book: `book subtree` no longer links the book again after the cut (see "What behaves differently").
+
+### New commands: book leaf-recalculate (searching the leaves again)
+
+For the positions that `book deviate` or `book deviate2` walks through, these commands search the leaf again (the leaf is the best move that is not a link yet, with its score). They are meant for the day `eval.dat` is replaced by a new one: the old scores of the book are replaced by the scores of the new evaluation function. No position is added.
+
+| Command | Walk | Leaves searched again |
+|---|---|---|
+| `book leaf-recalculate X Y` | as `book deviate X Y` | the leaves of the positions that `book deviate X Y` would expand |
+| `book leaf-recalculate2 X Y` | as `book deviate2 X Y` | the leaves of the positions that `book deviate2 X Y` would expand |
+| `book leaf-recalculate3 X Y` | as `book deviate X Y` | the leaves of all the positions of the walk (also when the leaf is outside the limits) |
+| `book leaf-recalculate4 X Y` | as `book deviate2 X Y` | the leaves of all the positions of the walk (also when the leaf is outside the limits) |
+
+- X and Y have the meaning, defaults and limits of the matching `book deviate` / `book deviate2`. As for them, the walk starts from the current position and stays within `book depth`.
+- **The walk is done once** (the commands do not loop as `book deviate` does): negamax from the current position, selection, search of the selected leaves, negamax, save. As a round of `book deviate`, `book leaf-recalculate` and `3` select twice (the side to move may deviate by X, then the opponent may; the second selection is made on the book whose first leaves were searched again, and only takes the leaves not searched yet).
+- **The leaf of a solved position is never searched again** (21 empties or fewer at level 18: its score does not depend on the evaluation function). A position whose moves are all links has no leaf and is skipped. (**Since v4.5.5-nikque.13** the leaf of a pass position, a leaf that is a pass, is searched again too; v4.5.5-nikque.12 did not select it.)
+- `3` and `4` also search the leaves of the positions one ply under the depth of the book that the links of the walk lead to (the deepest layer: no link, only a leaf). `book leaf-recalculate` and `2` leave that layer alone, as `book deviate` and `book deviate2` do.
+- A position is searched at the level recorded in it. **Every search starts with empty hash tables.** The number of searches run at the same time, their threads and their hash tables are those of the expansions of `book deviate` (`book-expand-tasks`). When the searches have one thread each (`book-expand-tasks = auto`, level 18 or lower, at least 32 times `n-tasks` leaves), the same command on the same book gives the same result whatever the number of threads and the order.
+- Saves: every `book-save-interval` minutes to `book.dat.leaf`, `.leaf2`, `.leaf3` or `.leaf4` (one name per command), and once more at the end. A timed save holds a book with only some new leaves and no negamax yet: run `book negamax` after loading it. There is no way to resume (running the command again starts from the beginning).
+- The leaves of the positions outside the walk are left as they are. When the current position is not the initial one, the link scores of the positions that cannot be reached from it stay as they were until `book negamax` is run (as with `book deviate`).
+
+Output (on a book of 6.49 million positions):
+
+```
+Book leaf-recalculate2 3 6:
+Book leaf-recalculate2 23013 todo
+Book leaf-recalculate2...16794/23013 done: 7714 scores changed, 2721 moves changed
+Book leaf-recalculate2 3 6...finished: 23013 leaves, 10521 scores changed (4630 up, 5891 down, largest +9 / -11), 3742 moves changed
+```
+
+(The first three lines are real output. The last one shows the format: its numbers are not real.)
+
+**Checked** (test builds without PGO)
+
+- The number of leaves is the `todo` that `book deviate X Y` / `book deviate2 X Y` first print on the same book (6 and 43 on a small book, 23,013 on the book of 6.49 million positions).
+- On a small book (level 10, 1,563 positions, 120 of them solved) whose leaf scores were all altered, `book leaf-recalculate4` brought the 1,437 unsolved leaves back to their original scores. The 120 solved ones stayed altered (they are skipped).
+- For each of the four commands, five settings of threads and searches (1 thread; 8 one-thread searches, twice; 8 threads with `auto`; 32 one-thread searches) gave the same book. On the book of 6.49 million positions, 32 threads with `auto` and 8 one-thread searches gave the same book. With the whole book in the range, running the same command a second time changed no score and no move (with a part of the book in the range, a second run reaches other leaves: see `book-leaf-recalculate-rounds` of v4.5.5-nikque.13).
+- Speed, as an indication (6.49 million positions, level 18, 32 threads, count after 60 s, one run each): 16,794 leaves for `book leaf-recalculate2 3 6`, 8,698 expansions for `book deviate2 3 6`. **These are figures of a small book, not a forecast for a large one.**
+- The peak memory was about that of the expansions of `book deviate` (992 to 1,007 MB against 999 to 1,028 MB for `book deviate2`, 6.49 million positions).
+
+**The book changes even with the same `eval.dat`.** Share of the leaves whose score changed, on the book of 6.49 million positions (itself cut from a larger book by depth):
+
+| Where the leaf came from | Scores changed |
+|---|---|
+| Leaf of a position added by `book deviate2` of this version (one-thread searches) | 0.1% (11 of 12,810) |
+| Leaf of a position expanded by `book deviate2` of this version (one-thread searches) | 1.6% (225 of 14,180) |
+| Leaves made by `book deviate2` of v4.5.5-nikque.9 (two-thread searches) | 3.3% and 4.9% |
+| Leaves already in the book, except its deepest layer | 23 to 31% |
+| Leaves already in the book, deepest layer (values set by the cut) | 72% |
+
+- `book deviate` searches the leaf of an expanded position right after the search of its child, without emptying the hash tables. With a test build that empties them, all 6,676 leaves came back to the same score. In a later test (the audit of v4.5.5-nikque.13, another run), the differences of the added positions went away when a new position was searched on the board of the book (see "Not changed, and good to know" of v4.5.5-nikque.13).
+- Searches with several threads give slightly different scores from run to run (the same leaves searched twice with 32-thread searches differed for 1.7% of them, and for about 5% from the one-thread result).
+- **When `book subtree` reduces the depth, the leaf of a position of the new deepest layer becomes the score of a link to a removed position (the negamaxed value of the searches below it). `book leaf-recalculate3` and `4` replace it by the score of a search of that position at its level** (77% of the values changed on a layer that had just been cut). When that layer is solved (21 empties or fewer at level 18), it is skipped and nothing changes.
+- The cause of the 23 to 31% of the row "already in the book, except its deepest layer" was not found (the version and the settings that made that book are not known).
+
+**Not checked**: another `eval.dat`, levels above 18, a whole run on a book of 600 million positions, not enough memory for the searches, going on from a timed save. (Another `eval.dat`, the lack of memory for the searches and the timed saves were run during the audit of v4.5.5-nikque.13: see its "Checks".)
+
+libedax: `edax_book_leaf_recalculate(X, Y)`, `edax_book_leaf_recalculate2`, `3` and `4` were added.
+
+### book subtree, book prune: the positions to keep are marked with several threads (same book)
+
+With v4.5.5-nikque.11, reducing the depth of the real book (661.62 million positions) from 40 to 39 with `book subtree` took about 10 minutes, about 6 of them to mark the positions to keep (one thread). This is now done with `n-tasks` threads: each thread walks on from the positions that it marked itself (no position is walked by two threads). With `-n 1` nothing changes.
+
+Book of 6.49 million positions (level 18, builds without PGO from the same sources, one run each, other programs running; time of the marking in `book subtree` at the initial position):
+
+| Threads | Before | This version |
+|---|---|---|
+| 1 | 2.22 s | 2.23 s (same code) |
+| 2 | 2.23 s | 0.89 s |
+| 4 | 2.20 s | 0.53 s |
+| 8 | 2.16 s | 0.39 s |
+| 32 | 2.16 s | 0.25 s |
+
+- The saved books and the counts printed (`Book subtree N`, `Book prune N`) were the same as before: 9 cases of position and depth (2 of them `book prune`) with 1, 2, 4, 8 and 32 threads, 45 comparisons. On a small book (1,563 positions) and on damaged books with links that go back (5,820 positions), the counts were the same and the commands ended.
+- The peak memory was the same (568 MB with 32 threads). The only memory added is the list of the positions still to walk, for each thread.
+- The progress line `Book prune N to keep` shows round numbers, every 100,000 positions.
+
+**Real book of 661.62 million positions (level 18, 32 threads, builds without PGO, one run each, other programs running)**: `book depth 39`, then `book subtree` at the initial position, reducing the depth from 40 to 39 (661,617,883 → 524,075,811 positions).
+
+| Step | v4.5.5-nikque.11 (as measured then) | This version |
+|---|---|---|
+| Loading | 29.0 s | 36.7 s |
+| Negamax | 23.5 s | 33.5 s |
+| **Marking the positions to keep** | **369.5 s** | **22.0 s** |
+| Removing the positions | 4.1 s | 4.7 s |
+| Removing the links | 23.0 s | 26.5 s |
+| Giving the memory back | 3.1 s | 4.0 s |
+| Check after the cut | 17 s | 22 s |
+| **Linking again** | **110 s** | **none** (next section) |
+| Negamax, sort | 21 s | 23 s |
+| **Whole run (from loading to the end)** | **603.6 s** | **176.6 s** |
+
+- The v4.5.5-nikque.11 column was measured when that version was released (another day). The unchanged steps are a little slower in the new run, probably because other programs were running (the same day, a test build that still links again took 271.5 s in all: 20.8 s for the marking, 108.7 s for the link step).
+- The peak memory was 31.8 GB (as right after loading, and as with v4.5.5-nikque.11), and 24.3 GB after the cut (the same).
+- After the cut `book info` showed 524,075,811 positions, 542,873,357 links and 523,794,779 leaves, the same numbers with the build that still links again (on this book the link step added no link; only the counts were compared, the books were not saved).
+
+`book leaf-recalculate2 5 5` on the real book, stopped after 7 minutes (same build, `book-expand-tasks = auto`, one run): 2,753,399 leaves to search, the number of positions that `book deviate2 5 5` selects. 12,268 leaves were done in about 5 minutes of searches (about 2,350 a minute). `book deviate2 5 5`, run right after in the same conditions, expanded 7,900 positions in about 5 minutes (about 1,500 a minute). Of the 12,268 leaves, 274 got another score (2.2%) and 951 another move (7.8%), with the same `eval.dat`. The peak memory was 33.4 GB, as for `book deviate2 5 5`. **A whole run was not timed** (at this rate it would take about 20 hours).
+
+### book subtree: the book is no longer linked again after the cut (the book can differ)
+
+After the cut, `book subtree` ran a check (as `book fix`), linked the book again, then negamax and sort. On the real book the link step took 110 s (v4.5.5-nikque.11). This version does not link again.
+
+- Cutting a book adds no position, so the only links that this step added were those that the book already lacked before the cut. `book deviate` does not link, on the spot, the positions that can also reach a new position by another line of play (transpositions): `book fix` and `book merge` do. **`book subtree` used to add these links on the way; it does not any more.** Run `book fix` before or after the cut if they are wanted.
+- On a book that lacks no link (6.49 million positions, 7 cases with 2 and 32 threads), the saved books were the same as before.
+- On a book right after one round of `book deviate2` (6.51 million positions), cut at the initial position, 17,232 positions differed from the former result (999 with a link that was not added, 393 with another leaf move, 289 with another score; the others only in the counts of wins, draws, losses and lines).
+- In that case the whole run went from 7.3 s to 2.3 s, and the peak memory from 998 MB to 569 MB (the link step created searches for its leaf searches).
+- `book prune` is unchanged (it links again after the cut).
+
+### book, base: the word after them is not case sensitive
+
+`book Deviate 5 5`, `BOOK INFO` or `base Unique a.txt b.txt` are accepted. So far only the first word (`book`) could have capitals; with capitals in the second word the command ended with `Unknown book command`. The arguments, as file names, are used as typed (`book save MixedCase.DAT` saves `MixedCase.DAT`).
+
+### What behaves differently (summary)
+
+| Case | Up to v4.5.5-nikque.11 | v4.5.5-nikque.12 |
+|---|---|---|
+| After `book subtree` | The book is linked again (links missing before the cut are added) | It is not (missing links stay missing; `book fix` adds them) |
+| Marking of `book subtree`, `book prune` | One thread | `n-tasks` threads (same book, same counts) |
+| Capitals in the word after `book` or `base` | `Unknown book command`, `Unknown base command` | Handled as lower case |
+| `book leaf-recalculate`, `2`, `3`, `4` | `Unknown book command` | New commands |
+
+### Checks
+
+- Book regression (all book commands; 1 and 8 threads; including the book of 6.49 million positions): all files identical to the release build of v4.5.5-nikque.11 (except `a17_game.edx`, a saved game that held memory that was never set, not a date: fixed in v4.5.5-nikque.13). The books of `book deviate`, `book deviate2` and `book deviate3` are the same.
+- The selection walk of `book deviate` / `book deviate2` was timed in turn with a build of the v4.5.5-nikque.11 sources, 6 runs each: no difference could be read (6.49 million positions, `deviate2 8 20` with 32 threads: 451 to 473 ms against 454 to 481 ms).
+- libedax: the 197 checks of the API test (the former 193 and the 4 new functions; 3 Windows libraries).
+- ThreadSanitizer (Linux, 8 threads): no report about the new marking or about the code of the leaf recalculation themselves.
+- The search code is unchanged: results and node counts of single-thread `-solve` are those of v4.5.5-nikque.11 (release builds).
+- **Not measured**: the release builds against each other on an idle machine (only book commands changed), `book prune` on the real book, the speed on Linux, macOS, 32-bit and ARM64 builds, the marking when memory runs out.
+
+## Changes in v4.5.5-nikque.11
+
+This version makes the commands that cut a book down, `book subtree` and `book prune`, and `book correct` and `book enhance`, faster. Since the upstream version, `book subtree` and `book prune` walked again from a position once for every line of play leading to it, which took a very long time on a large book. There is no new feature or setting. The evaluation data `eval.dat`, the book file format and the search code are unchanged. The resulting book differs in two cases (see "What behaves differently" below): `book subtree` from another position than the initial one with a reduced depth, and `book correct` when it runs several searches at the same time.
+
+### Faster book subtree and book prune (same book)
+
+`book subtree` keeps only the positions that can be reached from the current board. Reducing the depth first (for example `book depth 39`) and running `book subtree` at the initial position reduces the depth of the book. `book prune` keeps only the positions reached through best moves. Four things changed:
+
+- **No repeated walks.** When a position already marked as kept was reached again through another line, everything below it was walked again. `book subtree` keeps the same positions whatever the line, so it no longer walks below a marked position. `book prune` skips the walk only when the position is reached again with the same conditions (there are only two sets of them).
+- **The negamax before the cut uses several threads**, with the same code as `book negamax` (the former code with `-n 1`).
+- **The links to the removed positions are removed with several threads** (the former code with `-n 1`).
+- **The memory of the removed positions is given back** (Windows builds only). So far the memory did not shrink until the program ended or the book was loaded again.
+
+A book of 6.49 million positions (level 18, 32 threads, builds of the same source without PGO, one run each, with other programs running; whole run from loading to saving):
+
+| Case | Before | This version | Walks |
+|---|---|---|---|
+| `book subtree` at the initial position (same depth) | 113.8 s | 7.1 s | 496.17 million → 6.49 million |
+| `book depth 19`, then `book subtree` at the initial position (depth reduced by one; 5.11 million positions left) | 120.4 s | 5.5 s | 335.44 million → 5.11 million |
+| `book subtree` after `play f5d6c3d3c4` (0.88 million positions left) | 2.2 s | 1.2 s | 4.67 million → 0.88 million |
+| `book prune` (1.30 million positions left) | 6.3 s | 1.6 s | 11.71 million → 1.30 million |
+
+The saved books had the same content before and after each change (9 to 18 cases per change: root position, depth, and 1, 2, 4 and 32 threads). The peak memory is the same (568 MB). The memory after the cut, with one thread, went from 388 MB to 341 MB after reducing the depth by one, and from 388 MB to 113 MB after cutting down to 0.5 million positions.
+
+**The real book of 661.62 million positions (level 18, 32 threads, build without PGO, one run)**: `book depth 39`, then `book subtree` at the initial position, reducing the depth from 40 to 39. Positions: 661,617,883 → 524,075,811. From loading to the end: **603.6 s** (loading 29 s, negamax 23.5 s, marking the positions to keep 369.5 s, removing positions 4 s, removing links 23 s, giving memory back 3 s, then the check 17 s, the links 110 s and the negamax 20 s). The peak memory was 31.8 GB (the same as right after loading), and 24.3 GB after the cut. **This case was not timed with the former version** (it is not known how long it takes; with the upstream version it took a very long time). The resulting book was not saved, so its content was not checked (only the displayed number of positions and depth).
+
+Display: the N of `Book subtree N... done` and `Book prune N... done` was the number of walks; repeated walks are no longer counted, so it is smaller (for `book subtree` it is the number of kept positions). The progress line `Book prune N to keep` is printed once per 100,000 positions (it used to be printed many times, or not at all).
+
+### book subtree: negamax after a cut from another position than the initial one
+
+The negamax after `book subtree` starts from the initial position. After a cut from another position, the initial position is no longer in the book and the negamax did nothing (since upstream). So, **after a cut from another position with a depth reduced by `book depth`**, the positions whose links were cut, and the positions above them, kept the counts of wins, draws, losses and lines and the score bounds of the former book. This version runs the negamax from the position the book was cut from when the initial position is not in the book.
+
+On the book of 6.49 million positions, `play f5d6c3d3c4`, `book depth 17`, `book subtree` (294,289 positions left): 226,357 positions have other counts and 150,102 other bounds than before. Link moves and scores, leaf moves and scores and position scores are all the same. The counts and bounds are only used by the display of `book show`; the choice of book moves in games and `book deviate` do not use them. A cut without a depth change, and a cut from the initial position, give the same book as before.
+
+In a book without the initial position, the negamax of `book negamax`, `book fix`, `book prune` and others still does nothing in this version (`book deviate` and `book enhance` run it from the current board).
+
+### book correct: several solved positions searched at the same time
+
+`book correct` searches the exactly solved positions again (21 empties and fewer at level 18) to find wrong scores. It ran searches of `n-tasks` threads one after the other. This version searches as many positions at the same time as `book deviate` expands (`book-expand-tasks`; the same number of searches, threads and hash table size). With `book-expand-tasks = 1`, `-n 1`, `-cpu`, or without memory for the searches, the positions are searched one after the other as before.
+
+A small book with 120 solved positions (level 10, 1,563 positions, `book-expand-tasks = auto`, 3 runs each, whole run): 2.03–2.08 s → 0.46–0.47 s with 32 threads, 2.04–2.06 s → 0.82–0.83 s with 8 threads, 2.42–2.58 s → 1.89–1.92 s with 2 threads.
+
+- **It uses more memory, for the searches run at the same time** (as much as the expansion of `book deviate`). With 2 threads the peak went from 95 MB to 106 MB. With 32 and 8 threads the runs were too short to measure it.
+- **The resulting book can differ a little from a run to the next, as it already did.** The score of a solved position does not depend on the search, but when several moves have the same score, the one that becomes the leaf can change. The former version gave three different books in three runs with 32 threads (only leaf moves differ, in 1 to 3 positions). The differences of this version are of the same kind.
+- The case where a wrong score is actually found, the timed saves and the lack of memory were not run. The time on a large book was not measured.
+- **Up to v4.5.5-nikque.12 it erased the leaf of the positions without move and without link (the end of a game, a pass whose next position is not in the book) and broke their scores** (from upstream; fixed in v4.5.5-nikque.13, see above).
+
+### Other changes
+
+- **`book enhance`**: the negamax at the start and after each round used one thread. It now uses several threads, with the same code as `book deviate`. On the book of 6.49 million positions, a run with no position to expand went from 6.9 s to 1.2 s, and the saved book was the same.
+- **`book check`**: when no move of the games is in the book, the percentage of bad moves was 0/0. It now shows 0% (run during the audit of v4.5.5-nikque.13).
+- `book fill` was reviewed; nothing could be changed without changing the resulting book, so it is unchanged.
+
+### What behaves differently (summary)
+
+| Case | Up to v4.5.5-nikque.10 | v4.5.5-nikque.11 |
+|---|---|---|
+| `book subtree` from another position than the initial one, with a reduced depth | counts of wins/draws/losses/lines and score bounds of the former book | negamax from the position the book was cut from (same moves and scores) |
+| `book correct`, `book-expand-tasks` 2 or more, or `auto` | searches of `n-tasks` threads, one after the other | several searches at the same time (more memory; the choice of the leaf move can vary between runs, as before) |
+| N of `Book subtree N` and `Book prune N` | number of walks | repeated walks not counted (smaller) |
+| Memory after the cut (Windows builds) | does not shrink | the memory of the removed positions is given back |
+
+### Checks
+
+- Book regression (all book commands; 1 and 8 threads, including the book of 6.49 million positions): all files identical to the release build of v4.5.5-nikque.10 (except `a17_game.edx`, a saved game that held memory that was never set, not a date: fixed in v4.5.5-nikque.13).
+- For each change, the saved books were compared with a test build that keeps the former behaviour (see the sections above).
+- libedax: the 193 checks of the API test (3 Windows libraries). `edax_book_subtree` has the same change (the audit of v4.5.5-nikque.13 checked that it gives the same book as the command).
+- The search code is unchanged. The results and node counts of single-thread `-solve` are the same as v4.5.5-nikque.10 with the release builds.
+- **Not measured**: times with the release builds (PGO; the figures above are from builds of the same source without PGO), a comparison of the release builds on an idle machine (only book commands changed, so it was not done), `book prune`, `book correct` and `book enhance` on the real book, the speed on Linux, macOS, 32-bit and ARM64, `book subtree` and `book prune` on a damaged book with links going back.
+
+## Changes in v4.5.5-nikque.10
+
+This version fixes three bugs found after v4.5.5-nikque.9, and makes `book negamax`, `book fix` and `book merge` on large books, and the expansion of `book deviate`, `deviate2` and `deviate3`, faster. There is no new feature or setting. The evaluation data `eval.dat`, the book file format, and the results and node counts of single-thread searches are unchanged. Two things behave differently (see "What behaves differently" below): the bundled setting `book-expand-tasks = auto` in the rounds with many positions to expand (the resulting book differs a little), and `edax_stop` during `edax_bench` in libedax.
+
+### Bug fixes
+
+- **A game of more than 80 plies wrote outside the game record** (from upstream): the record had room for 80 moves and passes. A game with many passes can be longer (the example below starts from a board set with `setboard`, but a game of 60 moves and 22 passes = 82 plies also exists from the usual initial position), and the move counter and the clocks that follow the record were overwritten (the example found: after a game of 56 moves and 29 passes = 85 plies, the display shows "ply 5" and a clock of "6313 days"; the program does not crash). libedax (`edax_play`, `edax_move`, ...) had the same problem. The record now holds 128 entries (from any board there are at most 62 moves, and a pass is only recorded before a move: 124 at most). The same kind of write in the `force` line and in the saving of a game (60 moves) is fixed too. Games of 80 plies or less are unchanged. `edax_get_moves` still returns 80 plies at most (its buffer is documented as 161 characters). The code that learns several games at the same time kept 80 entries up to v4.5.5-nikque.12 (fixed in v4.5.5-nikque.13).
+- **The previous string was not released when a string setting was set again** (from upstream): `book-file`, `eval-file`, `game-file`, `name`, the log file names, and so on. Repeated calls of `edax_set_option` in libedax left a few dozen bytes each time.
+- **libedax: `edax_stop` during `edax_bench` did not end the bench** (from the original libedax): `edax_stop` only cut the problem being solved, and the bench went on with the other problems. The time of the cut search was added as a clock value, so the result showed a time of several days. `edax_stop` now ends the bench. The problem that was cut is not counted in the positions, the nodes or the time.
+
+### Faster book functions (same results)
+
+`book negamax` (with several threads) and the "linking" step of `book fix` and `book merge` looked in the book, for each position, for the positions its moves lead to, one after the other. On a large book, each of these lookups waits for memory. Now the places of all of them are computed first and asked for (prefetch), and then they are looked for together. The same positions are looked for in the same order, so the results do not change.
+
+The real book of 661.62 million positions (level 18, 32 threads, builds without PGO, two runs each in the order previous, new, new, previous):
+
+| Step | Previous | This version | |
+|---|---|---|---|
+| One `book negamax` | 18.8-19.0 s | 17.6-18.0 s | about 6% shorter (all 4 runs) |
+| Linking of `book fix` | 153.7 s | 136.3 s | about 11% shorter |
+| Whole `book fix` (load to save) | 240.8 s, 247.9 s | 222.0 s (242.0 s in the other run, whose load took 7 s more) | |
+| Linking of `book merge` (merging a book of 6.49 million positions) | 139.6 s | 127.2 s | about 9% shorter |
+| Whole `book merge` | 235.3 s, 239.8 s | 223.6 s, 217.6 s | about 7% shorter |
+
+The saved books had the same content in all 12 runs, and the peak memory was the same (31.8 GB). Neither `book fix` nor `book merge` had anything to change in this book, so "the same result when the book changes" is checked by the 6.49 million position book below and by the regression tests.
+
+The book of 6.49 million positions (previous and new in turn, 10 to 12 pairs, while other programs were running; time of the whole command):
+
+| Command | Threads | Previous | This version | Pairs where this version was faster |
+|---|---|---|---|---|
+| 20 `book negamax` | 32 | 4.36 s | 4.16 s | 11 of 12 |
+| | 8 | 6.99 s | 6.09 s | 12 of 12 |
+| | 2 | 21.16 s | 17.04 s | 6 of 6 |
+| `book fix` | 32 | 2.54 s | 2.38 s | 10 of 10 |
+| | 8 | 3.87 s | 2.54 s | 10 of 10 |
+| `book merge` (6.49 million positions into an empty book) | 32 | 5.53 s | 5.32 s | 10 of 10 |
+| | 8 | 7.14 s | 5.63 s | 10 of 10 |
+
+The books after `book fix`, after `book merge` and after `book negamax` (32 and 3 threads) had the same content with the previous code and with this version. `book negamax` with one thread (`-n 1`) is another function and is unchanged.
+
+### book-expand-tasks = auto: one-thread searches, as many as threads, in the rounds with many positions
+
+With `book-expand-tasks = auto` (the bundled `config.ini`), up to level 18, `n-tasks / 2` searches of 2 threads ran at the same time. In this version, up to level 18, a round with **at least 32 times `n-tasks`** positions to expand (1,024 with 32 threads) runs `n-tasks` searches of one thread. Rounds with fewer positions, levels above 18, and `book-expand-tasks` given as a number are as in v4.5.5-nikque.9. The hash tables of the one-thread searches have the size of the one-thread searches of the learning of games (19 bits = 14 MB up to level 18).
+
+A round with many positions (the book of 6.49 million positions, level 18, `book deviate3 2 6`: 22,750 positions to expand; positions expanded in 60 s; builds without PGO):
+
+| `n-tasks` | Rule of v4.5.5-nikque.9 | This version | Peak memory |
+|---|---|---|---|
+| 32 | 8,270, 8,086 | 10,247, 10,195 (about 1.25 times) | 1,432 MB → 1,001 MB |
+| 8 | 2,628 | 3,988 (1.52 times) | 663 MB → 556 MB |
+
+With the same book, the first round (22,750 positions) was done and saved after 154 s and 156 s before, 122 s and 123 s now (two runs each while no other program was running; load and selection included).
+
+**On the real book (661.62 million positions) with `book deviate2 5 5` (2,753,399 positions to expand in a round), the difference is smaller.** The positions expanded there need heavier searches (about 33 million nodes for each position), and a 2-thread search wastes little. Over the first 420 s, where the same positions are expanded in the same order, the nodes for each position went from 3.49×10^7 to 3.26-3.29×10^7 (about 6.5% fewer; 4 runs of this version), and the speed of all the threads together was about the same. The two pairs measured by time gave 35.1 → 37.4 and 34.2 → 35.5 positions per second, but the same build varied from 32 to 40 positions per second from one hour to the next, so **the gain in time is "6 to 7% expected"; what was verified is the difference in nodes.**
+
+A condition with rounds of few positions (the book of 270 thousand positions, `book deviate 1 2`: rounds of 0 to a few hundred positions, total of 8 runs each) took 11.45 ms → 11.10 ms for each position: no change (no round reaches 1,024 positions there, so the code path is the one of v4.5.5-nikque.9). Trials with a lower limit (one thread each from 1 and from 4 times `n-tasks`) took 19% and 9% more time for each position in this condition, hence 32 times.
+
+**The resulting book is not the same as with `auto` in v4.5.5-nikque.9** (the number of positions expanded at the same time changes, as when the number of `book-expand-tasks` is changed). With the book of 6.49 million positions, the books after the first round (22,750 positions expanded, 22,671 positions added) were compared position by position:
+
+| Books compared | Positions that differ |
+|---|---|
+| Two runs of the rule of v4.5.5-nikque.9 (2 pairs) | 464, 885 |
+| Runs of this version (2 runs, then 3 runs) | 0 |
+| Rule of v4.5.5-nikque.9 against this version | 4,231 to 4,251 (0.065% of the 6,513,834 positions) |
+
+- The added positions and the moves of the links were the same in every pair. Of the 4,231 positions that differ between the rule of v4.5.5-nikque.9 and this version, 1,377 have another leaf move (the best move that is not a link yet) and 1,626 another value (by 1 for 1,420, by 2 for 167, by 3 to 6 for 39).
+- Runs of this version made one after the other (2 runs, and 3 runs at another time) gave the same book each time: a one-thread search of a given position always gives the same result. **It is not verified that they always will** (the order of the expansions running at the same time can matter, for example when two expansions of a round reach the same position). With the rule of v4.5.5-nikque.9 (2-thread searches), a few hundred positions differ from one run to the next with the same settings.
+- As before, the positions expanded at the same time do not see each other (32 of them now, instead of 16).
+
+To get the previous rule back, write `book-expand-tasks = 16` (half of `n-tasks`).
+
+### Speed and memory (release builds)
+
+`wEdax-x86-64-v4.exe` for Windows, the release of v4.5.5-nikque.9 against this version (PGO build made the same way). Ryzen 9 9950X, 32 threads (1 thread on the first line), measured only while no other program was running, 8 to 64 runs. The ratio is this version ÷ v4.5.5-nikque.9, ± is the standard error.
+
+| Condition | v4.5.5-nikque.9 | This version | Ratio | Peak memory |
+|---|---|---|---|---|
+| `-solve` (fforum-20-39), 1 thread | 1.211 s | 1.209 s | 0.999 ± 0.003 | same |
+| the same, 32 threads (64 runs) | 0.361 s | 0.365 s | 1.012 ± 0.005 (see the note below) | same |
+| `-solve` (fforum-40-59), 32 threads | 23.270 s | 23.326 s | 1.002 ± 0.006 | same |
+| 30 midgame positions, level 18 | 0.940 s | 0.938 s | 0.998 ± 0.005 | same |
+| 30 midgame positions, level 21 | 4.149 s | 4.119 s | 0.993 ± 0.008 | same |
+| 20 `book negamax` (6.49 million positions) | 4.034 s | 3.786 s | 0.939 ± 0.003 | same |
+| `book fix` (6.49 million positions) | 2.244 s | 2.216 s | 0.988 ± 0.006 | same |
+| `book merge` (6.49 million positions) | 5.084 s | 4.979 s | 0.980 ± 0.007 | same |
+| `book fix`, 1000 leaves (level 18) | 9.045 s | 9.135 s | 1.010 ± 0.011 | same |
+| `book deviate 0 2` (270 thousand positions, `auto`, rounds of 1 to 7 positions) | 8.541 s | 8.494 s | 0.994 ± 0.042 (0.993 ± 0.006 for the time for each position) | same |
+| `book learn`, level 21, 8 games | 10.314 s | 10.363 s | 1.005 ± 0.008 | same |
+| `book learn`, level 24, 4 games | 10.166 s | 10.249 s | 1.008 ± 0.009 | same |
+| 30 games stored one by one with `book store` (level 18) | 20.003 s | 20.227 s | 1.011 ± 0.013 | same |
+| `book learn`, level 18, 128 games | 30.732 s | 30.731 s | 1.000 ± 0.004 | same |
+
+The peak memory is the same in every condition. For the time, only the short `-solve` with 32 threads (0.36 s; the clock ticks every 0.016 s) came out slower beyond the error, 1.012 ± 0.005. fforum-40-59, which takes 23 s with the same 32 threads, shows no difference (1.002 ± 0.006), and 120 runs of this condition in turn with v4.5.5-nikque.9, while other programs were running, gave 0.999 ± 0.006. The search code is unchanged since v4.5.5-nikque.9. No other condition is slower beyond the error.
+
+`book deviate` in a round with many positions (the book of 6.49 million positions, `book deviate3 2 6`, `auto`, positions expanded in 60 s; release builds, 3 runs): 8,529, 8,484, 8,462 → 10,801, 10,883, 10,848 (about 1.28 times), peak memory 1,432 MB → 1,002 MB.
+
+**Not measured**: the book of 661.62 million positions with the release builds (the numbers of the real book above are between builds of the same source without PGO), the speed of the 32-bit, Linux, macOS and ARM64 builds, `book deviate` above level 18 (its rule is unchanged).
+
+### What behaves differently (summary)
+
+| Case | Up to v4.5.5-nikque.9 | v4.5.5-nikque.10 |
+|---|---|---|
+| `book-expand-tasks = auto`, up to level 18, a round with at least 32 times `n-tasks` positions | `n-tasks / 2` searches of 2 threads | `n-tasks` searches of one thread (the book differs a little: see the table above) |
+| A game of more than 80 plies (moves + passes) | writes outside the record (the move counter and the clocks are damaged) | recorded correctly (up to 124 plies are possible) |
+| libedax: `edax_stop` during `edax_bench` | cuts one problem, the others go on; the time is wrong | ends the bench |
+
+### Checks
+
+- `-solve`: single-thread results and node counts are the same as v4.5.5-nikque.9 (the 5 Windows release executables, the 4 Linux ones, a 32-bit test build).
+- Book regression tests (every book command; 1 and 8 threads, including the book of 6.49 million positions): every file is the same as with the code of v4.5.5-nikque.8 (except `a17_game.edx`, a saved game that held memory that was never set, not a date: fixed in v4.5.5-nikque.13).
+- The tests of v4.5.5-nikque.9 were all run again on the code of this version: identical books with test builds that fix the searches to one thread, 240 runs of `book fix` with the "stop and continue" searches, repeated multi-thread `-solve` (8,000 positions on Windows, 3,000 on Linux, no wrong result), test builds where threads cannot be created (Windows and Linux), running out of memory in the 32-bit build, 94 cases of damaged books and 23 cases of settings, ThreadSanitizer on 8 cases (no new kind of report for the code added here), the Android build.
+- libedax: 193 API checks (2 were added: `edax_stop` from another thread during `edax_bench`; 3 Windows and 3 Linux libraries), 81 cases of edge values and wrong calls, the tests of libedax4dart 7.67.0 (28 of 29; the remaining one is the same since v4.5.5-nikque.7).
+- `book fix` (2 leaves) at levels 31 to 36 and the learning of one game at levels 31 and 32 end normally (v4.5.5-nikque.9 was checked up to level 30; one game took 104 s at level 31 and 188 s at level 32, with a peak of 2.15 GB; build without PGO, one run while other programs were running).
 
 ## Changes in v4.5.5-nikque.9
 
@@ -298,7 +778,7 @@ Ryzen 9 9950X (32 logical CPUs), `n-tasks` 32, `hash-table-size = auto`. The cod
 ### Checks
 
 - `-solve`: single-thread results and node counts equal to v4.5.5-nikque.8 (Windows x64 and 32-bit, Linux).
-- Book regression tests (all the book commands; 1 and 8 threads; including a book of 6.49 million positions): all files equal to v4.5.5-nikque.8 (except the files that hold a date, and the messages described above).
+- Book regression tests (all the book commands; 1 and 8 threads; including a book of 6.49 million positions): all files equal to v4.5.5-nikque.8 (except `a17_game.edx`, a saved game that held memory that was never set, not a date: fixed in v4.5.5-nikque.13; and except the messages described above).
 - With the test build whose searches all use one thread, the books are identical to "one search after the other, with an empty hash table for each" (the ten damaged books, `book store`, `book add`, `book learn`, and merges).
 - 240 runs of `book fix` with 32 threads for the "stop and go on" step, repeated multi-thread `-solve` (no wrong result), test builds where threads cannot be created or the search memory cannot be allocated, the 32-bit build with its address space exhausted, damaged books, unwritable targets and odd settings, ThreadSanitizer (Linux).
 - The real book of 657 million positions: load, save, `book negamax` and `book merge` give the same result as v4.5.5-nikque.8 (see "Speed and memory" above).
@@ -439,7 +919,7 @@ The new command `book learn <file>` does this for each game of the file: play it
 
 ### A faster book fix (links rebuilt with several threads)
 
-`book fix` checks the positions (Fixing), rebuilds the links (Linking), negamaxes and sorts the book (the same steps follow `book import`, `correct`, `prune` and `subtree`; the links are also rebuilt and the book negamaxed after `book store`). The checking, linking and sorting steps used one thread; they now use all the threads.
+`book fix` checks the positions (Fixing), rebuilds the links (Linking), negamaxes and sorts the book (the same steps follow `book import`, `correct`, `prune` and `subtree`, except that `book subtree` no longer rebuilds the links since v4.5.5-nikque.12; the links are also rebuilt and the book negamaxed after `book store`). The checking, linking and sorting steps used one thread; they now use all the threads.
 
 - **Checking**: the threads check the positions; the positions found are fixed in the order of the book. Fixing a wrong position (a board that is not normalized, ...) can change what is found for the next positions, so from the first wrong position the positions are checked again one after the other, as before.
 - **Linking**: the threads look for the missing links (and refresh the scores of the existing links); the links are added in the order of the book. The links to the positions whose score changed meanwhile are then set to the value that the original code gives. `book merge` rebuilds its links as up to v4.5.5-nikque.6 (with several threads since v4.5.5-nikque.3, reusing the leaves of the merged book).
@@ -520,14 +1000,14 @@ int main(void)
 
 - **The functions and the layout of the data exchanged with the caller are those of the original libedax** (`src/libedax.h`). The structures of Edax changed in 4.5, so they are not passed as they are: the data are copied to structures with the original layout.
 - **Settings** are read from `edax.ini` and `config.ini` of the current folder, then from the arguments of `libedax_initialize` (the last one wins). The syntax and the settings are those of the edax program.
-- New functions: `edax_book_deviate2` and `edax_book_deviate3` (`book deviate2` and `deviate3`), `libedax_cpu_level` (which build the CPU can run: a program can ask `libedax-x64.dll`, then load the v3 or v4 library), `edax_book_store_games` (play and learn several games together, as `book learn` above does; the games are given as a string, one game per line) and `edax_book_store_tasks` (the number of games learned at the same time: `n-tasks` when `book-store-tasks` is `auto`). v4.5.5-nikque.9 adds `edax_book_save_checked` (saves the book and tells whether it was saved) and `edax_book_failed` (tells whether the last book function could not add a position).
+- New functions: `edax_book_deviate2` and `edax_book_deviate3` (`book deviate2` and `deviate3`), `libedax_cpu_level` (which build the CPU can run: a program can ask `libedax-x64.dll`, then load the v3 or v4 library), `edax_book_store_games` (play and learn several games together, as `book learn` above does; the games are given as a string, one game per line) and `edax_book_store_tasks` (the number of games learned at the same time: `n-tasks` when `book-store-tasks` is `auto`). v4.5.5-nikque.9 adds `edax_book_save_checked` (saves the book and tells whether it was saved) and `edax_book_failed` (tells whether the last book function could not add a position). v4.5.5-nikque.12 adds `edax_book_leaf_recalculate`, `edax_book_leaf_recalculate2`, `3` and `4` (the `book leaf-recalculate` commands).
 - Differences from the original libedax (Edax 4.4):
   - The default level is 18 (it was 21). At the same level, the scores and moves of a search can differ from Edax 4.4.
   - `edax_book_merge` does what `book merge` does in this version: it also rebuilds the links, fixes and negamaxes the book (the original only added the positions).
   - The counts of the best paths (`edax_book_count_bestpath`, `edax_book_count_board_bestpath`) were kept in every position of the book by the original libedax; here they are kept beside the book, only while they are used (a book position still takes 48 bytes). They are counted again when the limits change or when the book changes.
   - The `link` array of a `Position` stays valid until 63 other positions are asked (8 up to v4.5.5-nikque.8). The lock which followed the result of `edax_bench` is not used.
   - Calls which crashed the original libedax (a second initialization or termination, `edax_get_last_move` before any move, `edax_book_show` on a position missing from the book, a read-only string given to `edax_get_bookmove_with_position_by_moves`) now do nothing or return an empty result.
-  - On Windows, file names are read as UTF-8 (then as ANSI).
+  - On Windows, file names are read as UTF-8 (then as ANSI). A name given in the ANSI code page whose bytes also happen to be valid UTF-8 (in CP932, the two half-width katakana "ﾐｽ", for example) makes a file with the name read as UTF-8 ("н" here); when reading, the ANSI name is tried if no file has the UTF-8 name (checked during the audit of v4.5.5-nikque.13; the library cannot know the encoding of its caller, so this is unchanged).
 - **The edax program is not affected.** The code of libedax is only compiled when the library is built. An edax built from the sources with libedax added is byte-identical to one built from the v4.5.5-nikque.6 sources (except the build time and the name of the source folder).
 - Speed and memory (one thread, the 20 endgame positions of `bench`, Ryzen 9 9950X):
 
@@ -539,7 +1019,7 @@ int main(void)
   | `libedax-x64-v4.dll` | 92 million nodes/s | 82 MB |
 
   The library and the edax program (for the same CPU) search the same number of nodes at the same speed.
-- Tests: `tests/libedax_test.c` calls every function (147 checks, 191 in v4.5.5-nikque.9; passed by the 3 Windows and the 3 Linux libraries; the original libedax gives the same results on the checks it supports). 28 of the 29 tests of libedax4dart 7.67.0 pass; the other one compares a search score (it differs because of the default level and of the state left by the previous searches: a fresh search at the same level gives the same score as the original libedax). The books saved by the libedax of Edax 4.4 are read by this version, and the books saved by this version are read by the libedax of Edax 4.4 (all the positions of a 270,000-position book are the same).
+- Tests: `tests/libedax_test.c` calls every function (147 checks, 191 in v4.5.5-nikque.9, 193 in v4.5.5-nikque.10, 197 in v4.5.5-nikque.12, 198 in v4.5.5-nikque.13; passed by the 3 Windows and the 3 Linux libraries; the original libedax gives the same results on the checks it supports). 28 of the 29 tests of libedax4dart 7.67.0 pass; the other one compares a search score (it differs because of the default level and of the state left by the previous searches: a fresh search at the same level gives the same score as the original libedax). The books saved by the libedax of Edax 4.4 are read by this version, and the books saved by this version are read by the libedax of Edax 4.4 (all the positions of a 270,000-position book are the same).
 - Build: on Windows, `nmake -f NMakefile vc-lib` (`vc-lib-x64`, `vc-lib-x64-v3`, `vc-lib-x64-v4`); elsewhere, `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`. For Android: `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib` (it makes `src/libs-lib/<ABI>/libedax.so`; checked with NDK r27d). Test: `tests\build-libedax-test.cmd`. For macOS, the release-binaries workflow builds the arm64 and x86-64 libraries and joins them in one file, `libedax.universal.dylib` (the name loaded by the programs written for libedax).
 
 ### Bug fix: the book was sometimes not saved on exit after learning
@@ -650,6 +1130,8 @@ Checks: in the book regression tests (every book command with 1 and 8 threads; n
 ### book-expand-tasks = auto
 
 `book-expand-tasks = auto` (the value of the bundled `config.ini`; `-book-expand-tasks auto` on the command line) chooses the number of positions expanded at the same time from the book level: each search uses 2 threads at level 18 or below, 4 up to level 24 and 8 above, and `n-tasks` divided by that number of positions are expanded at the same time (16 positions with 32 threads at level 18). Without `config.ini`, the default remains 1. Only level 18 was measured (2 threads per search was the fastest). The book is not the same as with one-by-one expansion: read the notes of "Book learning on several positions at the same time" in v4.5.5-nikque.4 below.
+
+**Since v4.5.5-nikque.10**, up to level 18, a round with at least 32 times `n-tasks` positions to expand (1,024 with 32 threads) runs `n-tasks` searches of one thread (see "Changes in v4.5.5-nikque.10" above). Rounds with fewer positions are as described here.
 
 ### Experimental setting: probcut-model = refit
 
@@ -922,6 +1404,7 @@ Each line of these files is `name = value`; `#` starts a comment (see "Easier co
 | `hash-table-size` | `auto` | Size of the search hash tables (below). |
 | `book-expand-tasks` | `auto` | Number of book positions expanded at the same time by the learning commands (below). |
 | `book-store-tasks` | `auto` | Number of games learned at the same time by `book store`, `book add` and `book learn` (and by edax_runner) (below). |
+| `book-leaf-recalculate-rounds` | `1` | Largest number of rounds of `book leaf-recalculate` (and `2`, `3`, `4`) (below). |
 | `probcut-model` | `standard` | Error model of the search pruning (ProbCut); `refit` is experimental (see v4.5.5-nikque.5 above). |
 
 Other useful settings: `book-file` and `eval-file` (paths). A level given with `-l` on the command line (or `level` at the prompt) caps the search in timed games.
@@ -939,13 +1422,15 @@ Values from 10 to 30 are accepted (10 to 25 for the 32-bit executables). `auto` 
 - `auto` is the recommended value for book learning and games. In tests with 32 threads at levels 18 and 24, 23 was a little faster than 21, and larger tables were not faster.
 - Larger tables can help long searches (deep analysis, endgame solving with many empty squares). They no longer slow book learning down: since v4.5.5-nikque.4 the tables are not rewritten before each searched book position.
 - The table size changes search results slightly. To reproduce a result exactly, use the same number (and the same `n-tasks`).
-- With `book-expand-tasks = n`, each of the n searches has its own tables: with `auto` they are sized for the threads of each search, with a number each search uses that size.
+- With `book-expand-tasks = n`, each of the n searches has its own tables: with `auto` they are sized for the threads of each search, with a number each search uses that size. In the rounds where `book-expand-tasks = auto` runs `n-tasks` searches of one thread (since v4.5.5-nikque.10), their tables have the size of a one-thread search at most (19 bits up to level 18, 20 up to level 21, 21 above), and half the size of the tables of the two-thread searches at most, but not under the smallest size, 10 bits (this second limit since v4.5.5-nikque.13: twice as many searches must not take more memory).
 
 ### book-expand-tasks
 
 With `book-expand-tasks = 1` (the default without `config.ini`), the learning commands (`book deviate`, `deviate2`, `deviate3`, `enhance`, `play`) expand the selected positions one by one, each search using all `n-tasks` threads, exactly as before. With `book-expand-tasks = n`, n positions are expanded at the same time, each with `n-tasks / n` threads.
 
 `book-expand-tasks = auto` (bundled value) chooses n from the book level (each search uses 2 threads at level 18 or below, 4 up to level 24 and 8 above; n is `n-tasks` divided by that number).
+
+**Since v4.5.5-nikque.10**, up to level 18, a round with at least 32 times `n-tasks` positions to expand (1,024 with 32 threads) runs `n-tasks` searches of one thread (see "Changes in v4.5.5-nikque.10" above). Rounds with fewer positions are as described here.
 
 A search at a low level cannot use many threads: at level 18, 32 threads were only 2.5 times faster than one thread. Expanding several positions at the same time uses the other threads. With 32 threads at level 18, `book-expand-tasks = 16` made learning on the real book 4.7 times faster. Read the notes in "Book learning on several positions at the same time" above before using it: the resulting book is not the same as with 1.
 
@@ -979,6 +1464,10 @@ With `book-store-tasks = auto` (the bundled value, and the default without `conf
 - **Memory**: the positions are searched by up to `n-tasks` searches at the same time, each one with its hash tables. With fewer searches than `n-tasks`, each search uses several threads and larger tables (never more in total than `n-tasks` one-thread searches). The one-thread searches take 14 MB each (19 bits) up to level 18, 28 MB up to level 21 and 57 MB above, whatever `hash-table-size` is (there are `n-tasks` of them: a large number would take too much memory; only a smaller number is used as it is). When `n` is smaller than `n-tasks`, add the hash tables of the n searches that play the games (`n-tasks / n` threads each).
 - edax_runner (built with the libedax of this fork) learns the "edax vs edax" lines of its learning list by groups of that many games when this setting is not 1.
 
+### book-leaf-recalculate-rounds
+
+With `book-leaf-recalculate-rounds = 1` (the bundled value, and the default without `config.ini`), `book leaf-recalculate` (and `2`, `3`, `4`) walks once. With n of 2 or more, it repeats "walk, search the leaves again, negamax" up to n times and stops after a round that changed no leaf. The scores that a round changes move the range that the command walks, so several rounds are needed to give a new score to every leaf of the range (see "Changes in v4.5.5-nikque.13" above).
+
 ### book-store-auto-save
 
 With `book-store-auto-save = on` (the default; the setting is not in the bundled `config.ini`), the book is saved to `<book-file>.store` (for example `data/book.dat.store`) after `book store`, and after each group (`book-store-tasks` games) of `book learn`, as in the previous versions. With `off` this save is not done (the book is saved to the book file by `book save`, or on exit). Added in v4.5.5-nikque.9. Write `book-store-auto-save = off` in `config.ini`, or `-book-store-auto-save off` on the command line. edax_runner (v5.3.0-nikque.3) saves `book.dat` itself after each learning, and sets it to `off` by itself.
@@ -987,7 +1476,7 @@ The book memory does not depend on these settings (about 50 bytes per position w
 
 ## Build and use
 
-The v4.5.5-eval2.1 bundle includes the evaluation data of this series at `bin/data/eval.dat` (version 3.3.0, SHA-256 `1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172`; see "Changes in v4.5.5-eval2.1" above), and the initial `bin/data/book.dat` and problem files copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5). The upstream `eval.dat` (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`) is in the bundles up to v4.5.5-nikque.9. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
+The bundle of this series (v4.5.5-eval2.1, v4.5.5-eval2.2) includes the evaluation data of this series at `bin/data/eval.dat` (version 3.3.0, SHA-256 `1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172`; see "Changes in v4.5.5-eval2.1" above), and the initial `bin/data/book.dat` and problem files copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5). The upstream `eval.dat` (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`) is in the bundles up to v4.5.5-nikque.9. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
 
 | Environment | File in `bin/` |
 |---|---|
