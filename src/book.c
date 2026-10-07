@@ -4497,6 +4497,37 @@ static int book_expand_task_count(const Book *book, const long long n_todo)
 }
 
 /**
+ * @brief Size of the hash tables of the searches that the book functions run at the same time
+ * (book deviate, book enhance, book correct, book leaf-recalculate: book-expand-tasks).
+ *
+ * The size that hash-table-size gives to a search with these threads. A round of book-expand-tasks =
+ * auto that gives one thread to each search has twice as many searches as a round that gives them two
+ * threads: its searches get the size of the one-thread searches of book store (19 bits at most up to
+ * level 18), and never more than half the size of the searches of the other rounds, so that such a
+ * round never takes more memory than the others. (Up to v4.5.5-nikque.12 it took twice the memory
+ * when hash-table-size was set to 19 or less; with auto, or with 20 or more, nothing changes.)
+ *
+ * @param book Opening book.
+ * @param n_tasks Threads of each search.
+ * @return size (in number of bits).
+ */
+static int book_expand_hash_bits(const Book *book, const int n_tasks)
+{
+	int bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
+
+	if (options.book_expand_tasks <= 0 && n_tasks == 1) {
+		bits = book_plan_hash_bits(book, 1);
+#ifndef BOOK_TEST_EXPAND_BITS_OLD // (test builds: as before, to compare)
+		{
+			const int two = options.hash_table_auto ? hash_table_size_auto(2) : options.hash_table_size; // a search with two threads
+			if (bits > two - 1) bits = MAX(two - 1, 10); // (10 bits: the smallest hash-table-size)
+		}
+#endif
+	}
+	return bits;
+}
+
+/**
  * @brief Expand the todo positions on several threads (book-expand-tasks > 1).
  *
  * @param book opening book.
@@ -4511,12 +4542,10 @@ static bool book_expand_concurrent(Book *book, const char *action, const char *t
 	ExpandShared shared;
 	ExpandWorker *w;
 	const int n_tasks = MAX(1, options.n_task / book_expand_task_count(book, book->todo_list.n));
-	int bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
+	// (auto, one thread each: as many searches as threads, with smaller hash tables: see book_expand_hash_bits)
+	const int bits = book_expand_hash_bits(book, n_tasks);
 	int i;
 
-	// auto, one thread each: as many searches as threads, with the hash tables of the one-thread searches of
-	// book store (never more memory than the searches with 2 threads of the other rounds)
-	if (options.book_expand_tasks <= 0 && n_tasks == 1) bits = book_plan_hash_bits(book, 1);
 	n_workers = search_pool_get(&expand_pool, n_workers, n_tasks, bits);
 	if (n_workers < 2) return false;
 	w = (ExpandWorker*) calloc(n_workers, sizeof *w);
@@ -4652,8 +4681,7 @@ static bool book_correct_concurrent(Book *book, const char *tmp_file, int *n_don
 	n_workers = (int) MIN(book_expand_task_count(book, n_solved), n_solved);
 	if (n_workers < 2) return false;
 	n_tasks = MAX(1, options.n_task / book_expand_task_count(book, n_solved));
-	bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
-	if (options.book_expand_tasks <= 0 && n_tasks == 1) bits = book_plan_hash_bits(book, 1); // (as book_expand_concurrent)
+	bits = book_expand_hash_bits(book, n_tasks); // (as book_expand_concurrent)
 	n_workers = search_pool_get(&expand_pool, n_workers, n_tasks, bits);
 	if (n_workers < 2) { search_pool_release(&expand_pool); return false; }
 	w = (CorrectWorker*) calloc(n_workers, sizeof *w);
@@ -5399,9 +5427,8 @@ static void book_leaf_recalc_search(Book *book, const char *name, const char *tm
 
 	if (n > 1 && options.n_task > 1 && book_expand_task_count(book, n) > 1) {
 		const int n_tasks = MAX(1, options.n_task / book_expand_task_count(book, n));
-		int bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
+		const int bits = book_expand_hash_bits(book, n_tasks); // (as book_expand_concurrent)
 
-		if (options.book_expand_tasks <= 0 && n_tasks == 1) bits = book_plan_hash_bits(book, 1); // (as book_expand_concurrent)
 		n_workers = search_pool_get(&expand_pool, (int) MIN(book_expand_task_count(book, n), n), n_tasks, bits);
 		if (n_workers >= 2) w = (LeafRecalcWorker*) calloc(n_workers, sizeof *w);
 	}
