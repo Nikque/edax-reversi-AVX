@@ -94,6 +94,7 @@ Options options = {
 	0, // book depth: auto (the depth of the loaded book)
 	0, // games learned at the same time: auto
 	true, // save the book to <book-file>.store after book store
+	1, // passes of book leaf-recalculate
 };
 
 /**
@@ -142,6 +143,7 @@ void options_usage(void)
 		"  -book-expand-tasks <n|auto>   expand n book positions at the same time (n-tasks / n threads each).\n"
 		"  -book-store-tasks <n|auto>    learn n games at the same time (n-tasks / n threads each); auto (default): n-tasks; 1: as before.\n"
 		"  -book-store-auto-save <on/off> save the book to <book-file>.store after book store and book learn (default on).\n"
+		"  -book-leaf-recalculate-rounds <n> passes of book leaf-recalculate (2, 3, 4) at most; a pass that changes no leaf is the last (default 1).\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
@@ -332,6 +334,7 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "book-store-tasks") == 0) options.book_store_tasks = option_int_or_auto(option, value, options.book_store_tasks, 0);	// 0 = auto
 		else if (strcmp(option, "book-merge-auto-save") == 0) option_boolean(option, value, &options.book_merge_auto_save);
 		else if (strcmp(option, "book-store-auto-save") == 0) option_boolean(option, value, &options.book_store_auto_save);
+		else if (strcmp(option, "book-leaf-recalculate-rounds") == 0) options.book_leaf_recalculate_rounds = option_int(option, value, options.book_leaf_recalculate_rounds);
 
 		else read = 0;
 	}
@@ -522,6 +525,7 @@ void options_bound(void)
 	BOUND(options.time, 1000, TIME_MAX, "time");
 	BOUND(options.book_save_interval, 0, 525600, "book-save-interval");
 	BOUND(options.book_deviate_save_rounds, 0, 1000000, "book-deviate-save-rounds");
+	BOUND(options.book_leaf_recalculate_rounds, 1, 1000000, "book-leaf-recalculate-rounds");
 
 	BOUND(options.alpha, SCORE_MIN, SCORE_MAX, "alpha");
 	BOUND(options.beta, SCORE_MIN, SCORE_MAX, "beta");
@@ -586,6 +590,7 @@ void options_dump(FILE *f)
 	fprintf(f, "\tbook deviate-save interval: %d productive rounds (0 = completion only)\n", options.book_deviate_save_rounds);
 	fprintf(f, "\tbook merge auto-save: %s\n", boolean_string[options.book_merge_auto_save]);
 	fprintf(f, "\tbook store auto-save: %s\n", boolean_string[options.book_store_auto_save]);
+	fprintf(f, "\tbook leaf-recalculate rounds: %d\n", options.book_leaf_recalculate_rounds);
 	if (options.book_store_tasks > 0) fprintf(f, "\tbook store tasks: %d\n\n", options.book_store_tasks);
 	else fprintf(f, "\tbook store tasks: auto\n\n");
 

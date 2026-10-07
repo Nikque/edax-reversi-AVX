@@ -5453,14 +5453,19 @@ static void book_leaf_recalc_search(Book *book, const char *name, const char *tm
 /**
  * @brief Search again the leaves that book deviate or book deviate2 reaches (book leaf-recalculate, 2, 3, 4).
  *
- * The walks are done once (the commands do not loop as book deviate does):
+ * A round walks once (the commands do not loop as book deviate does, unless the setting below asks for it):
  * - kind 1: as book deviate, the leaves of the positions that it would expand,
  * - kind 2: as book deviate2, the leaves of the positions that it would expand,
  * - kind 3: as book deviate, the leaves of all the positions of its walks,
  * - kind 4: as book deviate2, the leaves of all the positions of its walk.
  * The leaves of the solved positions are never searched again. As a round of book deviate, the kinds 1
  * and 3 walk twice: with the deviation for the player, then (after the first leaves were searched again)
- * with the deviation for the opponent; a leaf is searched once.
+ * with the deviation for the opponent; a leaf is searched once in a round.
+ *
+ * The scores that a round changes move the walks: they then reach other leaves, that the round did not
+ * search. With book-leaf-recalculate-rounds = n > 1, up to n rounds are done (each one after the negamax
+ * of the round before); a round that changes no leaf is the last one (the next would walk the same
+ * positions). 1, the default, is the single round of v4.5.5-nikque.12.
  *
  * @param book opening book.
  * @param board Position to start from.
@@ -5476,6 +5481,8 @@ void book_leaf_recalculate(Book *book, Board *board, const int kind, const int x
 	const char *name;
 	LeafRecalcStats stats = {0, 0, 0, 0, 0, 0, 0};
 	char file[FILENAME_MAX + 1];
+	const int n_rounds = MAX(1, options.book_leaf_recalculate_rounds);
+	int i_round;
 
 	if (kind < 1 || kind > 4 || root == NULL) return;
 	name = names[kind - 1];
@@ -5483,57 +5490,72 @@ void book_leaf_recalculate(Book *book, Board *board, const int kind, const int x
 	book_clean(book);
 	book_negamax_position(root, book);
 
-	leaf_recalc_mode = (kind >= 3 ? LEAF_RECALC_WALKED : LEAF_RECALC_SELECTED);
-	if (kind == 2 || kind == 4) {
-		bprint("%s %d %d:\n", name, x, y);
-		book_clean(book);
-		book_select_deviate_total(book, root, x, y, true);
-		if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
-		bprint("%s %lld todo\n", name, book->stats.n_todo);
-		if (book->todo_list.valid) book_leaf_recalc_search(book, name, file, &stats);
-	} else {
-		const int score = root->score.value;
-		unsigned long long *first = NULL;
-		long long n_first, i, n;
+	for (i_round = 1; ; ++i_round) {
+		const long long n_changed = stats.n_score + stats.n_move;
+		bool listed = true; // every walk of the round got its list of leaves
 
-		bprint("%s %d %d:\n", name, x, y);
-		book_clean(book);
-		book_select_deviate(book, root, x, 0, score - y, score + y);
-		if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
-		bprint("%s %lld todo\n", name, book->stats.n_todo);
-		n_first = book->todo_list.valid ? book->todo_list.n : 0;
-		if (n_first) {
-			first = (unsigned long long*) malloc(n_first * sizeof *first);
-			if (first) memcpy(first, book->todo_list.item, n_first * sizeof *first);
-			book_leaf_recalc_search(book, name, file, &stats);
-		}
+		if (n_rounds > 1) bprint("%s %d %d: round %d/%d\n", name, x, y, i_round, n_rounds);
+		leaf_recalc_mode = (kind >= 3 ? LEAF_RECALC_WALKED : LEAF_RECALC_SELECTED);
+		if (kind == 2 || kind == 4) {
+			bprint("%s %d %d:\n", name, x, y);
+			book_clean(book);
+			book_select_deviate_total(book, root, x, y, true);
+			if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+			bprint("%s %lld todo\n", name, book->stats.n_todo);
+			if (book->todo_list.valid) book_leaf_recalc_search(book, name, file, &stats);
+		} else {
+			const int score = root->score.value;
+			unsigned long long *first = NULL;
+			long long n_first, i, n;
 
-		// the second walk of a round of book deviate, without the leaves already searched
-		bprint("%s %d %d:\n", name, x, y);
-		book_clean(book);
-		book_select_deviate(book, root, 0, x, score - y, score + y);
-		if (book->todo_list.valid) {
-			qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
-			if (first) {
-				for (i = n = 0; i < book->todo_list.n; ++i) {
-					if (!bsearch(book->todo_list.item + i, first, n_first, sizeof *first, todo_item_cmp)) book->todo_list.item[n++] = book->todo_list.item[i];
-				}
-				book->todo_list.n = n;
-				book->stats.n_todo = n;
+			bprint("%s %d %d:\n", name, x, y);
+			book_clean(book);
+			book_select_deviate(book, root, x, 0, score - y, score + y);
+			if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+			else listed = false; // (the leaves of this walk are not searched: told below)
+			bprint("%s %lld todo\n", name, book->stats.n_todo);
+			n_first = book->todo_list.valid ? book->todo_list.n : 0;
+			if (n_first) {
+				first = (unsigned long long*) malloc(n_first * sizeof *first);
+				if (first) memcpy(first, book->todo_list.item, n_first * sizeof *first);
+				book_leaf_recalc_search(book, name, file, &stats);
 			}
-		}
-		bprint("%s %lld todo\n", name, book->stats.n_todo);
-		if (book->todo_list.valid) book_leaf_recalc_search(book, name, file, &stats);
-		free(first);
-	}
-	leaf_recalc_mode = LEAF_RECALC_OFF;
-	if (!book->todo_list.valid) warn("%s: not enough memory for the list of the leaves\n", name);
 
-	book_clean(book);
-	book_negamax_position(root, book);
+			// the second walk of a round of book deviate, without the leaves already searched
+			bprint("%s %d %d:\n", name, x, y);
+			book_clean(book);
+			book_select_deviate(book, root, 0, x, score - y, score + y);
+			if (book->todo_list.valid) {
+				qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+				if (first) {
+					for (i = n = 0; i < book->todo_list.n; ++i) {
+						if (!bsearch(book->todo_list.item + i, first, n_first, sizeof *first, todo_item_cmp)) book->todo_list.item[n++] = book->todo_list.item[i];
+					}
+					book->todo_list.n = n;
+					book->stats.n_todo = n;
+				}
+			}
+			bprint("%s %lld todo\n", name, book->stats.n_todo);
+			if (book->todo_list.valid) book_leaf_recalc_search(book, name, file, &stats);
+			free(first);
+		}
+		leaf_recalc_mode = LEAF_RECALC_OFF;
+		if (!book->todo_list.valid) listed = false;
+		if (!listed) warn("%s: not enough memory for the list of the leaves\n", name);
+
+		book_clean(book);
+		book_negamax_position(root, book);
+		// another round only if this one changed a leaf (else the walks would be the same), and got its lists
+		if (i_round >= n_rounds || !listed || stats.n_score + stats.n_move == n_changed) break;
+	}
 	if (stats.n_done) book_save_progress(book, file);
-	bprint("%s %d %d...finished: %lld leaves, %lld scores changed (%lld up, %lld down, largest +%d / -%d), %lld moves changed\n",
-		name, x, y, stats.n_done, stats.n_score, stats.n_up, stats.n_down, stats.max_up, stats.max_down, stats.n_move);
+	if (n_rounds > 1) {
+		bprint("%s %d %d...finished: %lld leaves, %lld scores changed (%lld up, %lld down, largest +%d / -%d), %lld moves changed, %d rounds\n",
+			name, x, y, stats.n_done, stats.n_score, stats.n_up, stats.n_down, stats.max_up, stats.max_down, stats.n_move, i_round);
+	} else {
+		bprint("%s %d %d...finished: %lld leaves, %lld scores changed (%lld up, %lld down, largest +%d / -%d), %lld moves changed\n",
+			name, x, y, stats.n_done, stats.n_score, stats.n_up, stats.n_down, stats.max_up, stats.max_down, stats.n_move);
+	}
 	search_pool_release(&expand_pool);
 }
 
