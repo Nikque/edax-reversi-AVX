@@ -933,11 +933,9 @@ static inline bool leaf_search_needed(const int n_link, const int n_moves, const
 static void position_forget_leaf(Position *position)
 {
 	position->leaf = BAD_LINK;
-#ifndef BOOK_TEST_NOMOVE_OLD // (test builds: as before, to compare)
 	if (position->n_link == 0 && get_mobility(position->board.player, position->board.opponent) == 0) {
 		position->score.value = -SCORE_INF;
 	}
-#endif
 }
 
 static void position_search(Position *position, Book *book)
@@ -1812,9 +1810,7 @@ static bool leaf_recalc_wanted(const Position *p)
 	const int n_moves = get_mobility(p->board.player, p->board.opponent);
 
 	if (p->leaf.move == NOMOVE || position_is_solved(p)) return false;
-#ifndef BOOK_TEST_NOMOVE_OLD // (test builds: as before, to compare)
 	if (n_moves == 0) return p->n_link == 0 && p->leaf.move == PASS;
-#endif
 	return p->n_link < n_moves;
 }
 
@@ -4520,13 +4516,10 @@ static int book_expand_hash_bits(const Book *book, const int n_tasks)
 	int bits = options.hash_table_auto ? hash_table_size_auto(n_tasks) : options.hash_table_size;
 
 	if (options.book_expand_tasks <= 0 && n_tasks == 1) {
+		const int two = options.hash_table_auto ? hash_table_size_auto(2) : options.hash_table_size; // a search with two threads
+
 		bits = book_plan_hash_bits(book, 1);
-#ifndef BOOK_TEST_EXPAND_BITS_OLD // (test builds: as before, to compare)
-		{
-			const int two = options.hash_table_auto ? hash_table_size_auto(2) : options.hash_table_size; // a search with two threads
-			if (bits > two - 1) bits = MAX(two - 1, 10); // (10 bits: the smallest hash-table-size)
-		}
-#endif
+		if (bits > two - 1) bits = MAX(two - 1, 10); // (10 bits: the smallest hash-table-size)
 	}
 	return bits;
 }
