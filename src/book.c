@@ -1197,6 +1197,30 @@ static inline void atomic_store_uchar(unsigned char *p, const unsigned char v) {
 #endif
 
 /**
+ * @brief Wait a moment for another thread: a pause of the processor, and at every 64th call
+ * the turn is given to another thread.
+ *
+ * @param spin Count of the calls (kept by the caller: 0 before the first call).
+ */
+static inline void book_spin_wait(int *spin)
+{
+	if (++*spin < 64) {
+#if defined(_M_X64) || defined(_M_IX86)
+		_mm_pause();
+#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+		__builtin_ia32_pause(); // same as _mm_pause(), also without SSE headers (-march=i386)
+#endif
+	} else {
+		*spin = 0;
+#ifdef _WIN32
+		Sleep(0);
+#else
+		sched_yield();
+#endif
+	}
+}
+
+/**
  * @brief Compute the negamaxed values of a position from its (already negamaxed) children.
  * Same computation as position_negamax().
  */
@@ -1370,22 +1394,7 @@ static void position_negamax_parallel(Position *position, Book *book, const int 
 		atomic_store_uchar(&position->state, done);
 	} else {
 		int spin = 0;
-		while (atomic_load_uchar(&position->state) != done) {
-			if (++spin < 64) {
-#if defined(_M_X64) || defined(_M_IX86)
-				_mm_pause();
-#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-				__builtin_ia32_pause(); // same as _mm_pause(), also without SSE headers (-march=i386)
-#endif
-			} else {
-				spin = 0;
-#ifdef _WIN32
-				Sleep(0);
-#else
-				sched_yield();
-#endif
-			}
-		}
+		while (atomic_load_uchar(&position->state) != done) book_spin_wait(&spin);
 	}
 }
 
@@ -1629,20 +1638,7 @@ static bool prune_mark_take(PruneMarkWorker *w)
 		if (s->n_busy == 0) { unlock(s); return false; }
 		atomic_store_uchar(&s->hungry, 1);
 		unlock(s);
-		if (++spin < 64) {
-#if defined(_M_X64) || defined(_M_IX86)
-			_mm_pause();
-#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-			__builtin_ia32_pause();
-#endif
-		} else {
-			spin = 0;
-#ifdef _WIN32
-			Sleep(0);
-#else
-			sched_yield();
-#endif
-		}
+		book_spin_wait(&spin);
 	}
 }
 
