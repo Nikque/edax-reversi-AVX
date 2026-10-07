@@ -4503,9 +4503,13 @@ static int book_expand_task_count(const Book *book, const long long n_todo)
  * The size that hash-table-size gives to a search with these threads. A round of book-expand-tasks =
  * auto that gives one thread to each search has twice as many searches as a round that gives them two
  * threads: its searches get the size of the one-thread searches of book store (19 bits at most up to
- * level 18), and never more than half the size of the searches of the other rounds, so that such a
- * round never takes more memory than the others. (Up to v4.5.5-nikque.12 it took twice the memory
- * when hash-table-size was set to 19 or less; with auto, or with 20 or more, nothing changes.)
+ * level 18, 20 up to level 21, 21 above: the level is the higher one of the book and of the level
+ * setting), and never more than half the size of the searches of the other rounds, so that such a
+ * round never takes more memory than the others. Up to v4.5.5-nikque.12 only the first limit applied,
+ * and such a round took twice the memory of the others when hash-table-size was not above that limit:
+ * set to 19 or less (level 18 or less), to 20 or less (level setting 19 to 21), to 21 or less or to
+ * auto (level setting above 21). With hash-table-size = auto and a level setting up to 21, or with a
+ * larger hash-table-size, the sizes are the ones of v4.5.5-nikque.12.
  *
  * @param book Opening book.
  * @param n_tasks Threads of each search.
