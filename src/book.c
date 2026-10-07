@@ -919,6 +919,27 @@ static inline bool leaf_search_needed(const int n_link, const int n_moves, const
 	return n_link < n_moves || (n_link == 0 && n_moves == 0 && no_score);
 }
 
+/**
+ * @brief Forget the leaf of a position that is going to be searched again.
+ *
+ * A position without any move and without link (the end of the game, or a pass that leads to a
+ * position that the book does not hold) has the score of its leaf, and is only searched when it has
+ * no score (leaf_search_needed): its score is forgotten too. (Up to v4.5.5-nikque.12, book correct
+ * and book deepen only forgot the leaf: such a position was not searched again, lost its leaf for
+ * good, was reported as an error, and the next negamax gave it no score at all.)
+ *
+ * @param position Position.
+ */
+static void position_forget_leaf(Position *position)
+{
+	position->leaf = BAD_LINK;
+#ifndef BOOK_TEST_NOMOVE_OLD // (test builds: as before, to compare)
+	if (position->n_link == 0 && get_mobility(position->board.player, position->board.opponent) == 0) {
+		position->score.value = -SCORE_INF;
+	}
+#endif
+}
+
 static void position_search(Position *position, Book *book)
 {
 	const int r = book_plan ? position_search_planned(position, book) : position_search_with(position, book->search);
@@ -1777,11 +1798,21 @@ static int leaf_recalc_mode = LEAF_RECALC_OFF;
 
 static bool position_is_solved(const Position*);
 
-/** @return true if the leaf of the position can be searched again by book leaf-recalculate. */
+/**
+ * @return true if the leaf of the position can be searched again by book leaf-recalculate:
+ * a move that is not a link yet, or the pass of a position without move whose next position is not in
+ * the book (its score comes from a search too; up to v4.5.5-nikque.12 such a leaf was never searched again).
+ * The end of the game has no leaf move, and its score does not depend on eval.dat.
+ */
 static bool leaf_recalc_wanted(const Position *p)
 {
-	return p->leaf.move != NOMOVE && !position_is_solved(p)
-		&& p->n_link < get_mobility(p->board.player, p->board.opponent);
+	const int n_moves = get_mobility(p->board.player, p->board.opponent);
+
+	if (p->leaf.move == NOMOVE || position_is_solved(p)) return false;
+#ifndef BOOK_TEST_NOMOVE_OLD // (test builds: as before, to compare)
+	if (n_moves == 0) return p->n_link == 0 && p->leaf.move == PASS;
+#endif
+	return p->n_link < n_moves;
 }
 
 /** @return true if the position is just under the depth of the walks and gets its leaf searched again (LEAF_RECALC_WALKED). */
@@ -4109,7 +4140,7 @@ void book_deepen(Book *book)
 		int n_empties = board_count_empties(&p->board);
 		if (LEVEL[p->level][n_empties].depth != LEVEL[book->options.level][n_empties].depth
 		 || LEVEL[p->level][n_empties].selectivity != LEVEL[book->options.level][n_empties].selectivity) { // No! compare depth & selectivity;
-			p->leaf = BAD_LINK;
+			position_forget_leaf(p); // (also the score of a position without move and without link: it is searched again)
 			position_search(p, book);
 			if (++i % 10 == 0) {
 				bprint("Deepening book...%d\r", i); 
@@ -4158,7 +4189,7 @@ void book_correct_solved(Book *book)
 		int n_empties = board_count_empties(&p->board);
 		if (LEVEL[p->level][n_empties].depth == n_empties && LEVEL[p->level][n_empties].selectivity == NO_SELECTIVITY) { // No! compare depth & selectivity;
 			old_leaf = p->leaf;
-			p->leaf = BAD_LINK;
+			position_forget_leaf(p); // (also the score of a position without move and without link: it is searched again)
 			position_search(p, book);
 			if (p->leaf.score != old_leaf.score) {
 				++n_error;
@@ -4559,14 +4590,14 @@ static void* book_correct_worker(void *v)
 		copied = position_copy(&copy, p);
 		if (copied) {
 			unlock(s);
-			copy.leaf = BAD_LINK;
+			position_forget_leaf(&copy);
 			r = position_search_with(&copy, w->search);
 			lock(s);
 			p->leaf = copy.leaf;
 			p->score.value = copy.score.value;
 			position_free(&copy);
 		} else { // no memory for the copy: search the position itself, with the lock held
-			p->leaf = BAD_LINK;
+			position_forget_leaf(p);
 			r = position_search_with(p, w->search);
 		}
 		if (r) book->need_saving = true;
@@ -5315,7 +5346,7 @@ static void* leaf_recalc_worker(void *v)
 		old_leaf = p->leaf;
 		if (position_copy(&copy, p)) {
 			unlock(s);
-			copy.leaf = BAD_LINK;
+			position_forget_leaf(&copy); // (a pass without link: its score too, to be searched)
 			search_cleanup(w->search);
 			position_search_with(&copy, w->search);
 			lock(s);
@@ -5323,7 +5354,7 @@ static void* leaf_recalc_worker(void *v)
 			p->score.value = copy.score.value;
 			position_free(&copy);
 		} else { // no memory for the copy: search the position itself, with the lock held
-			p->leaf = BAD_LINK;
+			position_forget_leaf(p);
 			search_cleanup(w->search);
 			position_search_with(p, w->search);
 		}
