@@ -75,6 +75,30 @@ static void* stop_later(void *unused)
 }
 #endif
 
+/** a thread that calls edax_stop again and again while stop_often_on is set (a stop that must not change what a function computes) */
+static volatile int stop_often_on;
+#ifdef _WIN32
+static DWORD WINAPI stop_often(LPVOID unused)
+{
+	(void) unused;
+	while (stop_often_on) {
+		edax_stop();
+		Sleep(0);
+	}
+	return 0;
+}
+#else
+static void* stop_often(void *unused)
+{
+	(void) unused;
+	while (stop_often_on) {
+		edax_stop();
+		usleep(10);
+	}
+	return NULL;
+}
+#endif
+
 /** square name */
 static const char* square(const int x)
 {
@@ -149,6 +173,23 @@ static long long file_size(const char *file)
 		fclose(f);
 	}
 	return size;
+}
+
+/** @return true if two files exist and have the same content */
+static bool same_files(const char *file_1, const char *file_2)
+{
+	FILE *f1 = fopen(file_1, "rb"), *f2 = fopen(file_2, "rb");
+	bool same = (f1 != NULL && f2 != NULL);
+	int c1 = 0, c2;
+
+	while (same && c1 != EOF) {
+		c1 = fgetc(f1);
+		c2 = fgetc(f2);
+		same = (c1 == c2);
+	}
+	if (f1) fclose(f1);
+	if (f2) fclose(f2);
+	return same;
 }
 
 static void write_file(const char *file, const char *text)
@@ -678,6 +719,36 @@ int main(int argc, char **argv)
 	edax_base_complete("libtest-short.txt");
 	edax_base_correct("libtest-short.txt", 4);
 	CHECK(file_size("libtest-short.txt") > 0);
+	if (!original) { // edax_stop from another thread does not cut the searches of edax_base_complete: the games are completed as without it
+		const char *unfinished =
+			"F5D6C3D3C4F4F6F3E6E7C6F7E8C5B4C7D7B6B5E3C8A3A4A5D2F8F2F1A7C1\n"
+			"F5F6E6F4E3C5G6F3G5G3D3E2F1H5C4C6D6D7E7C7H6C2G4H4D2F8E8D8B5F7\n"
+			"F5D6C4D3C3F4F6F3E6E7C6F7E8C5B4C7D7B6B5E3C8A3A4A5D2F8F2F1A7C1\n"
+			"F5F4E3F6D3E2F3F2E6D2G5H6G4H5D1D6G3H4E1C3C2C6F1G6B3C1B1B4C5C4\n";
+#ifdef _WIN32
+		HANDLE t;
+#else
+		pthread_t t;
+#endif
+		write_file("libtest-stop1.txt", unfinished);
+		write_file("libtest-stop2.txt", unfinished);
+		edax_base_complete("libtest-stop1.txt");
+		stop_often_on = 1;
+#ifdef _WIN32
+		t = CreateThread(NULL, 0, stop_often, NULL, 0, NULL);
+#else
+		pthread_create(&t, NULL, stop_often, NULL);
+#endif
+		edax_base_complete("libtest-stop2.txt");
+		stop_often_on = 0;
+#ifdef _WIN32
+		WaitForSingleObject(t, INFINITE);
+		CloseHandle(t);
+#else
+		pthread_join(t, NULL);
+#endif
+		CHECK(file_size("libtest-stop1.txt") > 100 && same_files("libtest-stop1.txt", "libtest-stop2.txt"));
+	}
 
 	if (!original) {
 		int (*store_tasks)(void) = (int (*)(void)) optional(dll, "edax_book_store_tasks");
