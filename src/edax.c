@@ -683,7 +683,10 @@ void ui_loop_edax(UI *ui)
 				// save an opening book (binary format) to the disc
 				} else if (strcmp(book_cmd, "save") == 0) {
 					parse_word(book_param, book_file, FILENAME_MAX);
-					book_save(book, book_file);
+					if (*book_file == '\0') {
+						// without a file name: the book file of the settings (up to v4.5.5-nikque.12: an error, nothing was saved)
+						if (book_save_to_book_file(book)) printf("Book saved to %s\n", options.book_file);
+					} else book_save(book, book_file);
 
 				// import an opening book (text format)
 				} else if (strcmp(book_cmd, "import") == 0) {
