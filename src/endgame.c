@@ -469,7 +469,7 @@ static int NWS_endgame_local(Search *search, const int alpha)
 	unsigned long long full[5];
 	MoveList movelist;
 
-	assert(bit_count(~(search->board.player|search->board.opponent)) < DEPTH_TO_USE_LOCAL_HASH);
+	assert(bit_count(~(search->board.player|search->board.opponent)) <= DEPTH_TO_USE_LOCAL_HASH);
 	assert(SCORE_MIN <= alpha && alpha <= SCORE_MAX);
 
 	SEARCH_STATS(++statistics.n_NWS_endgame);
