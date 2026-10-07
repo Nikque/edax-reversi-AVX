@@ -5090,15 +5090,15 @@ static void* depth_worker_run(void *v)
 	for (k = lw->first; k < lw->last && !*w->conflict; ++k) {
 		Position *position = lw->cur[k];
 		const Link *l;
-		unsigned char *v;
+		unsigned char *visit;
 
 		if (!(lower <= position->score.value && position->score.value <= upper && board_count_empties(&position->board) >= book->options.n_empties && !board_is_game_over(&position->board))) {
 			if (leaf_recalc_bottom(book, position) && lower <= position->score.value && position->score.value <= upper) deviate_worker_todo(w, position);
 			continue;
 		}
-		v = book_visit(book, position);
-		if (atomic_load_uchar(v) || !atomic_cas_uchar(v, 0, mark)) {
-			if (atomic_load_uchar(v) != mark) *w->conflict = true;
+		visit = book_visit(book, position);
+		if (atomic_load_uchar(visit) || !atomic_cas_uchar(visit, 0, mark)) {
+			if (atomic_load_uchar(visit) != mark) *w->conflict = true;
 			continue;
 		}
 		foreach_link(l, position) {
