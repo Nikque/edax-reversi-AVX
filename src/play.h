@@ -61,6 +61,10 @@ typedef struct Play {
 		bool launched;         /**< launched thread */
 		bool verbose;          /**< verbose pondering */
 	} ponder;                  /**< pondering thread */
+	struct {
+		Lock lock;             /**< lock. */
+		int n;                 /**< number of such commands running */
+	} no_stop;                 /**< commands whose searches give their results to the book or to a game file: play_stop() does not cut them short */
 	char error_message[PLAY_MESSAGE_MAX_LENGTH]; /**< error message */
 } Play;
 
@@ -75,6 +79,7 @@ void play_auto_save(Play*);
 void play_go(Play*, const bool);
 void play_hint(Play*, int);
 void play_stop(Play*);
+void play_no_stop(Play*, const bool);
 void* play_ponder_run(void*);
 void play_ponder(Play*);
 void* play_ponder_loop(void*);

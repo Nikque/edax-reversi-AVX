@@ -39,6 +39,8 @@ void play_init(Play *play, Book *book)
 	play->time[1].extra = 0;
 	play_new(play);
 	lock_init(&play->ponder);
+	lock_init(&play->no_stop);
+	play->no_stop.n = 0;
 	play->ponder.launched = false;
 	spin_init(&play->result);
 	play->ponder.verbose = false;
@@ -598,8 +600,34 @@ void play_stop_pondering(Play *play)
  */
 void play_stop(Play *play)
 {
-	search_stop_all(&play->search, STOP_ON_DEMAND);
-	info("[stop on user demand]\n");
+	bool stopped = false;
+
+	// A book or base command, or the store of a game, does not look at the stop: only the search that is
+	// running would be cut short, and its unfinished result would go to the book or to the game file
+	// (up to v4.5.5-nikque.12 it did). The stop is checked and done under the lock that sets the state.
+	lock(&play->no_stop);
+	if (play->no_stop.n == 0) {
+		search_stop_all(&play->search, STOP_ON_DEMAND);
+		stopped = true;
+	}
+	unlock(&play->no_stop);
+	if (stopped) info("[stop on user demand]\n");
+	else printf("[stop: nothing is stopped while a book or base command is running]\n");
+}
+
+/**
+ * @brief Tell that a command whose searches give their results to the book or to a game file starts or ends.
+ *
+ * While such a command runs, play_stop() does not stop the search.
+ *
+ * @param play Play.
+ * @param on true when the command starts, false when it ends.
+ */
+void play_no_stop(Play *play, const bool on)
+{
+	lock(&play->no_stop);
+	play->no_stop.n += (on ? 1 : -1);
+	unlock(&play->no_stop);
 }
 
 /**
@@ -990,6 +1018,7 @@ void play_store(Play *play)
 
 	file_add_ext(options.book_file, ".store", file);
 
+	play_no_stop(play, true); // (the searches of the positions of the game are not cut short by a stop)
 	play->book->stats.n_nodes = play->book->stats.n_links = 0;
 
 	if (book_store_task_count() > 1 && book_plan_begin(play->book)) { // book-store-tasks: search the positions at the same time
@@ -1005,6 +1034,7 @@ void play_store(Play *play)
 		book_negamax(play->book);
 		if (options.book_store_auto_save) book_save_progress(play->book, file);
 	}
+	play_no_stop(play, false);
 }
 
 /**

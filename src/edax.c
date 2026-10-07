@@ -626,6 +626,7 @@ void ui_loop_edax(UI *ui)
 				int val_1, val_2;
 				Book *book = play->book;
 
+				play_no_stop(play, true); // the word "stop" does not cut the searches of a book command short (see play_stop)
 				book->search = &play->search;
 				book->search->options.verbosity = book->options.verbosity;
 				book->failed = false; // see book_add()
@@ -888,6 +889,7 @@ void ui_loop_edax(UI *ui)
 				if (strcmp(book_cmd, "store") != 0) book_store_release();
 				book->options.verbosity = book->search->options.verbosity;
 				book->search->options.verbosity = options.verbosity;
+				play_no_stop(play, false);
 
 			/* base TODO: add more actions... */
 			} else if (strcmp(cmd, "base") == 0) {
@@ -895,6 +897,7 @@ void ui_loop_edax(UI *ui)
 				char base_cmd[512], *base_param;
 				Base base;
 
+				play_no_stop(play, true); // (as the book commands)
 				base_init(&base);
 				base_param = parse_word(param, base_cmd, 511);
 				string_to_lowercase(base_cmd); // "base Problem ..." as "base problem ..." (the file names are kept as typed)
@@ -971,6 +974,7 @@ void ui_loop_edax(UI *ui)
 				}
 
 				base_free(&base);
+				play_no_stop(play, false);
 
 			/* edax options */
 			} else if (options_read(cmd, param)) {
