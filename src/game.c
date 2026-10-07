@@ -278,7 +278,12 @@ void text_to_game(const char *line, Game *game)
 	board = game->initial_board;
 	for (i = 0; i < 60 && *line;) {
 		s = parse_move(line, &board, &move);
-		if (s == line && move.x == NOMOVE) return;
+		if (s == line && move.x == NOMOVE) {
+			// (the moves read so far are kept, as before; a line cut short used to be taken without a word)
+			s = parse_skip_spaces(line);
+			if (*s) warn("game text: \"%.12s\" is not a move that can be played here: the rest of the line is not read\n", s);
+			return;
+		}
 		if (move.x != PASS) {
 			game->hash = crc32c_u8(game->hash, move.x);
 			game->move[i++] = move.x;
@@ -1118,8 +1123,7 @@ void game_import_pgn(Game *game, FILE *f)
 				break;
 			case STATE_END_MOVE:
 				state = STATE_BEGIN_SCORE;
-				score[0] = score[1] = -SCORE_INF;
-				warn("uncomplete game.");
+				score[0] = score[1] = -SCORE_INF; // (a game that is not finished: no warning, game_save_pgn() writes it this way)
 				break;
 			case STATE_BEGIN_VALUE:
 				if (j >= info_size) warn("info value too long, will be truncated.");

@@ -10,11 +10,11 @@
  * Options:
  * Options must be entered in the form '[set] <option> [=] <value>', with [set] and\n[=] being optional.
  *   -verbose [n]          set Edax verbosity (default 1).
- *   -noise [n]            start displaying Edax search result from this depth\n  (default 5).
- *   -witdh [n]            display edax search results using <width> characters\n  (default 80).
- *   -hash-table-size [n]  set hashtable size (default 22 bits).
- *   -n-tasks [n]          control the number of parallel threads used in searching\n  (default 1).
- *   -l|level [n]          search using limited depth (default 21).
+ *   -noise [n]            start displaying Edax search result from this depth\n  (default 0).
+ *   -width [n]            display edax search results using <width> characters\n  (default 80).
+ *   -hash-table-size [n]  set hashtable size (default 21 bits).
+ *   -n-tasks [n]          control the number of parallel threads used in searching\n  (default: the number of logical CPUs).
+ *   -l|level [n]          search using limited depth (default 18).
  *   -t|game-time <time>   search using limited time per game.
  *   -move-time <time>     search using limited time per move.
  *   -ponder [on/off]      set pondering on/off.
@@ -172,11 +172,11 @@ void help_options(void)
 	printf(	"Options:\n"
 		"Options must be entered in the form '[set] <option> [=] <value>', with [set] and\n[=] being optional.\n"
 		"  verbose [n]          set Edax verbosity (default 1).\n"
-		"  noise [n]            start displaying Edax search result from this depth\n  (default 5).\n"
-		"  witdh [n]            display edax search results using <width> characters\n  (default 80).\n"
-		"  hash-table-size [n]  set hashtable size (default 22 bits).\n"
-		"  n-tasks [n]          control the number of parallel threads used in searching\n  (default 1).\n"
-		"  l|level [n]          search using limited depth (default 21).\n"
+		"  noise [n]            start displaying Edax search result from this depth\n  (default 0).\n"
+		"  width [n]            display edax search results using <width> characters\n  (default 80).\n"
+		"  hash-table-size [n]  set hashtable size (default 21 bits).\n"
+		"  n-tasks [n]          control the number of parallel threads used in searching\n  (default: the number of logical CPUs).\n"
+		"  l|level [n]          search using limited depth (default 18).\n"
 		"  t|game-time <time>   search using limited time per game.\n"
 		"  move-time <time>     search using limited time per move.\n"
 		"  ponder [on/off]      set pondering on/off.\n"
@@ -374,7 +374,7 @@ void ui_loop_edax(UI *ui)
 
 			// open a saved game
 			} else if (strcmp(cmd, "o") == 0 || strcmp(cmd, "open") == 0 || strcmp(cmd, "load") == 0) {
-				play_load(play, param);
+				if (!play_load(play, param)) warn("%s", play->error_message); // (a load that failed used to say nothing here; the "loadsgf" of GTP gives this message)
 
 			// save a game
 			} else if (strcmp(cmd, "s") == 0 || strcmp(cmd, "save") == 0) {
@@ -670,11 +670,17 @@ void ui_loop_edax(UI *ui)
 				// load an opening book (binary format) from the disc
 				} else if (strcmp(book_cmd, "load") == 0 || strcmp(book_cmd, "open") == 0) {
 					Book next = {0};
+					FILE *exists;
 					parse_word(book_param, book_file, FILENAME_MAX);
 					next.search = book->search;
-					if (book_load(&next, book_file)) {
+					// (book_load() makes a new book when the file cannot be opened, and says "New book ...":
+					// that line was printed here before the warning, about a book that is dropped at once)
+					if ((exists = fopen(book_file, "rb")) == NULL) {
+						warn("Book %s was not loaded; current book retained\n", book_file);
+					} else if (fclose(exists), book_load(&next, book_file)) {
 						book_free(book);
 						*book = next;
+						book_set_loaded_file(book_file, false); // the book file may still hold the previous book: see book_save_to_book_file()
 					} else {
 						book_free(&next);
 						warn("Book %s was not loaded; current book retained\n", book_file);
@@ -696,6 +702,7 @@ void ui_loop_edax(UI *ui)
 					if (book_import(&next, book_file)) { // as book load: the current book is kept when nothing is imported
 						book_free(book);
 						*book = next;
+						book_set_loaded_file(book_file, true); // the book file still holds the previous book: see book_save_to_book_file()
 						book_link(book);
 						book_fix(book);
 						book_negamax(book);
@@ -987,6 +994,12 @@ void ui_loop_edax(UI *ui)
 				if (search_count_tasks(&play->search) != options.n_task) {
 					play_stop_pondering(play);
 					search_set_task_number(&play->search, options.n_task);
+				}
+				// hash table size changes (as the "memory" command of XBoard does; before, the setting changed
+				// and the tables of the search kept the size they had at the start):
+				if (play->search.options.hash_size != options.hash_table_size) {
+					play_stop_pondering(play);
+					search_resize_hashtable(&play->search);
 				}
 
 			/* switch to another protocol */

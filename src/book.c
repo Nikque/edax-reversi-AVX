@@ -2694,6 +2694,9 @@ static void book_set_unloaded(Book *book)
  */
 static char *book_replaced_file = NULL;
 
+/** The command after which the book in memory no longer is the book of that file (for the message). */
+static const char *book_replaced_by = "book new";
+
 /**
  * @brief Tell that the book in memory was made new, and no longer is the book of this file.
  *
@@ -2703,6 +2706,35 @@ void book_set_replaced_file(const char *file)
 {
 	free(book_replaced_file);
 	book_replaced_file = file ? string_duplicate(file) : NULL;
+	book_replaced_by = "book new";
+}
+
+/**
+ * @brief Tell that the book in memory now comes from another file than the book file of the settings
+ * ("book load <file>", "book import <file>").
+ *
+ * As after "book new", the book file still holds the previous book: a save that does not name it keeps
+ * it under another name (up to v4.5.5-nikque.12 it was replaced when Edax ended after a change).
+ * A file that a book command made from the book file itself (<book file>.dev2, .store, .mrg, ...) is
+ * the same book going on: loading it leaves the book file to be replaced as before. This is not so
+ * for the files kept aside (<book file>.old, .damaged).
+ *
+ * @param file File that was loaded or imported.
+ * @param imported true for "book import", false for "book load".
+ */
+void book_set_loaded_file(const char *file, const bool imported)
+{
+	const char *book_file = options.book_file;
+	size_t n;
+
+	if (file == NULL || book_file == NULL || strcmp(file, book_file) == 0) return; // (the book file itself: book_load() has cleared the mark)
+	n = strlen(book_file);
+	if (!imported && strncmp(file, book_file, n) == 0 && file[n] == '.' && strncmp(file + n, ".old", 4) != 0 && strncmp(file + n, ".damaged", 8) != 0) {
+		book_set_replaced_file(NULL);
+		return;
+	}
+	book_set_replaced_file(book_file);
+	book_replaced_by = imported ? "book import" : "book load";
 }
 
 /**
@@ -3192,8 +3224,10 @@ static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 	// it is kept under another name (not a file that only holds the initial position)
 	if (keep_replaced && replaced) {
 		const long long n = book_file_positions(file);
-		if (n != 0 && n != 1 && !book_set_aside(file, ".old", "holds the book in use before \"book new\"")) {
-			error("\nCannot keep the book in use before \"book new\"; %s was not replaced\n", file);
+		char reason[64];
+		snprintf(reason, sizeof reason, "holds the book in use before \"%s\"", book_replaced_by); // (book new, book load or book import)
+		if (n != 0 && n != 1 && !book_set_aside(file, ".old", reason)) {
+			error("\nCannot keep the book in use before \"%s\"; %s was not replaced\n", book_replaced_by, file);
 			remove(tmp_file);
 			free(tmp_file);
 			return false;
@@ -5956,6 +5990,8 @@ void book_info(Book *book)
 	unsigned long long n_links = 0;
 	unsigned long long n_leaves = 0;
 	unsigned long long n_level[61] = {0};
+	unsigned long long n_other = 0; // positions of another level than the book
+	const unsigned long long max_shown = 10; // (they were all printed: millions of lines for a book merged from a book of another level)
 	int min_array = INT_MAX, max_array = 0;
 	int i;
 
@@ -5964,9 +6000,10 @@ void book_info(Book *book)
 		if (p->leaf.move != NOMOVE) ++n_leaves;
 		if (p->level <= 60) ++n_level[p->level]; // else: damaged position (book fix recomputes it)
 		if (p->level != book->options.level) {
-			position_print(p, &p->board, stdout);
+			if (++n_other <= max_shown) position_print(p, &p->board, stdout);
 		}
 	}
+	if (n_other > max_shown) printf("(%llu positions have another level than the book: only the first %llu are shown)\n", n_other, max_shown);
 
 	for (a = book->array; a < book->array + book->n; ++a) {
 		if (a->n > max_array) max_array = a->n;

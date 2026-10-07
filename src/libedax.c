@@ -1526,14 +1526,18 @@ LIBEDAX_API void edax_book_load(const char *book_file)
 {
 	Book *book;
 	Book next = {0};
+	FILE *exists;
 	if (g_ui == NULL) return;
 	book = lib_book_begin_change();
 
 	// load an opening book (binary format) from the disc
 	next.search = book->search;
-	if (book_load(&next, book_file)) {
+	if (book_file == NULL || (exists = fopen(book_file, "rb")) == NULL) { // (no "New book ..." line for a file that is not there)
+		warn("Book %s was not loaded; current book retained\n", book_file ? book_file : "(no name)");
+	} else if (fclose(exists), book_load(&next, book_file)) {
 		book_free(book);
 		*book = next;
+		book_set_loaded_file(book_file, false); // the book file may still hold the previous book: see book_save_to_book_file()
 	} else {
 		book_free(&next);
 		warn("Book %s was not loaded; current book retained\n", book_file);
@@ -1613,6 +1617,7 @@ LIBEDAX_API void edax_book_import(const char *import_file)
 		if (book_import(&next, import_file)) {
 			book_free(book);
 			*book = next;
+			book_set_loaded_file(import_file, true); // the book file still holds the previous book: see book_save_to_book_file()
 			book_link(book);
 			book_fix(book);
 			book_negamax(book);
@@ -2363,6 +2368,11 @@ LIBEDAX_API void edax_set_option(const char *option_name, const char *val)
 		if (search_count_tasks(&play->search) != options.n_task) {
 			play_stop_pondering(play);
 			search_set_task_number(&play->search, options.n_task);
+		}
+		// hash table size changes (the tables of the search kept the size they had at the start):
+		if (play->search.options.hash_size != options.hash_table_size) {
+			play_stop_pondering(play);
+			search_resize_hashtable(&play->search);
 		}
 		lib_auto_go();
 	}
