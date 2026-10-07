@@ -1251,6 +1251,11 @@ static void position_negamax_compute(Position *position, Book *book, Position **
 	position->n_lines = (unsigned int) MIN(UINT_MAX, stat.n_lines);
 }
 
+struct PositionArray;
+static struct PositionArray* book_array(const Book*, const Board*);
+static void position_array_prefetch(const struct PositionArray*);
+static Position* position_array_probe(struct PositionArray*, const Board*);
+
 #ifdef BOOK_TEST_NEGAMAX_NO_PREFETCH // (test builds: the lookup of v4.5.5-nikque.9, one child after the other)
 /**
  * @brief Position that a link leads to, for the parallel negamax.
@@ -1285,11 +1290,6 @@ static Position* negamax_link_target(const Position *position, const Link *link,
 	return book_probe(book, &target);
 }
 #else
-struct PositionArray;
-static struct PositionArray* book_array(const Book*, const Board*);
-static void position_array_prefetch(const struct PositionArray*);
-static Position* position_array_probe(struct PositionArray*, const Board*);
-
 /**
  * @brief Where the position that a link leads to is looked for, for the parallel negamax.
  *
@@ -1498,10 +1498,6 @@ static void position_prune(Position *position, Book *book, const int player_devi
 #endif
 #define PRUNE_MARK_FLUSH 1024      /**< marks between two updates of the shared count */
 
-struct PositionArray;
-static struct PositionArray* book_array(const Book*, const Board*);
-static void position_array_prefetch(const struct PositionArray*);
-static Position* position_array_probe(struct PositionArray*, const Board*);
 static void book_clean(Book*);
 
 /** list of positions to walk: pointer | kind of walk (0 or 1) */
@@ -1797,7 +1793,12 @@ static bool position_has_missing_link(const Position *position, const Book *book
 enum { LEAF_RECALC_OFF = 0, LEAF_RECALC_SELECTED, LEAF_RECALC_WALKED };
 static int leaf_recalc_mode = LEAF_RECALC_OFF;
 
-static bool position_is_solved(const Position*);
+/** @return true if the level of the position solves it exactly. */
+static bool position_is_solved(const Position *p)
+{
+	const int n_empties = board_count_empties(&p->board);
+	return LEVEL[p->level][n_empties].depth == n_empties && LEVEL[p->level][n_empties].selectivity == NO_SELECTIVITY;
+}
 
 /**
  * @return true if the leaf of the position can be searched again by book leaf-recalculate:
@@ -4581,13 +4582,6 @@ typedef struct CorrectWorker {
 	CorrectShared *shared;
 	Search *search;
 } CorrectWorker;
-
-/** @return true if the level of the position solves it exactly. */
-static bool position_is_solved(const Position *p)
-{
-	const int n_empties = board_count_empties(&p->board);
-	return LEVEL[p->level][n_empties].depth == n_empties && LEVEL[p->level][n_empties].selectivity == NO_SELECTIVITY;
-}
 
 /**
  * @brief Search the solved positions again in a thread.
