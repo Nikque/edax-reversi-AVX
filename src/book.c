@@ -5032,6 +5032,10 @@ static bool book_deviate_total_by_loss(Book *book, Position *root, const int mod
 	}
 
 	if (ok && deviate_total_walkable(book, root) && deviate_total_relax(book, root, 0)) ok = position_list_push(level + 0, root);
+	else if (ok && leaf_recalc_bottom(book, root)) { // (book leaf-recalculate4 from a position just under the depth of the book: its leaf, as position_deviate_total)
+		deviate_worker_todo(&lw[0].w, root);
+		if (lw[0].w.oom) ok = false;
+	}
 
 	for (L = 0; ok && L <= total_loss; ++L) {
 		// take the level list; positions reached with the same loss are processed in extra rounds
