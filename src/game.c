@@ -83,6 +83,7 @@ static int move_from_oko(int x)
 void game_init(Game *game)
 {
 	char name[2] = "?";
+	memset(game, 0, sizeof *game); // (also the rest of the names and the padding: game_write() writes the whole structure)
 	board_init(&game->initial_board);
 	memset(game->move, NOMOVE, 60);
 	game->player = BLACK;
