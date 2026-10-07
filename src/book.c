@@ -6707,7 +6707,7 @@ void book_add_game(Book *book, const Game *game)
 static bool book_game_boards(Book *book, const Game *game, const bool plan)
 {
 	Board board;
-	Move stack[99];
+	Move stack[128]; // (60 moves and at most one pass before each of them)
 	int i, n_moves;
 
 	board_init(&board);
@@ -6794,7 +6794,7 @@ typedef struct BookCheckGame {
 void book_check_game(Book *book, MoveHash *hash, const Game *game, BookCheckGame *stat)
 {
 	Board board;
-	Move stack[99], *iter;
+	Move stack[128], *iter; // (60 moves and at most one pass before each of them)
 	MoveList movelist;
 	int i, n_moves;
 	int bestscore;
