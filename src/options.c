@@ -618,9 +618,9 @@ void options_dump(FILE *f)
 	fprintf(f, "Game play\n");
 	fprintf(f, "\tmode: %s\n", mode[options.mode]);
 	fprintf(f, "\tstart a new game after a game is over: %s\n", boolean_string[options.auto_start]);
-	fprintf(f, "\tstore each played game in the opening book: %s\n", boolean_string[options.auto_start]);
-	fprintf(f, "\tchange computer's side after each game: %s\n", boolean_string[options.auto_start]);
-	fprintf(f, "\tquit when game is over: %s\n", boolean_string[options.auto_start]);
+	fprintf(f, "\tstore each played game in the opening book: %s\n", boolean_string[options.auto_store]);
+	fprintf(f, "\tchange computer's side after each game: %s\n", boolean_string[options.auto_swap]);
+	fprintf(f, "\tquit when game is over: %s\n", boolean_string[options.auto_quit]);
 	fprintf(f, "\trepeat %d games (before exiting)\n\n\n", options.repeat);
 }
 
