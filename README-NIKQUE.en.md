@@ -106,9 +106,9 @@ Book of 6.49 million positions (level 18, builds without PGO from the same sourc
 
 ### book subtree: the book is no longer linked again after the cut (the book can differ)
 
-After the cut, `book subtree` ran a check (as `book fix`), linked the book again (as `book link`), then negamax and sort. On the real book the link step took 110 s (v4.5.5-nikque.11). This version does not link again.
+After the cut, `book subtree` ran a check (as `book fix`), linked the book again, then negamax and sort. On the real book the link step took 110 s (v4.5.5-nikque.11). This version does not link again.
 
-- Cutting a book adds no position, so the only links that this step added were those that the book already lacked before the cut. `book deviate` does not link, on the spot, the positions that can also reach a new position by another line of play (transpositions): `book fix`, `book link` and `book merge` do. **`book subtree` used to add these links on the way; it does not any more.** Run `book fix` (or `book link`) before or after the cut if they are wanted.
+- Cutting a book adds no position, so the only links that this step added were those that the book already lacked before the cut. `book deviate` does not link, on the spot, the positions that can also reach a new position by another line of play (transpositions): `book fix` and `book merge` do. **`book subtree` used to add these links on the way; it does not any more.** Run `book fix` before or after the cut if they are wanted.
 - On a book that lacks no link (6.49 million positions, 7 cases with 2 and 32 threads), the saved books were the same as before.
 - On a book right after one round of `book deviate2` (6.51 million positions), cut at the initial position, 17,232 positions differed from the former result (999 with a link that was not added, 393 with another leaf move, 289 with another score; the others only in the counts of wins, draws, losses and lines).
 - In that case the whole run went from 7.3 s to 2.3 s, and the peak memory from 998 MB to 569 MB (the link step created searches for its leaf searches).
@@ -122,7 +122,7 @@ After the cut, `book subtree` ran a check (as `book fix`), linked the book again
 
 | Case | Up to v4.5.5-nikque.11 | v4.5.5-nikque.12 |
 |---|---|---|
-| After `book subtree` | The book is linked again (links missing before the cut are added) | It is not (missing links stay missing; `book fix` or `book link` adds them) |
+| After `book subtree` | The book is linked again (links missing before the cut are added) | It is not (missing links stay missing; `book fix` adds them) |
 | Marking of `book subtree`, `book prune` | One thread | `n-tasks` threads (same book, same counts) |
 | Capitals in the word after `book` or `base` | `Unknown book command`, `Unknown base command` | Handled as lower case |
 | `book leaf-recalculate`, `2`, `3`, `4` | `Unknown book command` | New commands |
@@ -217,7 +217,7 @@ This version fixes three bugs found after v4.5.5-nikque.9, and makes `book negam
 
 ### Faster book functions (same results)
 
-`book negamax` (with several threads) and the "linking" step of `book fix`, `book link` and `book merge` looked in the book, for each position, for the positions its moves lead to, one after the other. On a large book, each of these lookups waits for memory. Now the places of all of them are computed first and asked for (prefetch), and then they are looked for together. The same positions are looked for in the same order, so the results do not change.
+`book negamax` (with several threads) and the "linking" step of `book fix` and `book merge` looked in the book, for each position, for the positions its moves lead to, one after the other. On a large book, each of these lookups waits for memory. Now the places of all of them are computed first and asked for (prefetch), and then they are looked for together. The same positions are looked for in the same order, so the results do not change.
 
 The real book of 661.62 million positions (level 18, 32 threads, builds without PGO, two runs each in the order previous, new, new, previous):
 

@@ -20,7 +20,7 @@ Speed (same book):
 
 What behaves differently:
 
-- **`book subtree` no longer links the book again after the cut.** Cutting adds no position, so that step only added the links that the book already lacked before (`book deviate` does not link transpositions on the spot). Run `book fix` or `book link` if they are wanted. On a book that lacks no link, the result is the same book. `book prune` is unchanged.
+- **`book subtree` no longer links the book again after the cut.** Cutting adds no position, so that step only added the links that the book already lacked before (`book deviate` does not link transpositions on the spot). Run `book fix` if they are wanted. On a book that lacks no link, the result is the same book. `book prune` is unchanged.
 - The word after `book` or `base` may have capitals (`book Deviate 5 5`). The arguments, as file names, are used as typed.
 
 Checks: book regression (all files identical to the release build of v4.5.5-nikque.11, `book deviate`, `deviate2` and `deviate3` included), comparison of the saved books for each change, the 197 checks of the API test, ThreadSanitizer, results and node counts of single-thread `-solve`. The release builds were not compared on an idle machine, since only book commands changed.
@@ -57,7 +57,7 @@ Bug fixes:
 
 Speed (same results):
 
-- `book negamax` with several threads and the linking step of `book fix`, `book link` and `book merge` ask for the memory of all the positions that the moves of a position lead to before reading them. The real book of 661.62 million positions, 32 threads: one negamax 18.9 s → 17.8 s, the linking of `book fix` 153.7 s → 136.3 s, the linking of `book merge` 139.6 s → 127.2 s. The saved books are the same, and so is the peak memory.
+- `book negamax` with several threads and the linking step of `book fix` and `book merge` ask for the memory of all the positions that the moves of a position lead to before reading them. The real book of 661.62 million positions, 32 threads: one negamax 18.9 s → 17.8 s, the linking of `book fix` 153.7 s → 136.3 s, the linking of `book merge` 139.6 s → 127.2 s. The saved books are the same, and so is the peak memory.
 
 What behaves differently:
 

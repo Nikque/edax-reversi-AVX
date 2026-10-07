@@ -20,7 +20,7 @@
 
 動作が変わるところ：
 
-- **`book subtree` は、切り出しの後にLinkを張り直さなくなりました。** 切り出しは局面を足さないので、張り直しで足されていたのは「切り出す前からbookに欠けていたLink」だけです（`book deviate` は、合流する局面へのLinkをその場では張りません）。必要なら `book fix`・`book link` を行ってください。Linkの欠けていないbookでは、できるbookは同じです。`book prune` は変えていません。
+- **`book subtree` は、切り出しの後にLinkを張り直さなくなりました。** 切り出しは局面を足さないので、張り直しで足されていたのは「切り出す前からbookに欠けていたLink」だけです（`book deviate` は、合流する局面へのLinkをその場では張りません）。必要なら `book fix` を行ってください。Linkの欠けていないbookでは、できるbookは同じです。`book prune` は変えていません。
 - `book`・`base` の後ろの語は、大文字でも通ります（`book Deviate 5 5`）。ファイル名などの引数は、書いたとおりに使います。
 
 確認：bookの回帰試験（v4.5.5-nikque.11 の配布版と全ファイル一致。`book deviate`・`deviate2`・`deviate3` も同じ）、変更ごとの保存したbookの比較、API試験197項目、ThreadSanitizer、1スレッドの `-solve` の結果とノード数。配布用ビルドどうしを静かな状態で比べる計測は、今回変えたのがbookの命令だけなので、行っていません。
@@ -57,7 +57,7 @@ v4.5.5-nikque.9 の後に見つかった不具合を3件直し、大きなbook�
 
 速さ（結果は同じ）：
 
-- 複数スレッドの `book negamax` と、`book fix`・`book link`・`book merge` のLinkの張り直しで、手の先の局面をまとめて先読みします。6億6162万局面の実book・32スレッドで、negamax 1回が 18.9秒 → 17.8秒、`book fix` の張り直しが 153.7秒 → 136.3秒、`book merge` の張り直しが 139.6秒 → 127.2秒。保存したbookは同じ、最大メモリも同じです。
+- 複数スレッドの `book negamax` と、`book fix`・`book merge` のLinkの張り直しで、手の先の局面をまとめて先読みします。6億6162万局面の実book・32スレッドで、negamax 1回が 18.9秒 → 17.8秒、`book fix` の張り直しが 153.7秒 → 136.3秒、`book merge` の張り直しが 139.6秒 → 127.2秒。保存したbookは同じ、最大メモリも同じです。
 
 動作が変わるところ：
 
