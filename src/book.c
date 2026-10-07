@@ -2203,7 +2203,9 @@ static int position_array_add(PositionArray *a, const Position *p, const unsigne
 	int i;
 
 	board_check(&p->board);
-	assert(position_is_ok(p));
+	// (a position without any link nor leaf is what book_merge_file() adds: position_merge() does not copy the
+	// links, that book_link_parallel() builds just after. position_is_ok() refuses it: "nomove is wrong")
+	assert((p->n_link == 0 && p->leaf.move == NOMOVE) || position_is_ok(p));
 
 	for (i = 0; i < a->n; ++i) if (board_equal(&a->positions[i].board, &p->board)) return 0;
 	if (a->size < 0 || a->n == a->size) {
