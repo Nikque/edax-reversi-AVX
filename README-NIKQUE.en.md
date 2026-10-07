@@ -119,7 +119,7 @@ With `book-leaf-recalculate-rounds = n` (`config.ini`, `-book-leaf-recalculate-r
 
 ### Checks
 
-This version is published, for the convenience of its user, **when the Windows part of the complete test set had ended.** What follows tells what was finished at that time and what was not; the results of what was not finished will be added to this section.
+This version is published, for the convenience of its user, **when the Windows part of the complete test set had ended.** What follows tells what was finished at that time and what was not; what was not finished ended on 2026-10-08, and its results are added below.
 
 **Finished on the final source**
 
@@ -144,10 +144,10 @@ This version is published, for the convenience of its user, **when the Windows p
 - On the real book, two runs of the same executable differ more than the two versions do: no slowdown and no more memory were measured (2 runs each). One round of `book deviate2 3 6` on the book of 6.49 million positions took the same time (read in steps of 0.5 s).
 - A small book command file (120 rounds of `book deviate` from an empty book): 8 threads 17.82 s -> 17.77 s (distribution executables, medians of 4 runs). 1 thread 22.87 s -> 22.96 s (the same; +0.4%), and +0.3% (4 runs each) and +0.1% (6 more runs each; same processor time) with builds without PGO: too few runs to tell a difference. Same peak memory.
 
-**Not finished on the final source when this version was published** (the results will be added)
+**Finished after the publication** (added on 2026-10-08)
 
-- The Linux test set (gcc warnings, searches with 8 and 32 threads, a limited number of threads, ThreadSanitizer) and the 88 book and game cases with a build that detects memory errors (AddressSanitizer of MSVC). **Both were run completely on the source before the last 17 fixes of this version** (0 gcc warnings, only the ThreadSanitizer reports known from before, 0 memory errors). The last 17 fixes are small ones (loading games, saving the book, displays), and every check listed above was made with them.
-- More runs of the one-thread timing of the small book with the distribution executables.
+- **The Linux test set and the build that detects memory errors** (finished after the publication, on 2026-10-08, on the published source): 0 gcc warnings. The one-thread search of the Linux executable gives the node counts of the earlier versions. 198 API checks, 0 failures, with the 3 Linux libraries. With a limited number of threads (9, 12 and 20), the books are those of the usual build. ThreadSanitizer (8 threads, 8 cases) gave 2,498 reports; those where the code of the book or of the games reads or writes are of the 4 kinds known from before (search statistics, the signal that stops a search, the "to be saved" mark, the display of the progress). No function changed since v4.5.5-nikque.12 reads or writes in a report. The 88 book and game cases with the build that detects memory errors (AddressSanitizer of MSVC), in 3 settings: 0 errors detected, 0 abnormal exits (3 to 4 long cases were stopped at their time limit, with 0 errors detected until then). No case stops in a build with the assertions on.
+- **One-thread time of the small book** (120 rounds of `book deviate` from an empty book; more runs): with the distribution executables, 8 runs each, v4.5.5-nikque.12 took 23.01 s and this version 23.00 s (medians; the 8 runs range from 22.59 to 23.20 s and from 22.61 to 23.42 s). The +0.4% of the 4 runs above does not show with 8 runs. Builds without PGO, 8 runs each: 21.46 s → 21.53 s (+0.3%; the median of the processor time is the same). No difference larger than 0.3% was seen; these runs cannot tell whether there is a smaller one. The peak memory is the same (95.2 to 95.6 MB).
 - **Not measured**: the speed on Linux, macOS, 32-bit and ARM64; concurrent searches with books of level 19 or more. The Android version was only built. The macOS files come from the automatic build of the release.
 
 ### Corrections to the notes of the earlier versions
