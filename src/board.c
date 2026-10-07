@@ -374,6 +374,7 @@ bool board_check_move(const Board *board, Move *move)
 {
 	if (move->x == PASS) return !can_move(board->player, board->opponent);
 	else if (x_to_bit(move->x) & (board->player | board->opponent)) return false;
+	else if (move->flipped == 0) return false; // (a move turns over at least one disc. Up to v4.5.5-nikque.12 a move of a game file that turns over nothing was accepted)
 	else if (move->flipped != board_flip(board, move->x)) return false;
 	else return true;
 }
