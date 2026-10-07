@@ -2,6 +2,57 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.13
+
+The changes made after v4.5.5-nikque.9 (nikque.10 to 12) were audited and the bugs that were found are fixed (some come from upstream). One setting is new. `eval.dat` and the book file format are unchanged. In the search code, one line changes (the fix of a bug in the search of a position without a move, a pass), and three assertions that only the development builds hold; the test that tells whether a move can be played (used when a game file is loaded and when the line of play of a search is read back) has one more condition. The search results do not change. The books made by `book deviate`, `deviate2`, `deviate3`, by learning games, by `book fix`, the negamax and the commands that cut a book are the same as with v4.5.5-nikque.12 (except in some cases with a small `hash-table-size`). See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+
+A user manual (English and Japanese, 16 pages each) is in the folder `manual` ([English](manual/en/README.md), [Japanese](manual/ja/README.md)); it is in the ZIP too.
+
+Bug fixes:
+
+- `book correct`, `book deepen`: the leaf of a position without move and without link (the end of a game, a pass whose next position is not in the book) was erased, which broke the scores of the book (from upstream; the concurrent search of v4.5.5-nikque.11 had the same form). Such a position is now searched again. A book damaged by an earlier version is repaired by the `book correct` of this version (checked on test books). The real book of 661.62 million positions has 397 such positions (counted only).
+- `book leaf-recalculate`: the leaf of a pass position was not searched again. It is now (35 positions in the real book of 661.62 million positions; tried at 4 of them: each leaf was searched again, with the same score).
+- A line of more than 80 plies (moves + passes) was not learned ("illegal move") when several games are learned at the same time (`book-store-tasks` of 2 or more or `auto`, `edax_book_store_games`): left over from v4.5.5-nikque.10. Such a game also exists from the usual initial position (82 plies).
+- The search of a position without a move (a pass) could crash, rarely (from upstream: when it is the first position that a search gets; reproduced with `-solve`). A one-line fix; the search results do not change.
+- A game with a pass saved as SGF could not be loaded again (from upstream).
+- A saved game (`.edx`) held memory that was never set (from upstream). It is the file that differs at each run of the book regression, called "a file that holds a date" so far.
+- `book subtree` from a position deeper than the book depth emptied the book (from upstream). It now warns and does nothing.
+- With a small `hash-table-size` (19 or less with a `level` of 18 or less), the rounds with many positions of `book-expand-tasks = auto` took more memory than v4.5.5-nikque.9 (8 threads, 19: 458 MB against 404 MB). The tables of the one-thread searches are now half the size (404 MB again in the same test; the smallest size, 10, cannot be halved). Nothing changes with the bundled settings (`level = 18`, `hash-table-size = auto`).
+- `load` accepted a game file (`.ggf`, `.sgf`, `.pgn`, `.edx`) with a move that turns over no disc, and put the disc on the board without turning anything over (from upstream; `book store` on that board added impossible positions to the book). Such a game is no longer loaded (the board stays as it was).
+- Leaving Edax right after `book new` replaced the file of `book-file` with the new empty book (from upstream). After `book new`, a save without a file name (when Edax ends, `book save` without a name) now keeps the previous file as `<book-file>.old` (a file with the initial position only is not kept; `book save <file>` with the name replaces the file as asked).
+- `book save` without a file name failed and saved nothing (from upstream). It now saves to the file of `book-file`.
+- `book export` then `book import` changed the depth of the book (from upstream: a book of depth 12 came back with depth 13). The exported file now ends with a line `% depth n`, and the import gives the book that depth (the earlier versions skip this line and read the file: checked with the build of v4.5.5-nikque.12).
+- Three display faults (from upstream): the lines of `auto-store`, `auto-swap` and `auto-quit` in the output of `options`, the `-nan(ind)` in the summary of `analyze`, the totals of XBoard at the end.
+- Leaving Edax after `book load` of another file and a change of the book, or after `book import`, replaced the file of `book-file` (from upstream). As after `book new`, the previous file is now kept as `<book-file>.old` (after loading a file named `book-file` plus an extension, `.dev2`, `.store`, ..., the book is the same book going on and the file is replaced as before).
+- Seven faults of display and the like (from upstream): a `load` that fails tells why; a line of a `.txt` game file that is read only in part gives a warning; no `uncomplete game` warning for a PGN that is not finished; `book info` prints 10 positions of another level at most, and their number; no `New book ...` line when `book load` fails; `hash-table-size` typed while running (and `n-tasks`, with `auto`) rebuilds the tables of the search; the defaults of the built-in help (`help options`).
+- `book leaf-recalculate4` from a position of the deepest layer of the book searched nothing (it now searches the leaf of that position, as `3` does).
+- The word `stop` (or `quit`) typed during a book or base command cut the running search short, and its unfinished result went into the book (from upstream). The search of such a command is no longer stopped.
+- libedax: `edax_stop` during `edax_base_complete` / `edax_base_correct` put the unfinished result of the search that it cut into the game file (from the original libedax). It no longer stops these searches.
+- `base complete` (`edax_base_complete`) did not set the level of its searches: depending on what was done before, it solved the games or played random moves (from upstream). It now uses the `level` setting.
+- `book add`, `book check`: the record of the moves and passes of a game has 128 entries (it was 99; from upstream: a game with 40 passes or more would have written past it).
+- One warning of the gcc build (Linux) is gone.
+- A development build with the assertions on stopped at the exact search of a position with 10 empties (from upstream). The released builds are not concerned.
+- A development build also stopped at two assertions from upstream: `book merge` into a new book, and a stopped search that had gone through a pass. The released builds are not concerned.
+
+New setting:
+
+- `book-leaf-recalculate-rounds = n`: the `book leaf-recalculate` commands are repeated up to n times (they stop after a round that changed no leaf). The scores that a round changes move the range that the command walks (on the book of 6.49 million positions, `book leaf-recalculate4 1 1` changes nothing at the fifth round). 1, the default, is the behaviour of v4.5.5-nikque.12.
+
+What behaves differently:
+
+- **A book cut by `book subtree` or `book prune` is saved to `book-file` when Edax ends, even without `book save`** (it used to be saved only if a score had changed). To keep the book as it was before the cut, copy the file first.
+- Leaving Edax right after `book new` makes the file of `book-file` the new book, and **the previous file is kept as `<book-file>.old`** (it used to be overwritten).
+- `book save` alone (no file name) saves to `book-file`. The file of `book export` ends with a line `% depth n`.
+- A game file with a move that cannot be played (it turns over no disc) is not loaded by `load` (it used to give a wrong board).
+- After `book load` of another file (and a change of the book) and after `book import` too, leaving Edax keeps the previous file of `book-file` as `<book-file>.old`.
+- `hash-table-size` typed while running (and `n-tasks`, with `auto`) rebuilds the tables of the search: the memory in use changes.
+
+Not changed (see "Not changed, and good to know" in the README): why a leaf that was just made can change when it is searched again (the board on which a new position is searched; making it the same costs 0.35 to 0.46% more nodes, so it was left out), `book deepen` does not raise the level of a position, and a position that cannot be reached from the initial position is not negamaxed, a game that starts from a set-up position cannot be read back from `.txt` or `.sgf`, and on Windows a save such as `.store` can fail when the full path of `book-file` is long (keep it within 240 characters).
+
+edax_runner is 5.3.0+nikque.7 (a line of more than 80 plies is now also learned when the games are learned one by one).
+
+Checks: This version is published when the Windows part of the complete test set had ended. Finished on the final source: the one-thread search (69 positions; same node counts for the 5 Windows and 4 Linux distribution executables), the book regression (the files that differ from v4.5.5-nikque.12 are the three kinds that this version changes), 198 API checks (Windows, Linux), the tests with a limited number of threads, the repeated exact solves and the repeated learning, the settings and file-name tests, the 36 checks of the fixes, the tests of edax_runner. On an idle PC (`book deviate2 5 5` on the real book of 661.62 million positions, and smaller cases), no slowdown and no more memory than v4.5.5-nikque.12 were measured. **Not finished yet** (the results will be added to the README): the Linux test set with ThreadSanitizer and the 88 cases with a build that detects memory errors (both were run completely on the source before the last 17 fixes), and more runs of the one-thread timing of the small book.
+
 ## v4.5.5-nikque.12
 
 Adds the commands `book leaf-recalculate` (searching the leaves of a book again) and makes `book subtree` and `book prune` faster again. `eval.dat`, the book file format and the search code are unchanged. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
@@ -51,7 +102,7 @@ Fixes three bugs found after v4.5.5-nikque.9, and makes `book negamax`, `book fi
 
 Bug fixes:
 
-- A game of more than 80 plies (moves + passes) wrote outside the game record (from upstream; games with many passes from a board set with `setboard`; the move counter and the clocks were damaged). The record now holds 128 entries. libedax had the same problem.
+- A game of more than 80 plies (moves + passes) wrote outside the game record (from upstream; games with many passes; the move counter and the clocks were damaged). The record now holds 128 entries. libedax had the same problem.
 - The previous string was not released when a string setting (`book-file`, ...) was set again (from upstream).
 - libedax: `edax_stop` during `edax_bench` now ends the bench (only one problem was cut, the others went on, and the time of the result was wrong).
 
