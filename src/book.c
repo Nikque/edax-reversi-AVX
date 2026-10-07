@@ -1578,7 +1578,7 @@ static void prune_mark_walk(PruneMarkWorker *w, const uintptr_t item)
 		n = MIN(position->n_link - first, PRUNE_MARK_LINKS);
 		for (i = 0; i < n; ++i) {
 			array[i] = NULL;
-			if (position->score.value - l[i].score <= deviation && -SCORE_INF <= l[i].score && l[i].score <= SCORE_INF) {
+			if (position->score.value - l[i].score <= deviation && -SCORE_INF <= l[i].score) { // (the bounds of position_prune are infinite: a score is never above SCORE_INF)
 				board_next(&position->board, l[i].move, &target);
 				board_unique(&target, unique + i);
 				array[i] = book_array(book, unique + i);
