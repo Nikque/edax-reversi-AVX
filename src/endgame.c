@@ -585,7 +585,7 @@ static int NWS_endgame_local(Search *search, const int alpha)
 			++statistics.n_good_square[search->eval.n_empties][SQUARE_TYPE[bestscore]];
 	}
  	assert(SCORE_MIN <= bestscore && bestscore <= SCORE_MAX);
- 	assert((bestscore & 1) == 0);
+ 	assert(search->stop || (bestscore & 1) == 0); // (a search that was stopped returns alpha: after a pass, alpha + 1 comes here)
 	return bestscore;
 }
 
@@ -694,6 +694,6 @@ int NWS_endgame(Search *search, const int alpha)
 			++statistics.n_good_square[search->eval.n_empties][SQUARE_TYPE[bestscore]];
 	}
  	assert(SCORE_MIN <= bestscore && bestscore <= SCORE_MAX);
- 	assert((bestscore & 1) == 0);
+ 	assert(search->stop || (bestscore & 1) == 0); // (a search that was stopped returns alpha: after a pass, alpha + 1 comes here)
 	return bestscore;
 }
