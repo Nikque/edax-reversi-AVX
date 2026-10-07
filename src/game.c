@@ -872,10 +872,12 @@ void game_import_sgf(Game *game, FILE *f)
 				memcpy(game->name[WHITE], value, 31);
 				game->name[WHITE][31] = '\0';
 			} else if (i < 60 && (strcmp(tag,"B") == 0 || strcmp(tag, "W") == 0)) {
-				game->move[i] = string_to_coordinate(value);
-				game->hash = crc32c_u8(game->hash, game->move[i]);
-				i++;
-
+				const int x = string_to_coordinate(value);
+				if (x != PASS) { // (a pass, that game_save_sgf() writes as B[PA], is not a move of the game)
+					game->move[i] = (char) x;
+					game->hash = crc32c_u8(game->hash, game->move[i]);
+					i++;
+				}
 			}
 		}
 		while (level > 0 && game_parse_sgf(f, tag, value)) {
