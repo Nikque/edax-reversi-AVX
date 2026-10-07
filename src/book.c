@@ -1745,8 +1745,9 @@ static bool book_prune_mark(Book *book, Position *root, const int deviation_0, c
  *
  * @param position Position to fix.
  * @param book Opening book.
+ * @return true if a link was removed.
  */
-static void position_remove_links(Position *position, Book *book)
+static bool position_remove_links(Position *position, Book *book)
 {
 	int i, n = 0;
 	const Link *l = position_links(position);
@@ -1761,9 +1762,11 @@ static void position_remove_links(Position *position, Book *book)
 			kept[n++] = l[i];
 		}
 	}
-	if (n != position->n_link && !position_set_links(position, kept, n)) {
+	if (n == position->n_link) return false;
+	if (!position_set_links(position, kept, n)) {
 		error("cannot allocate opening book position's moves\n");
 	}
+	return true;
 }
 
 /**
@@ -3174,6 +3177,7 @@ typedef struct BookTask {
 	const struct ChangedSet *changed; /**< book_link: positions whose score changed while linking */
 	unsigned long long *item;  /**< collected (bucket << 32 | index << 8 | move) items, in bucket order */
 	long long n, size;
+	long long n_changed;       /**< positions changed by the task (book_remove_links_range) */
 	bool oom;
 	void (*run)(struct BookTask*);
 	volatile long long done;     /**< positions scanned so far (progress display only) */
@@ -3228,6 +3232,7 @@ static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task
 		task[i].first = (int) ((long long) book->n * i / n);
 		task[i].last = (int) ((long long) book->n * (i + 1) / n);
 		task[i].item = NULL; task[i].n = task[i].size = 0; task[i].oom = false;
+		task[i].n_changed = 0;
 		task[i].run = run;
 		task[i].done = 0; task[i].finished = false;
 	}
@@ -5558,7 +5563,7 @@ static void book_remove_links_range(BookTask *task)
 	int b, k;
 	for (b = task->first; b < task->last; ++b) {
 		PositionArray *a = task->book->array + b;
-		for (k = 0; k < a->n; ++k) position_remove_links(a->positions + k, task->book);
+		for (k = 0; k < a->n; ++k) if (position_remove_links(a->positions + k, task->book)) ++task->n_changed;
 	}
 }
 
@@ -5570,21 +5575,26 @@ static void book_remove_links_range(BookTask *task)
  * only changes the links and the leaf of this position, so the book is the same as with one thread.
  *
  * @param book opening book.
+ * @return true if a link was removed.
  */
-static void book_remove_missing_links(Book *book)
+static bool book_remove_missing_links(Book *book)
 {
+	bool changed = false;
 #ifndef BOOK_TEST_REMOVE_LINKS_OLD
 	if (book_n_task() > 1) {
 		BookTask task[MAX_THREADS];
-		book_parallel(book, book_remove_links_range, task, NULL);
-		return;
+		const int n = book_parallel(book, book_remove_links_range, task, NULL);
+		int i;
+		for (i = 0; i < n; ++i) if (task[i].n_changed) changed = true;
+		return changed;
 	}
 #endif
 	{
 		PositionArray *a;
 		Position *p;
-		foreach_position(p, a, book) position_remove_links(p, book);
+		foreach_position(p, a, book) if (position_remove_links(p, book)) changed = true;
 	}
+	return changed;
 }
 
 #ifdef BOOK_TEST_PRUNE_OLD
@@ -5601,6 +5611,7 @@ void book_prune(Book *book)
 	int i;
 
 	if (root) {
+		const unsigned int n_nodes = book->n_nodes;
 #ifdef BOOK_TEST_SUBTREE_STAT
 		subtree_stat_new = 0; subtree_stat_t0 = real_clock();
 #endif
@@ -5647,7 +5658,8 @@ void book_prune(Book *book)
 			else a->positions[i].state &= (unsigned char) ~(PRUNE_SEEN_A | PRUNE_SEEN_B);
 		}
 		SUBTREE_STAT("remove");
-		book_remove_missing_links(book);
+		// the book that was cut is saved when Edax ends (up to v4.5.5-nikque.12 only if the negamax changed a score)
+		if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;
 		SUBTREE_STAT("remove_links");
 		book_pool_compact(book);
 		SUBTREE_STAT("compact");
@@ -5668,7 +5680,13 @@ void book_subtree(Book *book, const Board *board)
 	Position *root = book_probe(book, board);
 	int i;
 
+	if (root && board_count_empties(&root->board) < book->options.n_empties - 1) {
+		// nothing is kept under the depth of the book: up to v4.5.5-nikque.12 every position was removed without a word
+		warn("book subtree: this position is deeper than the book depth; the book is not changed\n");
+		return;
+	}
 	if (root) {
+		const unsigned int n_nodes = book->n_nodes;
 #ifdef BOOK_TEST_SUBTREE_STAT
 		subtree_stat_new = 0; subtree_stat_t0 = real_clock();
 #endif
@@ -5699,7 +5717,8 @@ void book_subtree(Book *book, const Board *board)
 		for (a = book->array; a < book->array + book->n; ++a)
 		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
 		SUBTREE_STAT("remove");
-		book_remove_missing_links(book);
+		// the book that was cut is saved when Edax ends (up to v4.5.5-nikque.12 only if the negamax changed a score)
+		if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;
 		SUBTREE_STAT("remove_links");
 		book_pool_compact(book);
 		SUBTREE_STAT("compact");
