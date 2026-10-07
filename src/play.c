@@ -1040,7 +1040,7 @@ static void play_store_boards(Book *book, const Board *initial_board, Move *game
 typedef struct LearnGame {
 	const char *moves;         /**< first moves of the game */
 	int randomness;            /**< randomness of the book moves */
-	Move game[80];             /**< moves of the game */
+	Move game[PLAY_GAME_SIZE]; /**< moves of the game (with the passes: as Play.game; 80 up to v4.5.5-nikque.12) */
 	int n_game;                /**< number of moves */
 	bool legal;                /**< the first moves are legal */
 } LearnGame;
@@ -1102,7 +1102,7 @@ static int learn_game_start(LearnGame *g, Board *board)
 	g->n_game = 0;
 	next = opening_get_line(string);
 	if (next) string = next;
-	while (g->n_game < 80 && ((next = parse_move(string, board, &move)) != string || move.x == PASS)) { // as play_game()
+	while (g->n_game < PLAY_GAME_SIZE && ((next = parse_move(string, board, &move)) != string || move.x == PASS)) { // as play_game()
 		string = next;
 		board_update(board, &move);
 		g->game[g->n_game++] = move;
@@ -1179,7 +1179,7 @@ static void* learn_lane_run(void *v)
 		player = learn_game_start(g, &board);
 		search_cleanup(search); // as play_new()
 		left[0] = left[1] = options.time;
-		while (g->legal && g->n_game < 80 && !board_is_game_over(&board)) {
+		while (g->legal && g->n_game < PLAY_GAME_SIZE && !board_is_game_over(&board)) {
 			long long t_real = -real_clock();
 
 			move = MOVE_INIT;
