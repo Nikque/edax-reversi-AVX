@@ -535,14 +535,16 @@ static bool position_read(Position *position, BookStream *s)
 /**
  * @brief Read a position from a line of a text book: "<board>,<level>[,<leaf move>,<leaf score>]".
  *
- * Empty lines are skipped.
+ * Empty lines are skipped, and so is a line "% depth <n>" (the depth of the book that was exported,
+ * written by book_export() since v4.5.5-nikque.13), whose value is given back.
  *
  * @param position Position to read in.
  * @param f Input stream.
  * @param verbose Explain what is wrong with a line that holds no position.
+ * @param depth Depth told by the file (unchanged if the lines read do not tell it).
  * @return 1 if a position was read, 0 if the line holds no position, -1 at the end of the file.
  */
-static int position_import(Position *position, FILE *f, const bool verbose)
+static int position_import(Position *position, FILE *f, const bool verbose, int *depth)
 {
 	char *line, *s, *old;
 	const char *wrong = NULL;
@@ -551,7 +553,12 @@ static int position_import(Position *position, FILE *f, const bool verbose)
 
 	for (;;) {
 		if ((line = string_read_line(f)) == NULL) return -1;
-		if (*parse_skip_spaces(line) != '\0') break;
+		s = parse_skip_spaces(line);
+		if (strncmp(s, "% depth ", 8) == 0) {
+			value = 0; parse_int(s + 8, &value);
+			if (1 <= value && value <= 60) *depth = value;
+			else if (verbose) warn("wrong depth: %s\n", line);
+		} else if (*s != '\0') break;
 		free(line);
 	}
 
@@ -2960,13 +2967,13 @@ bool book_import(Book *book, const char *file)
 	if (f) {
 		PositionArray *a;
 		Position *p, position;
-		int n_empties, r;
+		int n_empties, r, depth = 0;
 		long long n_wrong = 0;
 		Search *const search = book->search;
 
 		book_init(book);
 		// a line that holds no position is skipped (the first ones are explained), not the rest of the file
-		while ((r = position_import(&position, f, n_wrong < 10)) >= 0) {
+		while ((r = position_import(&position, f, n_wrong < 10, &depth)) >= 0) {
 			if (r == 0) { ++n_wrong; continue; }
 			book_add(book, &position);
 			if (book->n_nodes % BOOK_INFO_RESOLUTION == 0) bprint("importing book from %s... %u positions\r", file, book->n_nodes);
@@ -2990,6 +2997,12 @@ bool book_import(Book *book, const char *file)
 			if (p->level > book->options.level) book->options.level = p->level;
 			if (n_empties < book->options.n_empties) book->options.n_empties = n_empties;
 		}
+		// The depth of the book: the one that the file tells ("% depth <n>"). Without it, from the positions: the
+		// deepest ones are those that a book holds one move beyond its depth (with a leaf only), so the book ends
+		// one move before them. (Up to v4.5.5-nikque.12 the depth was the one of the deepest positions themselves:
+		// a book exported then imported was one move deeper than before.)
+		if (depth > 0) book->options.n_empties = 61 - depth;
+		else if (book->options.n_empties < 60) ++book->options.n_empties;
 
 		random_seed(&book->random, real_clock());
 		book->need_saving = true;
@@ -3029,6 +3042,12 @@ void book_export(Book *book, const char *file)
 			error("cannot export book to %s", file);
 			goto book_export_end;
 		}
+	}
+	// the depth of the book, that the positions do not tell (read by book_import(); at the end of the file: a
+	// program that stops reading at the first line that is not a position has read them all)
+	if (fprintf(f, "%% depth %d\n", 61 - book->options.n_empties) < 0) {
+		error("cannot export book to %s", file);
+		goto book_export_end;
 	}
 	info("done\n");
 
