@@ -920,10 +920,16 @@ void play_analyze(Play *play, int n)
 		if (play->search.stop == STOP_ON_DEMAND) break;
 	}
 	puts("\n      | rejections : discs | errors    : discs | error rate |");
-	printf("Black | %3d / %3d  :  %+4d | %3d / %3d :  %+4d |      %5.3f |\n",
-		n_rejection[BLACK], n_eval[BLACK], disc_rejection[BLACK], n_error[BLACK], n_exact[BLACK], disc_error[BLACK], 1.0 * disc_error[BLACK] / n_exact[BLACK]);
-	printf("White | %3d / %3d  :  %+4d | %3d / %3d :  %+4d |      %5.3f |\n",
-		n_rejection[WHITE], n_eval[WHITE], disc_rejection[WHITE], n_error[WHITE], n_exact[WHITE], disc_error[WHITE], 1.0 * disc_error[WHITE] / n_exact[WHITE]);
+	{
+		static const char *const name[2] = {"Black", "White"};
+		int c;
+		for (c = BLACK; c <= WHITE; ++c) {
+			printf("%s | %3d / %3d  :  %+4d | %3d / %3d :  %+4d |      ",
+				name[c], n_rejection[c], n_eval[c], disc_rejection[c], n_error[c], n_exact[c], disc_error[c]);
+			if (n_exact[c] > 0) printf("%5.3f |\n", 1.0 * disc_error[c] / n_exact[c]);
+			else puts("    - |"); // no move was checked by an exact search (up to v4.5.5-nikque.12: a division by zero, printed as "nan")
+		}
+	}
 
 	if (i < 0 || i < play->i_game - n) ++i;
 	for (; i < play->i_game; ++i) {
