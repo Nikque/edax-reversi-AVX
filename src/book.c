@@ -4524,25 +4524,57 @@ static int book_expand_hash_bits(const Book *book, const int n_tasks)
 }
 
 /**
+ * @brief Get the searches that search n positions at the same time (book-expand-tasks), in expand_pool:
+ * as many searches as book_expand_task_count() tells (n at most), each with its share of the threads
+ * and the hash tables of book_expand_hash_bits().
+ *
+ * @param book Opening book.
+ * @param n Positions to search.
+ * @return the number of searches available in expand_pool.search (fewer than asked if the memory is exhausted).
+ */
+static int book_expand_pool_get(const Book *book, const long long n)
+{
+	const int n_searches = book_expand_task_count(book, n);
+	const int n_tasks = MAX(1, options.n_task / n_searches);
+	// (auto, one thread each: as many searches as threads, with smaller hash tables: see book_expand_hash_bits)
+	const int bits = book_expand_hash_bits(book, n_tasks);
+
+	return search_pool_get(&expand_pool, (int) MIN(n_searches, n), n_tasks, bits);
+}
+
+/**
+ * @brief A search of expand_pool, with the output settings of the search of the book.
+ *
+ * @param book Opening book.
+ * @param i Index of the search.
+ * @return the search.
+ */
+static Search* book_expand_pool_search(const Book *book, const int i)
+{
+	Search *search = expand_pool.search[i];
+
+	search->options.verbosity = book->search->options.verbosity;
+	search->options.header = book->search->options.header;
+	search->options.separator = book->search->options.separator;
+	return search;
+}
+
+/**
  * @brief Expand the todo positions on several threads (book-expand-tasks > 1).
  *
  * @param book opening book.
  * @param action String with a description of current action.
  * @param tmp_file Temporary file name.
- * @param n_workers Number of positions expanded at the same time.
  * @return false if the memory for at least two searches is not available (nothing was done:
  * the positions are then expanded one after the other, with the main search).
  */
-static bool book_expand_concurrent(Book *book, const char *action, const char *tmp_file, int n_workers)
+static bool book_expand_concurrent(Book *book, const char *action, const char *tmp_file)
 {
 	ExpandShared shared;
 	ExpandWorker *w;
-	const int n_tasks = MAX(1, options.n_task / book_expand_task_count(book, book->todo_list.n));
-	// (auto, one thread each: as many searches as threads, with smaller hash tables: see book_expand_hash_bits)
-	const int bits = book_expand_hash_bits(book, n_tasks);
+	const int n_workers = book_expand_pool_get(book, book->todo_list.n);
 	int i;
 
-	n_workers = search_pool_get(&expand_pool, n_workers, n_tasks, bits);
 	if (n_workers < 2) return false;
 	w = (ExpandWorker*) calloc(n_workers, sizeof *w);
 	if (w == NULL) return false;
@@ -4552,10 +4584,7 @@ static bool book_expand_concurrent(Book *book, const char *action, const char *t
 
 	for (i = 0; i < n_workers; ++i) {
 		w[i].shared = &shared;
-		w[i].search = expand_pool.search[i];
-		w[i].search->options.verbosity = book->search->options.verbosity;
-		w[i].search->options.header = book->search->options.header;
-		w[i].search->options.separator = book->search->options.separator;
+		w[i].search = book_expand_pool_search(book, i);
 	}
 	thread_run_workers(book_expand_worker, w, sizeof *w, n_workers, false, false); // (each worker in its own thread, as before)
 	lock_free(&shared);
@@ -4663,15 +4692,12 @@ static bool book_correct_concurrent(Book *book, const char *tmp_file, int *n_don
 	PositionArray *a;
 	Position *p;
 	long long n_solved = 0;
-	int n_workers, n_tasks, bits, i;
+	int n_workers, i;
 
 	if (options.n_task < 2 || book_one_search_at_a_time()) return false;
 	foreach_position(p, a, book) if (position_is_solved(p)) ++n_solved;
-	n_workers = (int) MIN(book_expand_task_count(book, n_solved), n_solved);
-	if (n_workers < 2) return false;
-	n_tasks = MAX(1, options.n_task / book_expand_task_count(book, n_solved));
-	bits = book_expand_hash_bits(book, n_tasks); // (as book_expand_concurrent)
-	n_workers = search_pool_get(&expand_pool, n_workers, n_tasks, bits);
+	if (MIN(book_expand_task_count(book, n_solved), n_solved) < 2) return false;
+	n_workers = book_expand_pool_get(book, n_solved); // (the searches of book_expand_concurrent)
 	if (n_workers < 2) { search_pool_release(&expand_pool); return false; }
 	w = (CorrectWorker*) calloc(n_workers, sizeof *w);
 	if (w == NULL) { search_pool_release(&expand_pool); return false; }
@@ -4682,10 +4708,7 @@ static bool book_correct_concurrent(Book *book, const char *tmp_file, int *n_don
 	bprint("Correcting solved positions...\r");
 	for (i = 0; i < n_workers; ++i) {
 		w[i].shared = &shared;
-		w[i].search = expand_pool.search[i];
-		w[i].search->options.verbosity = book->search->options.verbosity;
-		w[i].search->options.header = book->search->options.header;
-		w[i].search->options.separator = book->search->options.separator;
+		w[i].search = book_expand_pool_search(book, i);
 	}
 	thread_run_workers(book_correct_worker, w, sizeof *w, n_workers, false, false);
 	lock_free(&shared);
@@ -4718,7 +4741,7 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 	if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
 
 	if (book->todo_list.valid && book->todo_list.n > 1 && book_expand_task_count(book, book->todo_list.n) > 1) {
-		if (book_expand_concurrent(book, action, tmp_file, (int) MIN(book_expand_task_count(book, book->todo_list.n), book->todo_list.n))) return;
+		if (book_expand_concurrent(book, action, tmp_file)) return;
 		// (not enough memory for the searches: one position after the other, below)
 	}
 
@@ -5419,19 +5442,13 @@ static void book_leaf_recalc_search(Book *book, const char *name, const char *tm
 	bprint("%s...\r", name);
 
 	if (n > 1 && options.n_task > 1 && book_expand_task_count(book, n) > 1) {
-		const int n_tasks = MAX(1, options.n_task / book_expand_task_count(book, n));
-		const int bits = book_expand_hash_bits(book, n_tasks); // (as book_expand_concurrent)
-
-		n_workers = search_pool_get(&expand_pool, (int) MIN(book_expand_task_count(book, n), n), n_tasks, bits);
+		n_workers = book_expand_pool_get(book, n); // (the searches of book_expand_concurrent)
 		if (n_workers >= 2) w = (LeafRecalcWorker*) calloc(n_workers, sizeof *w);
 	}
 	if (w) {
 		for (i = 0; i < n_workers; ++i) {
 			w[i].shared = &shared;
-			w[i].search = expand_pool.search[i];
-			w[i].search->options.verbosity = book->search->options.verbosity;
-			w[i].search->options.header = book->search->options.header;
-			w[i].search->options.separator = book->search->options.separator;
+			w[i].search = book_expand_pool_search(book, i);
 		}
 		thread_run_workers(leaf_recalc_worker, w, sizeof *w, n_workers, false, false);
 		free(w);
