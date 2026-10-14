@@ -4,6 +4,74 @@
 
 この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
 
+## v4.5.5-nikque.14 の変更点（予定。まだ公開していません）
+
+bookの欠けた所を埋める命令と、Linkより良いLeafを広げる命令を足しました。どちらも、`book deviate3` と同じ範囲の指定ができます。`book fill` を速くし（できるbookが変わります）、`book leaf-recalculate` の名前を `book leaf recalculate` にしました。評価データ `eval.dat`、bookのファイル形式、探索は変わりません。`book deviate` 系・棋譜の学習・`book fix`・negamax・切り詰めでできるbookは、v4.5.5-nikque.13 と同じです。
+
+### 新しい命令：book fill2（Leafの先の欠けを埋める）
+
+`book fill2 n` は、`book fill n` と同じく「bookの局面から n 手進めた先がbookの局面になるとき、その間の局面を足す」命令ですが、1手目は**Leafの手（まだLinkになっていない最善の手）だけ**をたどります。「Leafの先の局面がbookになく、その次の局面はbookにある」所（n = 2）を埋めます。こういう所は、別の手順から同じ局面が足されると生まれます。
+
+### 新しい指定：book fill・fill2 の範囲（book fill 2 5 5）
+
+`book fill n X Y`・`book fill2 n X Y` のように後ろに2つの数を付けると、今の盤の局面から `book deviate3 X Y` がたどる範囲だけが対象になります（X は1手の失点の上限、Y は合計の上限。`deviate2`・`deviate3` と同じ意味）。`book fill` はたどる局面すべてから、`book fill2` は `deviate3 X Y` が広げるLeafを持つ局面から埋めます。完全読みの局面のLeafも対象です（`deviate3` と同じ）。数を省くと、これまでどおりbook全体です。
+
+### 新しい命令：book leaf expand（Linkより良いLeafを広げる）
+
+`book leaf expand` は、**Leafの評価値が、その局面のどのLinkよりも大きい局面**（最善の手が、まだbookの外にある局面）のLeafを、`book deviate` と同じように広げます。広げると次のLeafがまたLinkより良くなることがあるので、そういう局面がなくなるまで繰り返します。Linkのない局面は対象にしません。`book leaf expand X Y` は、`book deviate3 X Y` がたどる範囲だけです。
+
+Egaroucidで学習するとき、Leafの評価値がLinkの最大より大きい局面があると学習がおかしくなるので、bookの側で直すために足しました。
+
+### Leafの先がbookにある局面のLinkを張る（book fill・fill2・leaf expand）
+
+**Leafの手の先の局面が、もうbookにある**局面があります。別の手順から同じ局面が足されると生まれ、`book deviate` でも生まれます（試験用のbookでは、nikque.13 の `book deviate 2 8` で作った5万6千局面のうち366局面。実bookでは6億7千万局面のうち132,753局面で、95%が `deviate3 5 5` の範囲の中にありました）。`book fix` でLinkが張られますが、Leafを探し直すとまたLinkより良くなることがあります。
+
+`book fill`・`fill2`・`leaf expand` は、どの周も初めにこれらの局面にLinkを張り、Leafを探し直します（範囲を付けたときは、その範囲の中だけ）。張るもの・埋めるもの・広げるものがなくなるまで繰り返すので、終わった後は、範囲の中にこういう局面は残りません。また、局面を足した元の局面には、その場でLinkを張ります（そのLeafが足した手だったときは、`book deviate` で広げたときと同じく、探し直して次のLeafを決めます）。
+
+### book fill を速く（できるbookが変わります）
+
+これまでの `book fill` は、1スレッドでbookの全局面をたどり、局面を足すたびに1つずつ探索していました。新しい `book fill`・`fill2`・`leaf expand` は、`book deviate` と同じように速くしてあります。
+
+- 埋める・広げる元になる局面を、複数のスレッドで探します（範囲を付けたときは `deviate3` のたどり、付けないときはbookをバケットの範囲ごとに読む）。bookの写しは作らず、実際に局面が足される所だけを残します。局面は、bookの中の場所（8バイト）で覚えます。
+- 探索は、`book store` と同じ仕組みで、まとまりごとに先に並べて同時に行います。同時に行う数は `book deviate` と同じく **`book-expand-tasks`** に従います（`1` は1つずつ、`auto` は1探索1スレッドで、終わったスレッドを残りの探索に回す）。`book leaf expand` の展開は、`book deviate` の展開と同じ仕組みです。
+- 途中経過の保存は `book deviate` と同じく `book-deviate-save-rounds` に従います（これまでの `book fill` は毎周保存していました）。
+
+同時に探索すると、1つずつ探索したときと、できるbookが少し違うことがあります（`book store` と同じ。同時に行う探索は、空のハッシュ表から始めます）。
+
+`book fill` の動きも変わります：足した局面は、次の周に埋める元になります（これまでは同じ周のうちに）。局面を足した元の局面には、その場でLinkを張ります。**`book fill 1`（数を省いたとき）は、局面を足さない命令なので、これまでと同じです**（bookの局面の1手先の局面に、欠けたLinkを張ります。同じbookになることを確かめました）。
+
+### book leaf-recalculate の名前：book leaf recalculate
+
+`book leaf-recalculate`（`2`・`3`・`4`）は、`book leaf recalculate`（`2`・`3`・`4`）になりました。**ハイフンの付いた名前は使えなくなりました**（「Unknown book command」と表示されます）。`book leaf expand` も2語で書きます。設定の名前 `book-leaf-recalculate-rounds` は変わりません。
+
+### libedax
+
+`edax_book_fill2(深さ)`、`edax_book_fill_limited(深さ, 1手の失点, 合計の失点)`、`edax_book_fill2_limited(深さ, 1手の失点, 合計の失点)`、`edax_book_leaf_expand()`、`edax_book_leaf_expand_limited(1手の失点, 合計の失点)` を足しました。`edax_book_fill` は新しい `book fill` になります。
+
+### 動作が変わるところ（まとめ）
+
+| 場面 | v4.5.5-nikque.13 まで | v4.5.5-nikque.14 |
+|---|---|---|
+| `book fill n`（n が2以上） | 1スレッド、1つずつ探索。足した局面を同じ周で埋める元にする。元の局面にLinkを張らない。毎周保存 | 複数スレッドで探し、`book-expand-tasks` に従って同時に探索する。足した局面は次の周に。元の局面にLinkを張り、Leafがその手なら探し直す。周の初めに「Leafの先がbookにある局面」にLinkを張る。保存は `book-deviate-save-rounds` に従う。**できるbookが変わります** |
+| `book fill 1`（`book fill`） | 1手先の局面に欠けたLinkを張る | 同じ |
+| `book fill n X Y`・`book fill2`・`book leaf expand` | なし | 新しい命令・指定 |
+| `book leaf-recalculate`（`2`・`3`・`4`） | この名前 | `book leaf recalculate`（`2`・`3`・`4`）。ハイフンの付いた名前は使えない |
+| `book fill abc` のように数でない語が続く | `book fill`（距離1）と同じ | 同じ（範囲の数は、数字で始まる語だけ） |
+
+### 直していないもの・知っておくこと
+
+- `book fill n` の n は「**ちょうど n 手先**」です（これまでと同じ）。n手より近い所の欠けは埋めません。欠けている局面が1つだけの所は n = 2 で埋まります。`book fill2 1` と、範囲を付けた距離1（`book fill 1 5 5` など）は、足す局面がないので何もしません（「nothing to fill」と表示します）。
+- `book fill`・`fill2` の後は、Leafの評価値がLinkの最大より大きい局面が増えることがあります（Linkを張ってLeafを探し直すため）。それを広げるのは `book leaf expand` です。
+- 実bookでの時間（6億7千万局面、level 18、32スレッド、`book-expand-tasks = auto`。**どの命令も数分だけ動かして止めたときの速さと、数えた数からの見込みで、最後まで行っていません**）：張り直しの段は1分に約3,500局面で、対象は `deviate3 5 5` の範囲で125,909局面（約36分）、book全体で132,753局面です。その後の段は、`book leaf expand 5 5` が1分に約2,900局面で47,839局面、`book fill2 2 5 5` が1分に約2,240局面で450,528局面、`book leaf expand`（book全体）が1分に約3,800局面で4,042,280局面です。最初の周の見込みは、張り直しの段を含めて、`book leaf expand 5 5` が約55分、`book fill2 2 5 5` が約4時間、`book leaf expand`（book全体）が約18時間、`book fill2 2`（book全体。12,737,859局面）が約4日です。`book fill 2 5 5` は20,151,780局面が対象で、`book fill 2`（book全体）は埋め始めを探すだけで1周に21分以上かかります。2周目からは対象が減りますが、合わせた時間は最初の周より長くなります。
+
+### 確認
+
+- 小さいbook（level 4：5万6千局面、パスと終局を含む3千局面2冊）で、新しい命令を1・8スレッドで行い、同じbookになることを確かめました。命令の後、範囲の中に「Leafの先の欠け」「すべての手の欠け」（`book fill`）「Leafの先がbookにあるのにLinkでない局面」「Linkより良いLeaf」（`book leaf expand`）が残らないことを、Edaxとは別に書いた道具で数えて確かめました。
+- `book fill 1` は、v4.5.5-nikque.13 と同じbookになりました（2冊）。試験用のビルド（`BOOK_TEST_FILL_OLD`）では、`book fill n` を v4.5.5-nikque.13 と同じ処理で行えます（3冊で同じbookになることを確かめました）。
+- 速さ（level 12、8万3千局面、32スレッド、ほかのプログラムがほぼ動いていないとき、2回ずつ）：`book fill 2` は v4.5.5-nikque.13 の 94.8・93.2秒に対して 6.74・6.64秒（約14倍）。`book fill2 2` は1つずつ（`book-expand-tasks 1`）の 39.6・40.1秒に対して同時（`auto`）で 3.03・3.09秒、`book leaf expand` は 14.8・14.6秒に対して 1.67・1.64秒。
+- libedaxの試験（新しい関数を含む）：204項目、失敗0。GCCの警告（本体・ライブラリ）：0。
+- ThreadSanitizer（WSL・gcc 11、8スレッド、level 4、`book-expand-tasks 4`）：新しい命令の24ケース（2冊 × 6通りの命令 × 2つのビルド。1つは、たどりと絞り込みを2局面からスレッドで行う試験用のビルド）は、どれも正常に終わりました。book.c の中の報告は、以前からある害のない種類（negamaxの「保存が必要」の印、途中経過の表示）だけです。新しく足した関数が当事者になる報告は、途中経過の表示に使う、読んだ局面の数だけです。
+
 ## v4.5.5-nikque.13 の変更点
 
 v4.5.5-nikque.9 より後の3つの版（nikque.10〜12）の変更を、ソースを読み直し、v4.5.5-nikque.9 のときの試験を全部やり直して点検しました。見つかった不具合を直し（上流から続いていたものを含みます）、設定を1つ足しました（`book-leaf-recalculate-rounds`）。評価データ `eval.dat` とbookのファイル形式は変わりません。探索のコードで変わるのは、合法手のない局面（パスの局面）を探索するときの不具合の修正（1行）と、開発用のビルドだけに入る検査の文（3か所）です。手が打てるかどうかの検査（棋譜の読み込みと、探索の読み筋の読み出しに使う関数）にも、条件を1つ足しました。どれも、探索の結果は変わりません。`book deviate` 系・棋譜の学習・`book fix`・negamax・切り詰めでできるbookは、v4.5.5-nikque.12 と同じです（`hash-table-size` を小さい数にしている場合の、展開の対象が多い周を除きます。下の「動作が変わるところ」）。

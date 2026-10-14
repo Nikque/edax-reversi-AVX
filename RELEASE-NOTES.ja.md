@@ -2,6 +2,10 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-nikque.14（予定。まだ公開していません）
+
+bookの欠けた所を埋める命令 `book fill2` と、Linkより良いLeafを広げる命令 `book leaf expand` を足しました。`book fill`・`fill2`・`leaf expand` は、`book fill 2 5 5` のように `book deviate3` と同じ範囲を指定できます。`book fill` は `book deviate` と同じように複数スレッドで速くしました（できるbookが変わります。`book fill 1` は同じです）。この3つの命令は、どの周も初めに「Leafの手の先がbookにあるのにLinkになっていない局面」にLinkを張ります。`book leaf-recalculate` の名前は `book leaf recalculate` になりました（ハイフンの付いた名前は使えません）。libedaxに5つの関数を足しました。`eval.dat`・bookのファイル形式・探索は変わりません。`book deviate` 系・棋譜の学習・`book fix`・negamax・切り詰めでできるbookは、v4.5.5-nikque.13 と同じです。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+
 ## v4.5.5-nikque.13
 
 v4.5.5-nikque.9 より後の変更（nikque.10〜12）を点検して、見つかった不具合を直しました（上流から続いていたものを含みます）。設定を1つ足しました。`eval.dat` とbookのファイル形式は変わりません。探索のコードで変わるのは、合法手のない局面（パスの局面）を探索するときの不具合の修正（1行）と、開発用のビルドだけに入る検査の文（3か所）です。手が打てるかどうかの検査（棋譜の読み込みと、探索の読み筋の読み出しに使う関数）にも、条件を1つ足しました。どれも、探索の結果は変わりません。`book deviate` 系・棋譜の学習・`book fix`・negamax・切り詰めでできるbookは、v4.5.5-nikque.12 と同じです（`hash-table-size` を小さい数にしている場合の一部を除きます）。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
