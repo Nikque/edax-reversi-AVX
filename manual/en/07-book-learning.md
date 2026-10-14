@@ -223,10 +223,54 @@ An example with `deviate2 5 5`:
 | Command | Meaning | Intermediate file |
 |---|---|---|
 | `book enhance X Y` | Uses the lower and upper bounds of the scores to expand "the leaves that could change the score of a position once the error of the search is allowed for (X discs for a midgame search, Y discs for a search that reads to the end but not at 100%)". Repeated until nothing changes. Without the numbers: `2 4` | `.enh` |
-| `book fill n` | When n moves from a position of the book lead to another position of the book, the positions and links in between are added. Repeated until nothing is added. `book fill 1` (also when the number is left out) only makes the missing links: no position is added | `.fill` |
+| `book fill n` | When n moves from a position of the book lead to another position of the book, the positions and links in between are added. The position filled from gets its links at once (when its leaf was that move, it is searched again for its next leaf, as when `book deviate` expands it). Repeated until nothing is added. `book fill 1` (also when the number is left out) only makes the missing links of the positions one move after the positions of the book: no position is added | `.fill` |
+| `book fill2 n` | As `book fill n`, but the first move from the position filled from is **its leaf move only**. It fills "the position after the leaf is not in the book, and the next one is" (with n = 2) | `.fill2` |
+| `book leaf expand` | Expands the leaf of **the positions whose leaf scores better than every link** (their best move is still out of the book). After an expansion the next leaf may be better than the links again, so this is repeated until no such position remains. Positions without a link do not count | `.lexp` |
 | `book play` | Expands the leaf of positions that have no link at all (the tips of the lines), and repeats until no such position remains within the depth of the book. That is, **every line is extended with best moves down to the depth of the book** | `.play` |
 
-These commands come from the original Edax. In this fixed version their behaviour was checked (they build the same book as earlier versions), but there is less experience with them on large books than with the `book deviate` family. Watch what they do on a small book first.
+`book enhance`, `book fill` and `book play` come from the original Edax. `book fill2` and `book leaf expand` were added by this fixed version (since v4.5.5-nikque.14), and the same version changed `book fill` (except `book fill 1`). There is less experience with all of them on large books than with the `book deviate` family. Watch what they do on a small book first.
+
+### Limiting the range: the two numbers of book fill, fill2 and leaf expand
+
+With two more numbers X and Y, as in `book fill 2 5 5`, `book fill2 2 5 5` or `book leaf expand 5 5`, **only the range that `book deviate3 X Y` follows from the current position** is concerned. X is the largest loss of one move and Y the largest total loss (both sides together), as for `deviate2` and `deviate3` in 7.3. Without the numbers, the whole book is concerned.
+
+| Command | Positions filled or expanded from |
+|---|---|
+| `book fill n X Y` | Every position that `deviate3 X Y` follows |
+| `book fill2 n X Y` | The positions whose leaf `deviate3 X Y` would expand |
+| `book leaf expand X Y` | The positions that `deviate3 X Y` follows whose leaf is better than every link |
+
+- The leaves of exactly solved positions count too (as with `deviate3`).
+- The n of `book fill` and `fill2` means "**exactly n moves**": a gap closer than n moves is not filled. Where a single position is missing (position → missing position → position of the book), n = 2 fills it.
+- The number of searches done at the same time follows `book-expand-tasks` (7.6), as for `book deviate`. Without that setting (1), the positions are searched one after the other.
+- The positions to fill or expand from are found by several threads, without any copy of the book.
+
+An example of the output (the small book of 7.1, after `deviate2 2 4`):
+
+```
+>book fill2 2
+Book fill2 2: 35 positions to fill from
+Book fill2...35/35: 35 positions, 73 links
+ … (repeated until nothing is added) …
+Book fill2 2... finished
+
+>book fill 2 2 4
+Book fill 2 2 4:
+Book fill 795 positions selected, 34 to fill from
+Book fill...34/34: 36 positions, 76 links
+ …
+Book fill 2 2 4...finished
+
+>book leaf expand 2 4
+Book leaf expand 2 4:
+Book leaf expand 7 todo
+Book leaf expand...
+Book leaf expand...1/7 done: 1 positions, 1 links
+ …
+Book leaf expand 2 4...finished
+```
+
+`positions selected` is the number of positions chosen by the walk of `deviate3`, `to fill from` the number of them that are really filled from, and `positions, links` the positions and links added.
 
 An example of the output on a small book:
 
@@ -321,7 +365,9 @@ Set the save intervals and the number of simultaneous expansions in `config.ini`
 | `book deviate2 X Y` | Expand the lines with losses of up to X discs per move and Y discs in total (leaves of exactly solved positions excluded) |
 | `book deviate3 X Y` | The same (leaves of exactly solved positions included) |
 | `book enhance X Y` | Expand the leaves that could change a score once the error of the search is allowed for |
-| `book fill n` | Fill in between the positions of the book |
+| `book fill n` [X Y] | Fill in between the positions of the book (with X Y: in the range of `deviate3` only) |
+| `book fill2 n` [X Y] | Fill the gaps after the leaves |
+| `book leaf expand` [X Y] | Expand the leaves better than every link |
 | `book play` | Expand the positions without a link, one move at a time |
 
 Next: [8. Maintaining a book](08-book-maintenance.md)

@@ -70,7 +70,8 @@ v4.5.5-nikque.13 の、全部のコマンドと設定です（ソースの一覧
 | `deviate2` | ［X］（2） ［Y］（4）。X は 0〜129、Y は 0〜7740 | 自動で広げる（失点の合計。完全読みの Leaf を除く） | `.dev2` | [7.3](07-book-learning.md) |
 | `deviate3` | 同じ | 同じ（完全読みの Leaf も含む） | `.dev3` | [7.3](07-book-learning.md) |
 | `enhance` | ［X］（2） ［Y］（4）。0〜129 | 評価値を変えそうな Leaf を広げる | `.enh` | [7.4](07-book-learning.md) |
-| `fill` | ［n］（1）。1〜61 | 局面の間を埋める | `.fill` | [7.4](07-book-learning.md) |
+| `fill` | ［n］（1） ［X Y］。n は 1〜61、X は 0〜129、Y は 0〜7740 | 局面の間を埋める。X Y を付けると `deviate3 X Y` の範囲だけ | `.fill` | [7.4](07-book-learning.md) |
+| `fill2` | 同じ | Leaf の先の欠けを埋める | `.fill2` | [7.4](07-book-learning.md) |
 | `play` | | 手順の先端を、深さまで伸ばす | `.play` | [7.4](07-book-learning.md) |
 | `negamax` | | 評価値を計算し直す | | [8.2](08-book-maintenance.md) |
 | `fix` | | 点検・Link の張り直し・negamax | | [8.2](08-book-maintenance.md) |
@@ -78,8 +79,9 @@ v4.5.5-nikque.13 の、全部のコマンドと設定です（ソースの一覧
 | `subtree` | | 今の局面から先だけを残す | | [8.4](08-book-maintenance.md) |
 | `prune` | | 片方が最善を打つ変化だけを残す | | [8.4](08-book-maintenance.md) |
 | `export`・`import` | ファイル | 文字のファイルに書き出す・読み戻す | | [8.5](08-book-maintenance.md) |
-| `leaf-recalculate`・`leaf-recalculate3` | `deviate` と同じ | Leaf を計算し直す | `.leaf`・`.leaf3` | [8.6](08-book-maintenance.md) |
-| `leaf-recalculate2`・`leaf-recalculate4` | `deviate2` と同じ | Leaf を計算し直す | `.leaf2`・`.leaf4` | [8.6](08-book-maintenance.md) |
+| `leaf recalculate`・`leaf recalculate3` | `deviate` と同じ | Leaf を計算し直す | `.leaf`・`.leaf3` | [8.6](08-book-maintenance.md) |
+| `leaf recalculate2`・`leaf recalculate4` | `deviate2` と同じ | Leaf を計算し直す | `.leaf2`・`.leaf4` | [8.6](08-book-maintenance.md) |
+| `leaf expand` | ［X Y］。X は 0〜129、Y は 0〜7740 | どの Link よりも良い Leaf を広げる。X Y を付けると `deviate3 X Y` の範囲だけ | `.lexp` | [7.4](07-book-learning.md) |
 | `correct` | | 完全読みの局面を確かめ直す | `.err` | [8.7](08-book-maintenance.md) |
 | `deepen` | | （使わない） | `.dep` | [8.7](08-book-maintenance.md) |
 | `extract` | ファイル | 最善の手順を棋譜に書き出す | | [8.8](08-book-maintenance.md) |
@@ -146,7 +148,7 @@ v4.5.5-nikque.13 の、全部のコマンドと設定です（ソースの一覧
 | `book-store-auto-save` | `on`／`off` | `on` | | `book store`・`learn` の後の `.store` |
 | `book-expand-tasks` | 1〜論理 CPU の数、`auto` | 1 | `auto` | 同時に広げる局面の数 |
 | `book-store-tasks` | 1〜論理 CPU の数、`auto` | `auto` | `auto` | 同時に学習する棋譜の数 |
-| `book-leaf-recalculate-rounds` | 1〜1000000 | 1 | 1 | `book leaf-recalculate` 系の回数の上限 |
+| `book-leaf-recalculate-rounds` | 1〜1000000 | 1 | 1 | `book leaf recalculate` 系の回数の上限 |
 | `probcut-model` | `standard`／`refit` | `standard` | `standard` | 枝刈りの方式（`refit` は実験用） |
 | `auto-start`・`auto-swap`・`auto-store`・`auto-quit` | `on`／`off` | `off` | | 終局したときの動作（[3.9](03-playing.md)） |
 | `repeat` | 数 | 0 | | 続けて打つ局数 |
@@ -180,7 +182,7 @@ v4.5.5-nikque.13 の、全部のコマンドと設定です（ソースの一覧
 |---|---|---|
 | `.dat`（`book.dat`） | book | [6.6](06-book-basics.md) |
 | `.dat`（`eval.dat`） | 評価データ | [1.3](01-introduction.md) |
-| `book.dat.store`・`.gam`・`.dev`・`.dev2`・`.dev3`・`.enh`・`.fill`・`.play`・`.leaf`〜`.leaf4`・`.mrg`・`.err`・`.dep` | book のコマンドが自分で保存した book（中身は book のファイル） | [6.6](06-book-basics.md) |
+| `book.dat.store`・`.gam`・`.dev`・`.dev2`・`.dev3`・`.enh`・`.fill`・`.fill2`・`.play`・`.leaf`〜`.leaf4`・`.lexp`・`.mrg`・`.err`・`.dep` | book のコマンドが自分で保存した book（中身は book のファイル） | [6.6](06-book-basics.md) |
 | `book.dat.tmp.番号` | 保存の途中の一時ファイル（残っていたら、消してよい） | [13.3](13-troubleshooting.md) |
 | `book.dat.damaged`（`.damaged.1`…） | 読めなかった book のファイルを、上書きせずに残したもの | [13.1](13-troubleshooting.md) |
 | `book.dat.old`（`.old.1`…） | `book new`・`book load 別のファイル`・`book import` の前の book のファイルを、上書きせずに残したもの | [6.6](06-book-basics.md)・[6.7](06-book-basics.md) |

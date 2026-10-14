@@ -107,7 +107,7 @@ The `bin/config.ini` of the package holds these settings. The "built-in value" i
 | `book-merge-auto-save` | `on` | `on` | After each successful `book merge`, save to `<book file>.mrg`. [Chapter 8](08-book-maintenance.md) |
 | `hash-table-size` | `auto` | 21 | Size of the hash table of the search. `auto`: chosen from the number of threads. [Chapter 5](05-search.md) |
 | `book-expand-tasks` | `auto` | 1 | Number of positions that the automatic book commands expand at the same time. Chapters [7](07-book-learning.md) and [9](09-large-books.md) |
-| `book-leaf-recalculate-rounds` | `1` | 1 | Largest number of rounds of `book leaf-recalculate` and its family. [Chapter 8](08-book-maintenance.md) |
+| `book-leaf-recalculate-rounds` | `1` | 1 | Largest number of rounds of `book leaf recalculate` and its family. [Chapter 8](08-book-maintenance.md) |
 | `book-store-tasks` | `auto` | `auto` | Number of games learned at the same time by the commands that grow a book from games. Chapters [7](07-book-learning.md) and [9](09-large-books.md) |
 | `probcut-model` | `standard` | `standard` | Pruning model of the search. `refit` is experimental (it changes the search results; read the v4.5.5-nikque.5 section of the README of the package before using it) |
 

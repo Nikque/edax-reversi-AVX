@@ -16,7 +16,7 @@ This chapter explains the commands that fix a finished book, merge books, cut a 
 | Make the book shallower, or keep what follows one opening only | `book depth` + `book subtree` | 8.4 |
 | Drop the lines where both sides play badly | `book prune` | 8.4 |
 | Write to a text file and read back | `book export`, `book import` | 8.5 |
-| Compute the scores of the leaves again, after `eval.dat` was replaced for instance | the `book leaf-recalculate` family | 8.6 |
+| Compute the scores of the leaves again, after `eval.dat` was replaced for instance | the `book leaf recalculate` family | 8.6 |
 | Verify the values of the exactly solved positions | `book correct` | 8.7 |
 | Take games or problems out of the book | `book extract`, `book problem` | 8.8 |
 
@@ -32,7 +32,7 @@ Sorting book...done>
 
 Starting from the initial position and following the links, the score of every position is computed again from the values of the positions below it. Then the moves of each position are sorted, best first.
 
-- The commands that change the book run negamax by themselves, so you seldom need to type it. You do after loading an intermediate file (above all one saved during `book leaf-recalculate`).
+- The commands that change the book run negamax by themselves, so you seldom need to type it. You do after loading an intermediate file (above all one saved during `book leaf recalculate`).
 - Positions that cannot be reached from the initial position through links (stray positions that no position links to) are not computed again.
 
 ### book fix
@@ -187,16 +187,16 @@ The last line of the file holds the depth of the book (since v4.5.5-nikque.13).
 - **Imported by a version up to v4.5.5-nikque.12**, the depth is one more than that (`Depth: 13` for a book grown down to depth 12). These versions cannot read the last line of a file exported by the new version: they print `WARNING: wrong board: % depth 12` and `WARNING: 1 lines of … hold no position: skipped` and skip that line (all the positions are read).
 - For a large book, the text file is much larger than the book file (for the small book above: 170 KB against 99 KB). Use `book save` for everyday saving.
 
-## 8.6 Computing the scores of the leaves again: book leaf-recalculate
+## 8.6 Computing the scores of the leaves again: book leaf recalculate
 
-The score of a leaf in the book is the value of the search that made that leaf. When `eval.dat` is replaced by another one, the positions added from then on get the values of the new evaluation function, but **the leaves that were there before keep their old values**. The `book leaf-recalculate` family searches the leaves again and replaces their values with those of the current evaluation function. No position is added.
+The score of a leaf in the book is the value of the search that made that leaf. When `eval.dat` is replaced by another one, the positions added from then on get the values of the new evaluation function, but **the leaves that were there before keep their old values**. The `book leaf recalculate` family searches the leaves again and replaces their values with those of the current evaluation function. No position is added.
 
 | Command | Range followed | Leaves computed again |
 |---|---|---|
-| `book leaf-recalculate X Y` | As `book deviate X Y` | The leaves that `book deviate X Y` would choose to expand |
-| `book leaf-recalculate2 X Y` | As `book deviate2 X Y` | The leaves that `book deviate2 X Y` would choose to expand |
-| `book leaf-recalculate3 X Y` | As `book deviate X Y` | All the leaves of the positions followed |
-| `book leaf-recalculate4 X Y` | As `book deviate2 X Y` | All the leaves of the positions followed |
+| `book leaf recalculate X Y` | As `book deviate X Y` | The leaves that `book deviate X Y` would choose to expand |
+| `book leaf recalculate2 X Y` | As `book deviate2 X Y` | The leaves that `book deviate2 X Y` would choose to expand |
+| `book leaf recalculate3 X Y` | As `book deviate X Y` | All the leaves of the positions followed |
+| `book leaf recalculate4 X Y` | As `book deviate2 X Y` | All the leaves of the positions followed |
 
 - The meaning of X and Y, and the start from the position on the board, are those of the matching `book deviate` or `book deviate2` ([7.3](07-book-learning.md)).
 - **The leaves of exactly solved positions are not computed again** (their value is the same whatever the evaluation function). Positions without a leaf (all moves are links) are not concerned either.
@@ -207,11 +207,11 @@ The score of a leaf in the book is the value of the search that made that leaf. 
 An example of the output (small book):
 
 ```
->book leaf-recalculate4 2 4
-Book leaf-recalculate4 2 4:
-Book leaf-recalculate4 123 todo
-Book leaf-recalculate4...
-Book leaf-recalculate4 2 4...finished: 123 leaves, 0 scores changed (0 up, 0 down, largest +0 / -0), 0 moves changed
+>book leaf recalculate4 2 4
+Book leaf recalculate4 2 4:
+Book leaf recalculate4 123 todo
+Book leaf recalculate4...
+Book leaf recalculate4 2 4...finished: 123 leaves, 0 scores changed (0 up, 0 down, largest +0 / -0), 0 moves changed
 ```
 
 The last line gives the number of leaves computed again, the number of scores that changed (how many went up, how many down, the largest changes), and the number of moves that changed.
@@ -222,7 +222,7 @@ By default the command **follows the range once and ends**. But computing leaves
 
 With the setting `book-leaf-recalculate-rounds = n` (since v4.5.5-nikque.13), "follow → compute again → negamax" is repeated up to n times and **ends with the pass in which no leaf changed**. The default is 1.
 
-- The example of the README of the package (a book of 6.49 million positions, `book leaf-recalculate4 1 1`): repeated one pass at a time, the leaves to compute were 4,066 → 780 → 247 → 485 → 386 and the scores changed 1,419 → 411 → 42 → 46 → 0. With `book-leaf-recalculate-rounds = 10`, it ended after 5 passes.
+- The example of the README of the package (a book of 6.49 million positions, `book leaf recalculate4 1 1`): repeated one pass at a time, the leaves to compute were 4,066 → 780 → 247 → 485 → 386 and the scores changed 1,419 → 411 → 42 → 46 → 0. With `book-leaf-recalculate-rounds = 10`, it ended after 5 passes.
 - The values of a search with several threads vary a little from run to run, so "the pass in which nothing changed" may never come. The command then ends after n passes.
 - **Even when `eval.dat` was not replaced, some leaves get another value when computed again** (the search that made the leaf and a search run alone afterwards do not have quite the same conditions). The detailed figures are in the sections on v4.5.5-nikque.12 and 13 of the README.
 
@@ -230,10 +230,10 @@ With the setting `book-leaf-recalculate-rounds = n` (since v4.5.5-nikque.13), "f
 
 1. Copy the book file.
 2. Start Edax with the new `eval.dat` (`-eval-file`, or replace the file).
-3. After `init`, type `book leaf-recalculate4 X Y` (X and Y: the numbers you usually give to `book deviate2`).
+3. After `init`, type `book leaf recalculate4 X Y` (X and Y: the numbers you usually give to `book deviate2`).
 4. When it has ended, check with `book info` and `book show`, and save with `book save`.
 
-The time is proportional to the number of leaves. In the measurement of the README (a book of 661.62 million positions, level 18, 32 threads), `book leaf-recalculate2 5 5` had 2.75 million leaves to compute and searched about 2,350 of them per minute (the time for the whole was not measured).
+The time is proportional to the number of leaves. In the measurement of the README (a book of 661.62 million positions, level 18, 32 threads), `book leaf recalculate2 5 5` had 2.75 million leaves to compute and searched about 2,350 of them per minute (the time for the whole was not measured).
 
 ## 8.7 Other maintenance
 
@@ -299,7 +299,7 @@ Among the positions of the book with 52 empty squares in which the best move is 
 | `book subtree` | Keep only what follows the position on the board |
 | `book prune` | Keep only the lines where one side plays best moves |
 | `book export file`, `book import file` | Write to a text file, read back |
-| `book leaf-recalculate` (`2`, `3`, `4`) `X Y` | Compute the scores of the leaves again |
+| `book leaf recalculate` (`2`, `3`, `4`) `X Y` | Compute the scores of the leaves again |
 | `book correct` | Verify the exactly solved positions |
 | `book deepen` | (do not use) |
 | `book extract file` | Write the best lines to a game file |

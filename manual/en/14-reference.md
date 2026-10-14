@@ -70,7 +70,8 @@ They are written after `book` (or `b`). The word that follows may be in upper ca
 | `deviate2` | [X] (2) [Y] (4). X from 0 to 129, Y from 0 to 7740 | Automatic expansion (total of the losses; leaves of exactly solved positions excluded) | `.dev2` | [7.3](07-book-learning.md) |
 | `deviate3` | the same | The same (leaves of exactly solved positions included) | `.dev3` | [7.3](07-book-learning.md) |
 | `enhance` | [X] (2) [Y] (4). 0 to 129 | Expand the leaves that could change a score | `.enh` | [7.4](07-book-learning.md) |
-| `fill` | [n] (1). 1 to 61 | Fill in between positions | `.fill` | [7.4](07-book-learning.md) |
+| `fill` | [n] (1) [X Y]. n: 1 to 61, X: 0 to 129, Y: 0 to 7740 | Fill in between positions. With X Y: in the range of `deviate3 X Y` only | `.fill` | [7.4](07-book-learning.md) |
+| `fill2` | the same | Fill the gaps after the leaves | `.fill2` | [7.4](07-book-learning.md) |
 | `play` | | Extend the tips of the lines down to the depth | `.play` | [7.4](07-book-learning.md) |
 | `negamax` | | Compute the scores again | | [8.2](08-book-maintenance.md) |
 | `fix` | | Check, linking, negamax | | [8.2](08-book-maintenance.md) |
@@ -78,8 +79,9 @@ They are written after `book` (or `b`). The word that follows may be in upper ca
 | `subtree` | | Keep only what follows the current position | | [8.4](08-book-maintenance.md) |
 | `prune` | | Keep only the lines where one side plays best moves | | [8.4](08-book-maintenance.md) |
 | `export`, `import` | file | Write to a text file, read back | | [8.5](08-book-maintenance.md) |
-| `leaf-recalculate`, `leaf-recalculate3` | as `deviate` | Compute the leaves again | `.leaf`, `.leaf3` | [8.6](08-book-maintenance.md) |
-| `leaf-recalculate2`, `leaf-recalculate4` | as `deviate2` | Compute the leaves again | `.leaf2`, `.leaf4` | [8.6](08-book-maintenance.md) |
+| `leaf recalculate`, `leaf recalculate3` | as `deviate` | Compute the leaves again | `.leaf`, `.leaf3` | [8.6](08-book-maintenance.md) |
+| `leaf recalculate2`, `leaf recalculate4` | as `deviate2` | Compute the leaves again | `.leaf2`, `.leaf4` | [8.6](08-book-maintenance.md) |
+| `leaf expand` | [X Y]. X: 0 to 129, Y: 0 to 7740 | Expand the leaves better than every link. With X Y: in the range of `deviate3 X Y` only | `.lexp` | [7.4](07-book-learning.md) |
 | `correct` | | Verify the exactly solved positions | `.err` | [8.7](08-book-maintenance.md) |
 | `deepen` | | (do not use) | `.dep` | [8.7](08-book-maintenance.md) |
 | `extract` | file | Write the best lines as games | | [8.8](08-book-maintenance.md) |
@@ -146,7 +148,7 @@ Each of them can be given in three ways: in `config.ini` (`name = value`), on th
 | `book-store-auto-save` | `on` / `off` | `on` | | The `.store` file after `book store` and `learn` |
 | `book-expand-tasks` | 1 to the number of logical CPUs, `auto` | 1 | `auto` | The number of positions expanded at the same time |
 | `book-store-tasks` | 1 to the number of logical CPUs, `auto` | `auto` | `auto` | The number of games learned at the same time |
-| `book-leaf-recalculate-rounds` | 1 to 1000000 | 1 | 1 | The limit for the number of passes of the `book leaf-recalculate` family |
+| `book-leaf-recalculate-rounds` | 1 to 1000000 | 1 | 1 | The limit for the number of passes of the `book leaf recalculate` family |
 | `probcut-model` | `standard` / `refit` | `standard` | `standard` | The pruning method (`refit` is experimental) |
 | `auto-start`, `auto-swap`, `auto-store`, `auto-quit` | `on` / `off` | `off` | | What happens when a game ends ([3.9](03-playing.md)) |
 | `repeat` | a number | 0 | | The number of games played in a row |
@@ -180,7 +182,7 @@ Normally they are not changed. For their meaning, see the built-in help (`-help`
 |---|---|---|
 | `.dat` (`book.dat`) | A book | [6.6](06-book-basics.md) |
 | `.dat` (`eval.dat`) | The evaluation data | [1.3](01-introduction.md) |
-| `book.dat.store`, `.gam`, `.dev`, `.dev2`, `.dev3`, `.enh`, `.fill`, `.play`, `.leaf` to `.leaf4`, `.mrg`, `.err`, `.dep` | A book saved by a book command itself (an ordinary book file) | [6.6](06-book-basics.md) |
+| `book.dat.store`, `.gam`, `.dev`, `.dev2`, `.dev3`, `.enh`, `.fill`, `.fill2`, `.play`, `.leaf` to `.leaf4`, `.lexp`, `.mrg`, `.err`, `.dep` | A book saved by a book command itself (an ordinary book file) | [6.6](06-book-basics.md) |
 | `book.dat.tmp.number` | The temporary file of a save in progress (if one is left over, it can be deleted) | [13.3](13-troubleshooting.md) |
 | `book.dat.damaged` (`.damaged.1`, …) | A book file that could not be read, kept instead of being overwritten | [13.1](13-troubleshooting.md) |
 | `book.dat.old` (`.old.1`, …) | The book file from before `book new`, `book load` of another file or `book import`, kept instead of being overwritten | [6.6](06-book-basics.md), [6.7](06-book-basics.md) |
