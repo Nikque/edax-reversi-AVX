@@ -241,7 +241,8 @@ void help_book(void)
 		"  deviate2 <n1> <n2>  add positions with a per-move loss limit <n1> and\n  a cumulative loss limit for both players <n2>; skip solved leaves.\n"
 		"  deviate3 <n1> <n2>  same loss limits as deviate2, including solved leaves.\n"
 		"  enhance <n1> <n2>   add positions by improving score accuracy with a midgame\n  error <n1> and an endcut error <n2>.\n"
-		"  fill [n]            add positions between existing positions.\n"
+		"  fill [n] [n1 n2]    add positions between existing positions, up to <n> moves\n  apart; with <n1> <n2>, only from the positions that deviate3 <n1> <n2> walks.\n"
+		"  fill2 [n] [n1 n2]   same as fill, only through the leaf (best move not in the\n  book yet) of a position; with <n1> <n2>, only from the leaves that deviate3\n  <n1> <n2> would expand.\n"
 		"  prune               remove unreachable positions.\n"
 		"  subtree             only keep positions from the current position.\n"
 		"  add [file]          add positions from a game base file (txt, ggf, sgf or\n  wthor format).\n");
@@ -875,9 +876,22 @@ void ui_loop_edax(UI *ui)
 					book_enhance(book, &play->board, val_1, val_2);
 
 				// add position by filling hole in the book
-				} else if (strcmp(book_cmd, "fill") == 0) {
+				// (fill2: from the leaves only; with a per-move and a cumulative loss limit: from the positions of a deviate3 walk)
+				} else if (strcmp(book_cmd, "fill") == 0 || strcmp(book_cmd, "fill2") == 0) {
+					const bool leaf_only = (book_cmd[4] == '2');
+					char *limits;
+					int total_loss;
 					val_1 = 1; book_param = parse_int(book_param, &val_1); BOUND(val_1, 1, 61, "fill depth");
-					book_fill(book, val_1);
+					limits = parse_skip_spaces(book_param);
+					if (*limits) {
+						val_2 = 2; book_param = parse_int(limits, &val_2); BOUND(val_2, 0, 129, "per-move loss");
+						total_loss = 4; book_param = parse_int(book_param, &total_loss); BOUND(total_loss, 0, 7740, "cumulative loss");
+						book_fill_walk(book, &play->board, val_1, leaf_only, val_2, total_loss);
+					} else if (leaf_only) {
+						book_fill2(book, val_1);
+					} else {
+						book_fill(book, val_1);
+					}
 
 				// add positions by expanding positions with no-link
 				} else if (strcmp(book_cmd, "play") == 0) {

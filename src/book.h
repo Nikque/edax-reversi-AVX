@@ -95,6 +95,8 @@ void book_correct_solved(Book*);
 void book_link(Book*);
 void book_fix(Book*);
 void book_fill(Book *book, const int);
+void book_fill2(Book *book, const int);
+void book_fill_walk(Book*, Board*, const int, const bool, const int, const int);
 void book_deviate(Book*, Board*, const int, const int);
 void book_deviate2(Book*, Board*, const int, const int);
 void book_deviate3(Book*, Board*, const int, const int);
