@@ -244,14 +244,14 @@ f5f4e3
 - `book fill`・`fill2` の n は「**ちょうど n 手先**」です。n 手より近い所の欠けは埋めません。欠けている局面が 1 つだけの所（局面 → 欠けた局面 → book の局面）は、n = 2 で埋まります。`book fill2` は、数を省くと 2 です（`book fill2 1` は、足す局面がないので何もしません）。
 - 同時に行う探索の数は、`book deviate` と同じく `book-expand-tasks`（7.6）に従います。設定がないとき（1）は、1 つずつ探索します。
 - 埋める・広げる元になる局面は、複数のスレッドで探します。book の写しは作りません。
-- **どの周も、初めに「Leaf の手の先の局面が、もう book にある局面」に Link を張ります**（その局面は、Leaf を探し直します）。別の手順から同じ局面が足されると、こういう局面ができます（`book deviate` でもできます）。`book fix` でも張られますが、探し直した Leaf がまた Link より良くなることがあるので、これらのコマンドは自分で張り、張るもの・埋めるもの・広げるものがなくなるまで繰り返します。範囲を付けたときは、`deviate3 X Y` がたどる局面だけです。
+- **どの周も、初めに Link を張ります。** `book fill`・`fill2` は「手の先の局面が、もう book にあるのに、その手が Link になっていない局面」（どの手でも）に、`book leaf expand` は「Leaf の手の先の局面が、もう book にある局面」に張ります（Leaf が Link になった局面は、Leaf を探し直します）。別の手順から同じ局面が足されると、こういう局面ができます（`book deviate` でもできます）。`book fix` でも張られますが、探し直した Leaf がまた Link より良くなることがあるので、これらのコマンドは自分で張り、張るもの・埋めるもの・広げるものがなくなるまで繰り返します。範囲を付けたときは、`deviate3 X Y` がたどる局面だけです。`book fill`・`fill2` の後は、範囲の中に欠けた Link は残りません（v4.5.5-nikque.13 までの `book fill` も、埋め始めの局面のまわりの局面の欠けた Link を張っていました）。`book leaf expand` は Leaf 以外の手の Link は張らないので、そちらは `book fix` で張ります。
 
 表示の例（上の 7.1 の小さい book で、`deviate2 2 4` の後）：
 
 ```
 >book fill2 2
-Book fill2 (links): 8 leaves lead to a position of the book
-Book fill2 (links)...8/8: 0 positions, 12 links
+Book fill2 (links): 13 positions have a move to a position of the book that is not a link
+Book fill2 (links)...13/13: 0 positions, 17 links
 Book fill2 2: 36 positions to fill from
 Book fill2...36/36: 36 positions, 75 links
  …（足すものがなくなるまで繰り返す）…
@@ -259,18 +259,21 @@ Book fill2 2... finished
 
 >book fill 2 2 4
 Book fill 2 2 4:
-Book fill 795 positions selected, 34 to fill from
-Book fill...34/34: 36 positions, 76 links
+Book fill (links): 8 positions have a move to a position of the book that is not a link
+Book fill (links)...8/8: 0 positions, 10 links
+Book fill 781 positions selected, 52 to fill from
+Book fill...52/52: 56 positions, 117 links
  …
 Book fill 2 2 4...finished
 
->book leaf expand 2 4
-Book leaf expand 2 4:
-Book leaf expand 7 todo
+>book leaf expand 3 6
+Book leaf expand 3 6:
+Book leaf expand (links): 6 leaves lead to a position of the book
+Book leaf expand 3 todo
 Book leaf expand...
-Book leaf expand...1/7 done: 1 positions, 1 links
+Book leaf expand...1/3 done: 1 positions, 1 links
  …
-Book leaf expand 2 4...finished
+Book leaf expand 3 6...finished
 ```
 
 `(links)` の行は、Link を張った局面の数です。`positions selected` は `deviate3` のたどりで選ばれた局面の数、`to fill from` はそのうち実際に埋める元になる局面の数、`positions, links` は足した局面と Link の数です。

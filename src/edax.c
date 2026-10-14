@@ -244,7 +244,7 @@ void help_book(void)
 		"  deviate3 <n1> <n2>  same loss limits as deviate2, including solved leaves.\n"
 		"  enhance <n1> <n2>   add positions by improving score accuracy with a midgame\n  error <n1> and an endcut error <n2>.\n"
 		"  fill [n] [n1 n2]    add positions between existing positions exactly <n> moves\n  apart (default 1); with <n1> <n2>, only from the positions that deviate3\n  <n1> <n2> walks.\n"
-		"  fill2 [n] [n1 n2]   same as fill (default 2), only through the leaf (best move\n  not in the book yet) of a position; with <n1> <n2>, only from the leaves that deviate3\n  <n1> <n2> would expand.\n"
+		"  fill2 [n] [n1 n2]   same as fill (default 2), only through the leaf (best move\n  not in the book yet) of a position; with <n1> <n2>, only from the leaves\n  that deviate3 <n1> <n2> would expand.\n"
 		"  leaf recalculate <n1> <n2>  search again the leaves that deviate <n1> <n2> would\n  expand (leaf recalculate2: deviate2; 3, 4: the leaves of all the positions\n  of the walk of deviate, deviate2).\n"
 		"  leaf expand [n1 n2] expand the leaves better than every link of their\n  position; with <n1> <n2>, only in the walk of deviate3 <n1> <n2>.\n"
 		"  prune               remove unreachable positions.\n"

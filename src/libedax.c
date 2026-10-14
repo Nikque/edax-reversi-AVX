@@ -2106,24 +2106,7 @@ LIBEDAX_API void edax_book_enhance(int midgame_error, int endcut_error)
 	lib_book_end(book);
 }
 
-/**
- * @brief book fill command.
- * @param fill_depth fill depth.
- */
-LIBEDAX_API void edax_book_fill(int fill_depth)
-{
-	Book *book;
-	if (g_ui == NULL) return;
-	book = lib_book_begin_change();
-
-	// add position by filling hole in the book
-	BOUND(fill_depth, 1, 61, "fill depth");
-	book_fill(book, fill_depth);
-
-	lib_book_end(book);
-}
-
-/** book fill and book fill2 commands (the caller checked g_ui) */
+/** book fill and book fill2 commands, adding positions by filling holes in the book (the caller checked g_ui) */
 static void lib_book_fill(int fill_depth, const bool leaf_only, const bool limited, int move_loss, int total_loss)
 {
 	Book *book = lib_book_begin_change();
@@ -2140,6 +2123,16 @@ static void lib_book_fill(int fill_depth, const bool leaf_only, const bool limit
 	}
 
 	lib_book_end(book);
+}
+
+/**
+ * @brief book fill command.
+ * @param fill_depth fill depth.
+ */
+LIBEDAX_API void edax_book_fill(int fill_depth)
+{
+	if (g_ui == NULL) return;
+	lib_book_fill(fill_depth, false, false, 0, 0);
 }
 
 /**

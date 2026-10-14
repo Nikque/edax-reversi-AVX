@@ -244,14 +244,14 @@ With two more numbers X and Y, as in `book fill 2 5 5`, `book fill2 2 5 5` or `b
 - The n of `book fill` and `fill2` means "**exactly n moves**": a gap closer than n moves is not filled. Where a single position is missing (position → missing position → position of the book), n = 2 fills it. Without a number, `book fill2` uses 2 (`book fill2 1` adds no position, so it does nothing).
 - The number of searches done at the same time follows `book-expand-tasks` (7.6), as for `book deviate`. Without that setting (1), the positions are searched one after the other.
 - The positions to fill or expand from are found by several threads, without any copy of the book.
-- **Every round first links "the positions whose leaf move leads to a position that is already in the book"** (such a position searches its leaf again). These positions appear when the same position is added from another line (`book deviate` makes them too). `book fix` links them as well, but a leaf searched again may be better than the links again, so these commands link them themselves and repeat until nothing is left to link, fill or expand. With the two numbers, only in the positions that `deviate3 X Y` follows.
+- **Every round first adds links.** `book fill` and `fill2` link "the positions with a move (any move) that leads to a position already in the book but is not a link"; `book leaf expand` links "the positions whose leaf move leads to a position already in the book" (a position whose leaf became a link searches its leaf again). These positions appear when the same position is added from another line (`book deviate` makes them too). `book fix` links them as well, but a leaf searched again may be better than the links again, so these commands link them themselves and repeat until nothing is left to link, fill or expand. With the two numbers, only in the positions that `deviate3 X Y` follows. After `book fill` and `fill2`, no missing link is left in the range (up to v4.5.5-nikque.13, `book fill` also added the missing links of the positions around the positions it filled from). `book leaf expand` links the leaves only: `book fix` adds the other missing links.
 
 An example of the output (the small book of 7.1, after `deviate2 2 4`):
 
 ```
 >book fill2 2
-Book fill2 (links): 8 leaves lead to a position of the book
-Book fill2 (links)...8/8: 0 positions, 12 links
+Book fill2 (links): 13 positions have a move to a position of the book that is not a link
+Book fill2 (links)...13/13: 0 positions, 17 links
 Book fill2 2: 36 positions to fill from
 Book fill2...36/36: 36 positions, 75 links
  … (repeated until nothing is added) …
@@ -259,18 +259,21 @@ Book fill2 2... finished
 
 >book fill 2 2 4
 Book fill 2 2 4:
-Book fill 795 positions selected, 34 to fill from
-Book fill...34/34: 36 positions, 76 links
+Book fill (links): 8 positions have a move to a position of the book that is not a link
+Book fill (links)...8/8: 0 positions, 10 links
+Book fill 781 positions selected, 52 to fill from
+Book fill...52/52: 56 positions, 117 links
  …
 Book fill 2 2 4...finished
 
->book leaf expand 2 4
-Book leaf expand 2 4:
-Book leaf expand 7 todo
+>book leaf expand 3 6
+Book leaf expand 3 6:
+Book leaf expand (links): 6 leaves lead to a position of the book
+Book leaf expand 3 todo
 Book leaf expand...
-Book leaf expand...1/7 done: 1 positions, 1 links
+Book leaf expand...1/3 done: 1 positions, 1 links
  …
-Book leaf expand 2 4...finished
+Book leaf expand 3 6...finished
 ```
 
 The `(links)` lines give the positions linked. `positions selected` is the number of positions chosen by the walk of `deviate3`, `to fill from` the number of them that are really filled from, and `positions, links` the positions and links added.
