@@ -7226,7 +7226,8 @@ void book_feed_hash(const Book *book, Board *board, Search *search)
  * planned searches. Up to v4.5.5-nikque.13, book fill used one thread, filled at once from the positions
  * added in the same round, and did not link the position filled from (BOOK_TEST_FILL_OLD: that way).
  * book fill 1 adds no position and keeps that way: the positions one move after the positions of the
- * book get their missing links. book fill2 1 and the limited commands with a depth of 1 do nothing.
+ * book get their missing links. book fill2 1 and the limited commands with a depth of 1 only tell that
+ * there is nothing to fill.
  */
 
 /** planned searches for each thread in a batch of book fill / fill2 */
@@ -7333,29 +7334,34 @@ static bool position_fill(Book *book, const unsigned long long key, const int de
 	Position *p = book_position(book, key);
 	Board board;
 	Link *l;
+	bool filled;
 	int x;
 
 	if (depth < 1) return false;
 	if (leaf_only) {
 		if (p->leaf.move == NOMOVE) return false;
 		board = position_leaf_board(p);
-		if (board_fill(&board, book, depth - 1)) book_add_board(book, &board);
+		filled = board_fill(&board, book, depth - 1);
+		if (filled) book_add_board(book, &board);
 	} else {
 		board = p->board; // board_fill() changes its board, and adding positions may move p
-		board_fill(&board, book, depth);
+		filled = board_fill(&board, book, depth);
 	}
-	if (book->stats.n_nodes == n_nodes) return false;
+	// a line reaches the book: the position gets its links, even when the positions of the line were
+	// added just before from another position (the same position reached by another line)
+	if (!filled) return false;
 
 	p = book_position(book, key); // (the positions of its bucket may have moved to another block)
 	x = p->leaf.move;
 	position_link(p, book);
 	if (x != NOMOVE) foreach_link(l, p) {
-		if (l->move == x) { // the leaf is a link now: search the next leaf
+		if (l->move == x) { // the leaf is a link now: search the next leaf (its score is the score of the link, as in position_expand)
+			p->leaf.score = l->score;
 			position_search(p, book);
 			break;
 		}
 	}
-	return true;
+	return book->stats.n_nodes != n_nodes;
 }
 
 /**
@@ -7497,6 +7503,10 @@ static void book_fill_all(Book *book, const int depth, const bool leaf_only)
 	bool oom;
 	char file[FILENAME_MAX + 1];
 
+	if (depth < 2) { // (no position is between a position and the next one)
+		bprint("%s %d: nothing to fill (a distance of 2 at least is needed)\n", name, depth);
+		return;
+	}
 	file_add_ext(options.book_file, leaf_only ? ".fill2" : ".fill", file);
 	fill_scan_depth = depth;
 	fill_scan_leaf_only = leaf_only;
@@ -7644,6 +7654,10 @@ void book_fill_walk(Book *book, Board *board, const int depth, const bool leaf_o
 	char file[FILENAME_MAX + 1];
 
 	if (root == NULL) return;
+	if (depth < 2) { // (no position is between a position and the next one)
+		bprint("%s %d %d %d: nothing to fill (a distance of 2 at least is needed)\n", name, depth, move_loss, total_loss);
+		return;
+	}
 	file_add_ext(options.book_file, leaf_only ? ".fill2" : ".fill", file);
 	book_clean(book);
 	book_negamax_position(root, book);
