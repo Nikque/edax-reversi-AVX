@@ -2026,7 +2026,7 @@ LIBEDAX_API void edax_book_deviate3(int move_loss, int total_loss)
 	lib_book_end(book);
 }
 
-/** book leaf-recalculate commands (the caller checked g_ui) */
+/** book leaf recalculate commands (the caller checked g_ui) */
 static void lib_book_leaf_recalculate(const int kind, int x, int y)
 {
 	Book *book = lib_book_begin_change();
@@ -2044,7 +2044,7 @@ static void lib_book_leaf_recalculate(const int kind, int x, int y)
 }
 
 /**
- * @brief book leaf-recalculate command: search again the leaves that book deviate would expand (one pass).
+ * @brief book leaf recalculate command: search again the leaves that book deviate would expand (one pass).
  * @param relative_error relative error.
  * @param absolute_error absolute error.
  */
@@ -2055,7 +2055,7 @@ LIBEDAX_API void edax_book_leaf_recalculate(int relative_error, int absolute_err
 }
 
 /**
- * @brief book leaf-recalculate2 command: search again the leaves that book deviate2 would expand (one pass).
+ * @brief book leaf recalculate2 command: search again the leaves that book deviate2 would expand (one pass).
  * @param move_loss per-move loss limit.
  * @param total_loss cumulative loss limit for both players.
  */
@@ -2066,7 +2066,7 @@ LIBEDAX_API void edax_book_leaf_recalculate2(int move_loss, int total_loss)
 }
 
 /**
- * @brief book leaf-recalculate3 command: search again the leaves of all the positions that book deviate walks.
+ * @brief book leaf recalculate3 command: search again the leaves of all the positions that book deviate walks.
  * @param relative_error relative error.
  * @param absolute_error absolute error.
  */
@@ -2077,7 +2077,7 @@ LIBEDAX_API void edax_book_leaf_recalculate3(int relative_error, int absolute_er
 }
 
 /**
- * @brief book leaf-recalculate4 command: search again the leaves of all the positions that book deviate2 walks.
+ * @brief book leaf recalculate4 command: search again the leaves of all the positions that book deviate2 walks.
  * @param move_loss per-move loss limit.
  * @param total_loss cumulative loss limit for both players.
  */

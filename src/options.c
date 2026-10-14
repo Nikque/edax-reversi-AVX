@@ -94,7 +94,7 @@ Options options = {
 	0, // book depth: auto (the depth of the loaded book)
 	0, // games learned at the same time: auto
 	true, // save the book to <book-file>.store after book store
-	1, // passes of book leaf-recalculate
+	1, // passes of book leaf recalculate
 };
 
 /**
@@ -590,7 +590,7 @@ void options_dump(FILE *f)
 	fprintf(f, "\tbook deviate-save interval: %d productive rounds (0 = completion only)\n", options.book_deviate_save_rounds);
 	fprintf(f, "\tbook merge auto-save: %s\n", boolean_string[options.book_merge_auto_save]);
 	fprintf(f, "\tbook store auto-save: %s\n", boolean_string[options.book_store_auto_save]);
-	fprintf(f, "\tbook leaf-recalculate rounds: %d\n", options.book_leaf_recalculate_rounds);
+	fprintf(f, "\tbook leaf recalculate rounds: %d\n", options.book_leaf_recalculate_rounds);
 	if (options.book_store_tasks > 0) fprintf(f, "\tbook store tasks: %d\n\n", options.book_store_tasks);
 	else fprintf(f, "\tbook store tasks: auto\n\n");
 

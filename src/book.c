@@ -1788,7 +1788,7 @@ static bool position_has_missing_link(const Position *position, const Book *book
 }
 
 /*
- * book leaf-recalculate: the walks of book deviate / deviate2 are used to select the leaves to
+ * book leaf recalculate: the walks of book deviate / deviate2 are used to select the leaves to
  * search again, instead of the positions to expand.
  * - LEAF_RECALC_SELECTED: the positions that the walk would expand (leaf inside the limits),
  * - LEAF_RECALC_WALKED: every position that the walk goes through, and the positions just under
@@ -1809,7 +1809,7 @@ static bool position_is_solved(const Position *p)
 }
 
 /**
- * @return true if the leaf of the position can be searched again by book leaf-recalculate:
+ * @return true if the leaf of the position can be searched again by book leaf recalculate:
  * a move that is not a link yet, or the pass of a position without move whose next position is not in
  * the book (its score comes from a search too; up to v4.5.5-nikque.12 such a leaf was never searched again).
  * The end of the game has no leaf move, and its score does not depend on eval.dat.
@@ -1866,7 +1866,7 @@ static void position_deviate(Position *position, Book *book, const int player_de
 		}
 
 		// expand the best remaining move
-		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
 			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
 			 || (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper))) {
 				book_mark_todo(book, position); book->stats.n_todo++;
@@ -1953,7 +1953,7 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 		&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) return;
 
 	move_error = position->score.value - position->leaf.score;
-	if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+	if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
 		if (leaf_recalc_wanted(position) && !position_is_todo(position, book) && (leaf_recalc_mode == LEAF_RECALC_WALKED
 		 || (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss))) {
 			book_mark_todo(book, position);
@@ -4646,7 +4646,7 @@ static int book_expand_task_count(const Book *book, const long long n_todo)
 
 /**
  * @brief Size of the hash tables of the searches that the book functions run at the same time
- * (book deviate, book enhance, book correct, book leaf-recalculate: book-expand-tasks).
+ * (book deviate, book enhance, book correct, book leaf recalculate: book-expand-tasks).
  *
  * The size that hash-table-size gives to a search with these threads. A round of book-expand-tasks =
  * auto that gives one thread to each search has twice as many searches as a round that gives them two
@@ -5174,7 +5174,7 @@ static void* loss_worker_run(void *v)
 			&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) continue;
 
 		move_error = position->score.value - position->leaf.score;
-		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
 			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
 			 || (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss))) deviate_worker_todo(w, position);
 		} else
@@ -5205,7 +5205,7 @@ static bool book_deviate_total_by_loss(Book *book, Position *root, const int mod
 	}
 
 	if (ok && deviate_total_walkable(book, root) && deviate_total_relax(book, root, 0)) ok = position_list_push(level + 0, root);
-	else if (ok && leaf_recalc_bottom(book, root)) { // (book leaf-recalculate4 from a position just under the depth of the book: its leaf, as position_deviate_total)
+	else if (ok && leaf_recalc_bottom(book, root)) { // (book leaf recalculate4 from a position just under the depth of the book: its leaf, as position_deviate_total)
 		deviate_worker_todo(&lw[0].w, root);
 		if (lw[0].w.oom) ok = false;
 	}
@@ -5289,7 +5289,7 @@ static void* depth_worker_run(void *v)
 				if (child && atomic_load_uchar(book_visit(book, child)) != child_mark && !position_list_push(&lw->same, child)) w->oom = true;
 			}
 		}
-		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
 			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
 			 || (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper))) deviate_worker_todo(w, position);
 		} else
@@ -5489,7 +5489,7 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 }
 
 /*
- * book leaf-recalculate: search again the leaves that a walk of book deviate / deviate2 selects
+ * book leaf recalculate: search again the leaves that a walk of book deviate / deviate2 selects
  * (after eval.dat was changed, for instance). No position is added, removed or moved.
  */
 
@@ -5499,7 +5499,7 @@ typedef struct LeafRecalcStats {
 	int max_up, max_down;
 } LeafRecalcStats;
 
-/** state shared by the threads of book leaf-recalculate */
+/** state shared by the threads of book leaf recalculate */
 typedef struct LeafRecalcShared {
 	Book *book;
 	Lock lock;                  /**< guards the book, the counters and the output */
@@ -5626,7 +5626,7 @@ static void book_leaf_recalc_search(Book *book, const char *name, const char *tm
 }
 
 /**
- * @brief Search again the leaves that book deviate or book deviate2 reaches (book leaf-recalculate, 2, 3, 4).
+ * @brief Search again the leaves that book deviate or book deviate2 reaches (book leaf recalculate, 2, 3, 4).
  *
  * A round walks once (the commands do not loop as book deviate does, unless the setting below asks for it):
  * - kind 1: as book deviate, the leaves of the positions that it would expand,
@@ -5650,7 +5650,7 @@ static void book_leaf_recalc_search(Book *book, const char *name, const char *tm
  */
 void book_leaf_recalculate(Book *book, Board *board, const int kind, const int x, const int y)
 {
-	static const char *const names[] = {"Book leaf-recalculate", "Book leaf-recalculate2", "Book leaf-recalculate3", "Book leaf-recalculate4"};
+	static const char *const names[] = {"Book leaf recalculate", "Book leaf recalculate2", "Book leaf recalculate3", "Book leaf recalculate4"};
 	static const char *const exts[] = {".leaf", ".leaf2", ".leaf3", ".leaf4"};
 	Position *root = book_probe(book, board);
 	const char *name;

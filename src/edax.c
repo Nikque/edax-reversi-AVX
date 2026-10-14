@@ -635,12 +635,13 @@ void ui_loop_edax(UI *ui)
 				book->failed = false; // see book_add()
 				book_param = parse_word(param, book_cmd, FILENAME_MAX);
 				string_to_lowercase(book_cmd); // "book Deviate 5 5" as "book deviate 5 5" (the arguments, as file names, are kept as typed)
-				// "book leaf recalculate 5 5", "book leaf expand 5 5": two words (the names with a hyphen, as book leaf-recalculate, still work)
+				// "book leaf recalculate 5 5", "book leaf expand 5 5": two words, read as the command "leaf recalculate", "leaf expand"
+				// (a word never holds a space: the names with a hyphen of v4.5.5-nikque.13, as book leaf-recalculate, are unknown commands)
 				if (strcmp(book_cmd, "leaf") == 0) {
 					char word[32];
 					book_param = parse_word(book_param, word, sizeof word - 1);
 					string_to_lowercase(word);
-					snprintf(book_cmd, sizeof book_cmd, "leaf-%s", word);
+					snprintf(book_cmd, sizeof book_cmd, "leaf %s", word);
 				}
 
 				// store the last played game
@@ -868,19 +869,19 @@ void ui_loop_edax(UI *ui)
 
 				// search again the leaves that book deviate (1, 3) or book deviate2 (2, 4) reaches:
 				// the leaves it would expand (1, 2), or the leaves of all the positions of its walk (3, 4)
-				} else if (strcmp(book_cmd, "leaf-recalculate") == 0 || strcmp(book_cmd, "leaf-recalculate3") == 0) {
+				} else if (strcmp(book_cmd, "leaf recalculate") == 0 || strcmp(book_cmd, "leaf recalculate3") == 0) {
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, -129, 129, "relative error");
 					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 65, "absolute error");
 					book_leaf_recalculate(book, &play->board, book_cmd[16] == '3' ? 3 : 1, val_1, val_2);
 
-				} else if (strcmp(book_cmd, "leaf-recalculate2") == 0 || strcmp(book_cmd, "leaf-recalculate4") == 0) {
+				} else if (strcmp(book_cmd, "leaf recalculate2") == 0 || strcmp(book_cmd, "leaf recalculate4") == 0) {
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
 					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
 					book_leaf_recalculate(book, &play->board, book_cmd[16] == '4' ? 4 : 2, val_1, val_2);
 
 				// expand the leaves better than every link of their position: of the whole book, or with a per-move
 				// and a cumulative loss limit, of the positions of a deviate3 walk
-				} else if (strcmp(book_cmd, "leaf-expand") == 0) {
+				} else if (strcmp(book_cmd, "leaf expand") == 0) {
 					char *limits = parse_skip_spaces(book_param);
 					if (*limits) {
 						val_1 = 2; book_param = parse_int(limits, &val_1); BOUND(val_1, 0, 129, "per-move loss");
