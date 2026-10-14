@@ -244,13 +244,16 @@ f5f4e3
 - `book fill`・`fill2` の n は「**ちょうど n 手先**」です。n 手より近い所の欠けは埋めません。欠けている局面が 1 つだけの所（局面 → 欠けた局面 → book の局面）は、n = 2 で埋まります。
 - 同時に行う探索の数は、`book deviate` と同じく `book-expand-tasks`（7.6）に従います。設定がないとき（1）は、1 つずつ探索します。
 - 埋める・広げる元になる局面は、複数のスレッドで探します。book の写しは作りません。
+- **どの周も、初めに「Leaf の手の先の局面が、もう book にある局面」に Link を張ります**（その局面は、Leaf を探し直します）。別の手順から同じ局面が足されると、こういう局面ができます（`book deviate` でもできます）。`book fix` でも張られますが、探し直した Leaf がまた Link より良くなることがあるので、これらのコマンドは自分で張り、張るもの・埋めるもの・広げるものがなくなるまで繰り返します。範囲を付けたときは、`deviate3 X Y` がたどる局面だけです。
 
 表示の例（上の 7.1 の小さい book で、`deviate2 2 4` の後）：
 
 ```
 >book fill2 2
-Book fill2 2: 35 positions to fill from
-Book fill2...35/35: 35 positions, 73 links
+Book fill2 (links): 8 leaves lead to a position of the book
+Book fill2 (links)...8/8: 0 positions, 12 links
+Book fill2 2: 36 positions to fill from
+Book fill2...36/36: 36 positions, 75 links
  …（足すものがなくなるまで繰り返す）…
 Book fill2 2... finished
 
@@ -270,7 +273,7 @@ Book leaf expand...1/7 done: 1 positions, 1 links
 Book leaf expand 2 4...finished
 ```
 
-`positions selected` は `deviate3` のたどりで選ばれた局面の数、`to fill from` はそのうち実際に埋める元になる局面の数、`positions, links` は足した局面と Link の数です。
+`(links)` の行は、Link を張った局面の数です。`positions selected` は `deviate3` のたどりで選ばれた局面の数、`to fill from` はそのうち実際に埋める元になる局面の数、`positions, links` は足した局面と Link の数です。
 
 小さい book での表示の例です。
 

@@ -244,13 +244,16 @@ With two more numbers X and Y, as in `book fill 2 5 5`, `book fill2 2 5 5` or `b
 - The n of `book fill` and `fill2` means "**exactly n moves**": a gap closer than n moves is not filled. Where a single position is missing (position → missing position → position of the book), n = 2 fills it.
 - The number of searches done at the same time follows `book-expand-tasks` (7.6), as for `book deviate`. Without that setting (1), the positions are searched one after the other.
 - The positions to fill or expand from are found by several threads, without any copy of the book.
+- **Every round first links "the positions whose leaf move leads to a position that is already in the book"** (such a position searches its leaf again). These positions appear when the same position is added from another line (`book deviate` makes them too). `book fix` links them as well, but a leaf searched again may be better than the links again, so these commands link them themselves and repeat until nothing is left to link, fill or expand. With the two numbers, only in the positions that `deviate3 X Y` follows.
 
 An example of the output (the small book of 7.1, after `deviate2 2 4`):
 
 ```
 >book fill2 2
-Book fill2 2: 35 positions to fill from
-Book fill2...35/35: 35 positions, 73 links
+Book fill2 (links): 8 leaves lead to a position of the book
+Book fill2 (links)...8/8: 0 positions, 12 links
+Book fill2 2: 36 positions to fill from
+Book fill2...36/36: 36 positions, 75 links
  … (repeated until nothing is added) …
 Book fill2 2... finished
 
@@ -270,7 +273,7 @@ Book leaf expand...1/7 done: 1 positions, 1 links
 Book leaf expand 2 4...finished
 ```
 
-`positions selected` is the number of positions chosen by the walk of `deviate3`, `to fill from` the number of them that are really filled from, and `positions, links` the positions and links added.
+The `(links)` lines give the positions linked. `positions selected` is the number of positions chosen by the walk of `deviate3`, `to fill from` the number of them that are really filled from, and `positions, links` the positions and links added.
 
 An example of the output on a small book:
 
