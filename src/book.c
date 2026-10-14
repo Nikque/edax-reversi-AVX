@@ -4988,13 +4988,17 @@ void book_play(Book *book)
 	search_pool_release(&expand_pool);
 }
 
+#ifdef BOOK_TEST_FILL_OLD
 /**
- * @brief Fill a book.
+ * @brief Fill a book as up to v4.5.5-nikque.13 (test builds, to compare: book fill <n> without limits).
+ *
+ * One thread; the positions added in a round are filled from in the same round; the position
+ * filled from gets no link to the positions added from it.
  *
  * @param book opening book.
  * @param depth Distance to fill between two positions.
  */
-void book_fill(Book *book, const int depth)
+static void book_fill_old(Book *book, const int depth)
 {
 	PositionArray *a;
 	Position *p;
@@ -5028,6 +5032,7 @@ void book_fill(Book *book, const int depth)
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	bprint("Book fill... finished\n");
 }
+#endif
 
 /*
  * Parallel selection of the positions to expand (book deviate, deviate2, deviate3).
@@ -6332,6 +6337,7 @@ typedef struct BookPlan {
 	struct PlanWorker *worker;     /**< threads doing the searches (book_plan_search) */
 	int n_worker, n_threads;       /**< workers started, threads that they share */
 	int n_continued;               /**< searches stopped and continued with more threads (only counted in the test builds) */
+	int max_workers;               /**< searches at the same time at most (book fill: book-expand-tasks); 0: one for each thread */
 } BookPlan;
 
 /** a thread doing planned searches */
@@ -6704,6 +6710,7 @@ void book_plan_search(Book *book)
 #endif
 	plan->n_threads = book_store_thread_count();
 	n = MIN(plan->n_threads, plan->n_job);
+	if (plan->max_workers > 0) n = MIN(n, plan->max_workers);
 	n_tasks = MIN(plan->n_threads / n, MAX_THREADS - 1);
 #ifdef BOOK_TEST_ONE_THREAD
 	n_tasks = 1;
@@ -7198,11 +7205,12 @@ void book_feed_hash(const Book *book, Board *board, Search *search)
 }
 
 /*
- * book fill2, and book fill / fill2 with loss limits.
+ * book fill and book fill2, without or with loss limits.
  *
- * book fill <n> without limits (book_fill above) looks at every move of every position. book fill2 <n>
- * only follows the leaf of a position: the position after the leaf move is added when a position
- * <n> - 1 moves further is in the book (with the positions between them). With a loss limit for one
+ * book fill <n> looks at every move of every position: the positions of a line of <n> moves that ends
+ * in the book are added. book fill2 <n> only follows the leaf of a position: the position after the leaf
+ * move is added when a position <n> - 1 moves further is in the book (with the positions between
+ * them). The positions added in a round are filled from in the next round. With a loss limit for one
  * move and a cumulative loss limit (as book deviate3), the positions filled from are those of the walk
  * of book deviate3 from the current position: all of them (book fill), or those whose leaf book
  * deviate3 would expand (book fill2). The leaves of the solved positions are followed too.
@@ -7212,12 +7220,14 @@ void book_feed_hash(const Book *book, Board *board, Search *search)
  *
  * As book deviate, the positions to fill from are found by several threads (the walk of book
  * deviate3, or a scan of the book by bucket ranges), and only those from which a position would be
- * added are kept. With book-store-tasks > 1, the searches of a batch of these positions are planned
- * and done at the same time (as book store: see book_plan_begin), then the positions are added one
- * after the other, in the same order as without a plan, with the results of the planned searches.
+ * added are kept. With book-expand-tasks other than 1 (as book deviate), the searches of a batch of these
+ * positions are planned and done at the same time (as book store: see book_plan_begin), then the
+ * positions are added one after the other, in the same order as without a plan, with the results of the
+ * planned searches. Up to v4.5.5-nikque.13, book fill used one thread, filled at once from the positions
+ * added in the same round, and did not link the position filled from (BOOK_TEST_FILL_OLD: that way).
  */
 
-/** planned searches for each thread in a batch of book fill / fill2 (book-store-tasks > 1) */
+/** planned searches for each thread in a batch of book fill / fill2 */
 #ifndef BOOK_FILL_PLAN_SEARCHES
 #define BOOK_FILL_PLAN_SEARCHES 64
 #endif
@@ -7410,7 +7420,9 @@ static void position_fill_plan(Book *book, const Board *origin, const int depth,
  */
 static void book_fill_boards(Book *book, const char *name, const char *file, const Board *boards, const long long n, const int depth, const bool leaf_only)
 {
-	const bool planned = (n > 1 && book_store_task_count() > 1);
+	// book-expand-tasks (as book deviate): 1 = one search after the other; n = n searches at the same time;
+	// auto = a search for each thread (the threads of the searches that end first go to the others)
+	const bool planned = (n > 1 && options.n_task > 1 && options.book_expand_tasks != 1 && !book_one_search_at_a_time());
 	const int max_jobs = BOOK_FILL_PLAN_SEARCHES * book_store_thread_count();
 	long long i = 0, j, end;
 	long long t = real_clock();
@@ -7418,6 +7430,7 @@ static void book_fill_boards(Book *book, const char *name, const char *file, con
 	while (i < n && !book->failed) {
 		end = n;
 		if (planned && book_plan_begin(book)) {
+			book_plan->max_workers = MAX(0, options.book_expand_tasks);
 			for (j = i; j < n; ++j) {
 				position_fill_plan(book, boards + j, depth, leaf_only);
 				if (book_plan->failed || book_plan->n_job >= max_jobs) { ++j; break; }
@@ -7446,10 +7459,11 @@ static void book_fill_boards(Book *book, const char *name, const char *file, con
 	bprint("%s...%lld/%lld: %lld positions, %lld links\n", name, i, n, book->stats.n_nodes, book->stats.n_links);
 }
 
-/** the scan of book fill2 without limits (by bucket ranges): the positions from which a position would be added */
+/** the scan of book fill / fill2 without limits (by bucket ranges): the positions from which a position would be added */
 static int fill_scan_depth = 2;
+static bool fill_scan_leaf_only = false;
 
-static void book_fill2_scan_task(BookTask *task)
+static void book_fill_scan_task(BookTask *task)
 {
 	Book *book = task->book;
 	int b, k;
@@ -7457,20 +7471,22 @@ static void book_fill2_scan_task(BookTask *task)
 	for (b = task->first; b < task->last; ++b) {
 		const PositionArray *a = book->array + b;
 		for (k = 0; k < a->n; ++k) {
-			if (position_fill_wanted(a->positions + k, book, fill_scan_depth, true)) book_task_push(task, TASK_ITEM(b, k, 0));
+			if (position_fill_wanted(a->positions + k, book, fill_scan_depth, fill_scan_leaf_only)) book_task_push(task, TASK_ITEM(b, k, 0));
 		}
 		task->done += a->n;
 	}
 }
 
 /**
- * @brief Fill a book from the leaves of all its positions (book fill2 without limits).
+ * @brief Fill a book from all its positions (book fill / fill2 without limits).
  *
  * @param book opening book.
  * @param depth Distance to fill.
+ * @param leaf_only Only through the leaves (book fill2).
  */
-void book_fill2(Book *book, const int depth)
+static void book_fill_all(Book *book, const int depth, const bool leaf_only)
 {
+	const char *name = leaf_only ? "Book fill2" : "Book fill";
 	BookTask task[MAX_THREADS];
 	Board *boards;
 	long long n_diffs = 0, n, j;
@@ -7478,11 +7494,12 @@ void book_fill2(Book *book, const int depth)
 	bool oom;
 	char file[FILENAME_MAX + 1];
 
-	file_add_ext(options.book_file, ".fill2", file);
+	file_add_ext(options.book_file, leaf_only ? ".fill2" : ".fill", file);
 	fill_scan_depth = depth;
+	fill_scan_leaf_only = leaf_only;
 	do {
 		book->stats.n_nodes = book->stats.n_links = 0;
-		n_tasks = book_parallel(book, book_fill2_scan_task, task, "Book fill2");
+		n_tasks = book_parallel(book, book_fill_scan_task, task, name);
 		n = 0; oom = false;
 		for (i = 0; i < n_tasks; ++i) { n += task[i].n; oom = oom || task[i].oom; }
 		boards = oom ? NULL : (Board*) malloc((n + 1) * sizeof *boards);
@@ -7495,8 +7512,8 @@ void book_fill2(Book *book, const int depth)
 			error("cannot allocate the list of the positions to fill from\n");
 			break;
 		}
-		bprint("Book fill2 %d: %lld positions to fill from\n", depth, n);
-		book_fill_boards(book, "Book fill2", file, boards, n, depth, true);
+		bprint("%s %d: %lld positions to fill from\n", name, depth, n);
+		book_fill_boards(book, name, file, boards, n, depth, leaf_only);
 		free(boards);
 		n_diffs = book->stats.n_nodes + book->stats.n_links;
 		if (n_diffs) {
@@ -7504,7 +7521,33 @@ void book_fill2(Book *book, const int depth)
 			book_save_progress(book, file);
 		}
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
-	bprint("Book fill2 %d... finished\n", depth);
+	bprint("%s %d... finished\n", name, depth);
+}
+
+/**
+ * @brief Fill a book (book fill <n> without limits).
+ *
+ * @param book opening book.
+ * @param depth Distance to fill between two positions.
+ */
+void book_fill(Book *book, const int depth)
+{
+#ifdef BOOK_TEST_FILL_OLD
+	book_fill_old(book, depth); // test builds: as up to v4.5.5-nikque.13, to compare
+#else
+	book_fill_all(book, depth, false);
+#endif
+}
+
+/**
+ * @brief Fill a book from the leaves of all its positions (book fill2 <n> without limits).
+ *
+ * @param book opening book.
+ * @param depth Distance to fill.
+ */
+void book_fill2(Book *book, const int depth)
+{
+	book_fill_all(book, depth, true);
 }
 
 /** a thread that keeps the selected positions of a walk from which a position would be added */
