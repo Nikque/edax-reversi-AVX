@@ -7665,3 +7665,146 @@ void book_fill_walk(Book *book, Board *board, const int depth, const bool leaf_o
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	bprint("%s %d %d %d...finished\n", name, depth, move_loss, total_loss);
 }
+
+/*
+ * book leaf expand: the leaves better than every link of their position.
+ *
+ * A position whose leaf (its best move that is not a link yet) has a better score than all its links
+ * has its best move out of the book. book leaf expand expands these leaves as book deviate expands a
+ * leaf (book_expand, with book-expand-tasks): the position after the leaf move is added and searched,
+ * and the position is searched again for its next leaf. This is done again until no such leaf is left
+ * (the next leaf may be better than the links again). Without limits: every position of the book that
+ * is not under its depth. With a per-move and a cumulative loss limit: the positions of the walk of
+ * book deviate3 from the current position (the leaves of the solved positions too).
+ *
+ * The positions are found without any copy of the book: by several threads that scan the book by
+ * bucket ranges, or by the walk of book deviate3 (which marks every such position of the walk: the loss
+ * of a leaf better than every link is 0), whose marks are then kept for these positions only.
+ */
+
+/** @return true if the leaf of a position is better than every link of it (and the position can be expanded). */
+static bool position_leaf_better(const Position *p, const Book *book)
+{
+	const Link *l;
+	int best = -SCORE_INF;
+
+	if (p->n_link == 0 || p->leaf.move == NOMOVE) return false;
+	if (board_count_empties(&p->board) < book->options.n_empties || board_is_game_over(&p->board)) return false;
+	for (l = position_links(p); l < position_links(p) + p->n_link; ++l) if (l->score > best) best = l->score;
+	return p->leaf.score > best;
+}
+
+static void book_leaf_expand_scan_task(BookTask *task)
+{
+	Book *book = task->book;
+	int b, k;
+
+	for (b = task->first; b < task->last; ++b) {
+		const PositionArray *a = book->array + b;
+		for (k = 0; k < a->n; ++k) {
+			if (position_leaf_better(a->positions + k, book)) book_task_push(task, TASK_ITEM(b, k, 0));
+		}
+		task->done += a->n;
+	}
+}
+
+/** Mark the positions of the book whose leaf is better than every link (after book_clean). */
+static void book_leaf_expand_scan(Book *book, const char *name)
+{
+	BookTask task[MAX_THREADS];
+	long long j;
+	int i, n_tasks;
+
+	n_tasks = book_parallel(book, book_leaf_expand_scan_task, task, name);
+	for (i = 0; i < n_tasks; ++i) {
+		if (task[i].oom) book->todo_list.valid = false; // (book_expand then scans the book for the marks)
+		for (j = 0; j < task[i].n; ++j) {
+			book_mark_todo(book, TASK_POSITION(book, task[i].item[j]));
+			++book->stats.n_todo;
+		}
+	}
+	book_tasks_free(task, n_tasks);
+	if (book->todo_list.valid == false) { // (a list was lost: mark the whole book again, one thread)
+		PositionArray *a;
+		Position *p;
+		book->stats.n_todo = 0;
+		foreach_position(p, a, book) if (position_leaf_better(p, book)) { position_set_todo(p, book); ++book->stats.n_todo; }
+	}
+}
+
+/** Keep the marks of a walk (book deviate3) on the positions whose leaf is better than every link only. */
+static void book_leaf_expand_keep(Book *book)
+{
+	long long i, n = 0;
+
+	if (book->todo_list.valid) {
+		for (i = 0; i < book->todo_list.n; ++i) {
+			Position *p = book_position(book, book->todo_list.item[i]);
+			if (position_leaf_better(p, book)) book->todo_list.item[n++] = book->todo_list.item[i];
+			else position_clear_todo(p);
+		}
+		book->todo_list.n = n;
+	} else {
+		PositionArray *a;
+		Position *p;
+		foreach_position(p, a, book) if (position_is_todo(p, book)) {
+			if (position_leaf_better(p, book)) ++n;
+			else position_clear_todo(p);
+		}
+	}
+	book->stats.n_todo = n;
+}
+
+/**
+ * @brief Expand the leaves better than every link of their position (book leaf expand).
+ *
+ * @param book opening book.
+ * @param board Position to start from (with limits).
+ * @param limited With loss limits: only in the walk of book deviate3.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ */
+void book_leaf_expand(Book *book, Board *board, const bool limited, const int move_loss, const int total_loss)
+{
+	const char *name = "Book leaf expand";
+	Position *root = NULL;
+	long long n_diffs;
+	int rounds_since_save = 0;
+	char file[FILENAME_MAX + 1];
+
+	file_add_ext(options.book_file, ".lexp", file);
+	if (limited) {
+		root = book_probe(book, board);
+		if (root == NULL) return;
+		book_clean(book);
+		book_negamax_position(root, book);
+	}
+
+	do {
+		if (limited) bprint("%s %d %d:\n", name, move_loss, total_loss);
+		else bprint("%s:\n", name);
+		book_clean(book);
+		if (limited) {
+			book_select_deviate_total(book, root, move_loss, total_loss, false);
+			book_leaf_expand_keep(book);
+		} else {
+			book_leaf_expand_scan(book, name);
+		}
+		bprint("%s %lld todo\n", name, book->stats.n_todo);
+
+		book_expand(book, name, file);
+		n_diffs = book->stats.n_nodes + book->stats.n_links;
+
+		if (limited) {
+			root = book_probe(book, board);
+			book_clean(book);
+			book_negamax_position(root, book);
+		} else if (n_diffs) {
+			book_negamax(book);
+		}
+		book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
+	} while (n_diffs && !book->failed); // stop if a position cannot be added
+	if (limited) bprint("%s %d %d...finished\n", name, move_loss, total_loss);
+	else bprint("%s...finished\n", name);
+	search_pool_release(&expand_pool);
+}

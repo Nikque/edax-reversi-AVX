@@ -243,6 +243,8 @@ void help_book(void)
 		"  enhance <n1> <n2>   add positions by improving score accuracy with a midgame\n  error <n1> and an endcut error <n2>.\n"
 		"  fill [n] [n1 n2]    add positions between existing positions, up to <n> moves\n  apart; with <n1> <n2>, only from the positions that deviate3 <n1> <n2> walks.\n"
 		"  fill2 [n] [n1 n2]   same as fill, only through the leaf (best move not in the\n  book yet) of a position; with <n1> <n2>, only from the leaves that deviate3\n  <n1> <n2> would expand.\n"
+		"  leaf recalculate <n1> <n2>  search again the leaves that deviate <n1> <n2> would\n  expand (leaf recalculate2: deviate2; 3, 4: the leaves of all the positions\n  of the walk of deviate, deviate2).\n"
+		"  leaf expand [n1 n2] expand the leaves better than every link of their\n  position; with <n1> <n2>, only in the walk of deviate3 <n1> <n2>.\n"
 		"  prune               remove unreachable positions.\n"
 		"  subtree             only keep positions from the current position.\n"
 		"  add [file]          add positions from a game base file (txt, ggf, sgf or\n  wthor format).\n");
@@ -633,6 +635,13 @@ void ui_loop_edax(UI *ui)
 				book->failed = false; // see book_add()
 				book_param = parse_word(param, book_cmd, FILENAME_MAX);
 				string_to_lowercase(book_cmd); // "book Deviate 5 5" as "book deviate 5 5" (the arguments, as file names, are kept as typed)
+				// "book leaf recalculate 5 5", "book leaf expand 5 5": two words (the names with a hyphen, as book leaf-recalculate, still work)
+				if (strcmp(book_cmd, "leaf") == 0) {
+					char word[32];
+					book_param = parse_word(book_param, word, sizeof word - 1);
+					string_to_lowercase(word);
+					snprintf(book_cmd, sizeof book_cmd, "leaf-%s", word);
+				}
 
 				// store the last played game
 				if (strcmp(book_cmd, "store") == 0) {
@@ -868,6 +877,18 @@ void ui_loop_edax(UI *ui)
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
 					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
 					book_leaf_recalculate(book, &play->board, book_cmd[16] == '4' ? 4 : 2, val_1, val_2);
+
+				// expand the leaves better than every link of their position: of the whole book, or with a per-move
+				// and a cumulative loss limit, of the positions of a deviate3 walk
+				} else if (strcmp(book_cmd, "leaf-expand") == 0) {
+					char *limits = parse_skip_spaces(book_param);
+					if (*limits) {
+						val_1 = 2; book_param = parse_int(limits, &val_1); BOUND(val_1, 0, 129, "per-move loss");
+						val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+						book_leaf_expand(book, &play->board, true, val_1, val_2);
+					} else {
+						book_leaf_expand(book, &play->board, false, 0, 0);
+					}
 
 				// add position using the "enhance algorithm"
 				} else if (strcmp(book_cmd, "enhance") == 0) {

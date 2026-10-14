@@ -143,7 +143,7 @@ void options_usage(void)
 		"  -book-expand-tasks <n|auto>   expand n book positions at the same time (n-tasks / n threads each).\n"
 		"  -book-store-tasks <n|auto>    learn n games at the same time (n-tasks / n threads each); auto (default): n-tasks; 1: as before.\n"
 		"  -book-store-auto-save <on/off> save the book to <book-file>.store after book store and book learn (default on).\n"
-		"  -book-leaf-recalculate-rounds <n> passes of book leaf-recalculate (2, 3, 4) at most; a pass that changes no leaf is the last (default 1).\n"
+		"  -book-leaf-recalculate-rounds <n> passes of book leaf recalculate (2, 3, 4) at most; a pass that changes no leaf is the last (default 1).\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
