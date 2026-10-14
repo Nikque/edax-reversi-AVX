@@ -10,7 +10,7 @@ New commands fill the gaps of a book and expand the leaves that are better than 
 
 ### New command: book fill2 (filling the gaps after the leaves)
 
-`book fill2 n` adds, like `book fill n`, the positions between a position of the book and a position of the book n moves later, but its first move is **only the leaf move** (the best move that is not a link yet). It fills the places (n = 2) where the position after the leaf is not in the book while the next one is. Such places appear when the same position is added from another line.
+`book fill2 n` (n is 2 without a number) adds, like `book fill n`, the positions between a position of the book and a position of the book n moves later, but its first move is **only the leaf move** (the best move that is not a link yet). It fills the places (n = 2) where the position after the leaf is not in the book while the next one is. Such places appear when the same position is added from another line.
 
 ### New option: a range for book fill and fill2 (book fill 2 5 5)
 
@@ -42,7 +42,7 @@ Searches done at the same time can make a slightly different book than searches 
 
 ### book leaf-recalculate is renamed book leaf recalculate
 
-`book leaf-recalculate` (`2`, `3`, `4`) is now `book leaf recalculate` (`2`, `3`, `4`). **The names with a hyphen no longer work** ("Unknown book command"). `book leaf expand` is two words as well. The setting `book-leaf-recalculate-rounds` keeps its name.
+`book leaf-recalculate`, `leaf-recalculate2`, `3`, `4` are now `book leaf recalculate`, `leaf recalculate2`, `3`, `4` (the digit is written right after the word, as in `book leaf recalculate4 5 5`). **The names with a hyphen no longer work** ("Unknown book command"). The progress and result lines show the new name too (`Book leaf recalculate4 5 5...`). `book leaf expand` is two words as well. The setting `book-leaf-recalculate-rounds` keeps its name.
 
 ### libedax
 
@@ -55,12 +55,12 @@ New functions: `edax_book_fill2(depth)`, `edax_book_fill_limited(depth, move los
 | `book fill n` (n of 2 or more) | One thread, one search after the other. An added position is a starting point of the same round. The position filled from is not linked. Saved after every round | Several threads find the positions; the searches run at the same time as `book-expand-tasks` says. An added position is used in the next round. The position filled from is linked, and its leaf searched again when it was that move. Each round first links "the leaves that lead to a position of the book". Saved as `book-deviate-save-rounds` says. **The book it makes changes** |
 | `book fill 1` (`book fill`) | Adds the missing links one move after the positions of the book | Same |
 | `book fill n X Y`, `book fill2`, `book leaf expand` | None | New commands and option |
-| `book leaf-recalculate` (`2`, `3`, `4`) | This name | `book leaf recalculate` (`2`, `3`, `4`); the names with a hyphen no longer work |
+| `book leaf-recalculate`, `leaf-recalculate2`, `3`, `4` | This name; the lines show `Book leaf-recalculate4 ...` | `book leaf recalculate`, `leaf recalculate2`, `3`, `4`; the names with a hyphen no longer work; the lines show `Book leaf recalculate4 ...` |
 | A word that is not a number after `book fill` (`book fill abc`) | Same as `book fill` (distance 1) | Same (the range numbers are only words that start with a digit) |
 
 ### Not changed, and good to know
 
-- The n of `book fill n` means **exactly n moves later** (as before). Gaps nearer than n moves are not filled. A gap of a single missing position is filled with n = 2. `book fill2 1` and a distance of 1 with a range (`book fill 1 5 5`, ...) do nothing, as they add no position ("nothing to fill").
+- The n of `book fill n` means **exactly n moves later** (as before). Gaps nearer than n moves are not filled. A gap of a single missing position is filled with n = 2. `book fill2 1` and a distance of 1 with a range (`book fill 1 5 5`, ...) do nothing, as they add no position ("nothing to fill"). Without a number, `book fill2` uses 2 (`book fill` still uses 1).
 - After `book fill` and `fill2`, there can be more positions whose leaf score is greater than the best link score (the links are added and the leaves searched again). `book leaf expand` expands them.
 - Time on a real book (672 million positions, level 18, 32 threads, `book-expand-tasks = auto`; **each command ran a few minutes and was stopped: the figures are the speed of these runs and estimates from the numbers of positions, no command was run to the end**): the linking step does about 3,500 positions a minute, for 125,909 positions in the range of `deviate3 5 5` (about 36 minutes) and 132,753 in the whole book. The next steps: `book leaf expand 5 5` about 2,900 positions a minute for 47,839 positions, `book fill2 2 5 5` about 2,240 a minute for 450,528, `book leaf expand` (whole book) about 3,800 a minute for 4,042,280. The estimates for the first round, with the linking step: `book leaf expand 5 5` about 55 minutes, `book fill2 2 5 5` about 4 hours, `book leaf expand` (whole book) about 18 hours, `book fill2 2` (whole book, 12,737,859 positions) about 4 days. `book fill 2 5 5` has 20,151,780 positions to fill from, and `book fill 2` (whole book) needs more than 21 minutes a round only to find them. The next rounds have fewer positions, but together they take longer than the first round.
 
@@ -1326,7 +1326,7 @@ Each line of these files is `name = value`; `#` starts a comment (see "Easier co
 | `hash-table-size` | `auto` | Size of the search hash tables (below). |
 | `book-expand-tasks` | `auto` | Number of book positions expanded at the same time by the learning commands (below). |
 | `book-store-tasks` | `auto` | Number of games learned at the same time by `book store`, `book add` and `book learn` (and by edax_runner) (below). |
-| `book-leaf-recalculate-rounds` | `1` | Largest number of rounds of `book leaf-recalculate` (and `2`, `3`, `4`) (below). |
+| `book-leaf-recalculate-rounds` | `1` | Largest number of rounds of `book leaf recalculate` (and `2`, `3`, `4`) (below). |
 | `probcut-model` | `standard` | Error model of the search pruning (ProbCut); `refit` is experimental (see v4.5.5-nikque.5 above). |
 
 Other useful settings: `book-file` and `eval-file` (paths). A level given with `-l` on the command line (or `level` at the prompt) caps the search in timed games.
@@ -1388,7 +1388,7 @@ With `book-store-tasks = auto` (the bundled value, and the default without `conf
 
 ### book-leaf-recalculate-rounds
 
-With `book-leaf-recalculate-rounds = 1` (the bundled value, and the default without `config.ini`), `book leaf-recalculate` (and `2`, `3`, `4`) walks once. With n of 2 or more, it repeats "walk, search the leaves again, negamax" up to n times and stops after a round that changed no leaf. The scores that a round changes move the range that the command walks, so several rounds are needed to give a new score to every leaf of the range (see "Changes in v4.5.5-nikque.13" above).
+With `book-leaf-recalculate-rounds = 1` (the bundled value, and the default without `config.ini`), `book leaf recalculate` (and `2`, `3`, `4`) walks once. With n of 2 or more, it repeats "walk, search the leaves again, negamax" up to n times and stops after a round that changed no leaf. The scores that a round changes move the range that the command walks, so several rounds are needed to give a new score to every leaf of the range (see "Changes in v4.5.5-nikque.13" above).
 
 ### book-store-auto-save
 

@@ -71,7 +71,7 @@ They are written after `book` (or `b`). The word that follows may be in upper ca
 | `deviate3` | the same | The same (leaves of exactly solved positions included) | `.dev3` | [7.3](07-book-learning.md) |
 | `enhance` | [X] (2) [Y] (4). 0 to 129 | Expand the leaves that could change a score | `.enh` | [7.4](07-book-learning.md) |
 | `fill` | [n] (1) [X Y]. n: 1 to 61, X: 0 to 129, Y: 0 to 7740 | Fill in between positions. With X Y: in the range of `deviate3 X Y` only | `.fill` | [7.4](07-book-learning.md) |
-| `fill2` | the same | Fill the gaps after the leaves | `.fill2` | [7.4](07-book-learning.md) |
+| `fill2` | [n] (2) [X Y]; the ranges of the numbers as for `fill` | Fill the gaps after the leaves | `.fill2` | [7.4](07-book-learning.md) |
 | `play` | | Extend the tips of the lines down to the depth | `.play` | [7.4](07-book-learning.md) |
 | `negamax` | | Compute the scores again | | [8.2](08-book-maintenance.md) |
 | `fix` | | Check, linking, negamax | | [8.2](08-book-maintenance.md) |

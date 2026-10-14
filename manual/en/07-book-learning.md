@@ -224,7 +224,7 @@ An example with `deviate2 5 5`:
 |---|---|---|
 | `book enhance X Y` | Uses the lower and upper bounds of the scores to expand "the leaves that could change the score of a position once the error of the search is allowed for (X discs for a midgame search, Y discs for a search that reads to the end but not at 100%)". Repeated until nothing changes. Without the numbers: `2 4` | `.enh` |
 | `book fill n` | When n moves from a position of the book lead to another position of the book, the positions and links in between are added. The position filled from gets its links at once (when its leaf was that move, it is searched again for its next leaf, as when `book deviate` expands it). Repeated until nothing is added. `book fill 1` (also when the number is left out) only makes the missing links of the positions one move after the positions of the book: no position is added | `.fill` |
-| `book fill2 n` | As `book fill n`, but the first move from the position filled from is **its leaf move only**. It fills "the position after the leaf is not in the book, and the next one is" (with n = 2) | `.fill2` |
+| `book fill2 n` | As `book fill n`, but the first move from the position filled from is **its leaf move only**. It fills "the position after the leaf is not in the book, and the next one is" (with n = 2). Without a number, n is 2 | `.fill2` |
 | `book leaf expand` | Expands the leaf of **the positions whose leaf scores better than every link** (their best move is still out of the book). After an expansion the next leaf may be better than the links again, so this is repeated until no such position remains. Positions without a link do not count | `.lexp` |
 | `book play` | Expands the leaf of positions that have no link at all (the tips of the lines), and repeats until no such position remains within the depth of the book. That is, **every line is extended with best moves down to the depth of the book** | `.play` |
 
@@ -241,7 +241,7 @@ With two more numbers X and Y, as in `book fill 2 5 5`, `book fill2 2 5 5` or `b
 | `book leaf expand X Y` | The positions that `deviate3 X Y` follows whose leaf is better than every link |
 
 - The leaves of exactly solved positions count too (as with `deviate3`).
-- The n of `book fill` and `fill2` means "**exactly n moves**": a gap closer than n moves is not filled. Where a single position is missing (position → missing position → position of the book), n = 2 fills it.
+- The n of `book fill` and `fill2` means "**exactly n moves**": a gap closer than n moves is not filled. Where a single position is missing (position → missing position → position of the book), n = 2 fills it. Without a number, `book fill2` uses 2 (`book fill2 1` adds no position, so it does nothing).
 - The number of searches done at the same time follows `book-expand-tasks` (7.6), as for `book deviate`. Without that setting (1), the positions are searched one after the other.
 - The positions to fill or expand from are found by several threads, without any copy of the book.
 - **Every round first links "the positions whose leaf move leads to a position that is already in the book"** (such a position searches its leaf again). These positions appear when the same position is added from another line (`book deviate` makes them too). `book fix` links them as well, but a leaf searched again may be better than the links again, so these commands link them themselves and repeat until nothing is left to link, fill or expand. With the two numbers, only in the positions that `deviate3 X Y` follows.

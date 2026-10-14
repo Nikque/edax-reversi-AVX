@@ -10,7 +10,7 @@ bookの欠けた所を埋める命令と、Linkより良いLeafを広げる命�
 
 ### 新しい命令：book fill2（Leafの先の欠けを埋める）
 
-`book fill2 n` は、`book fill n` と同じく「bookの局面から n 手進めた先がbookの局面になるとき、その間の局面を足す」命令ですが、1手目は**Leafの手（まだLinkになっていない最善の手）だけ**をたどります。「Leafの先の局面がbookになく、その次の局面はbookにある」所（n = 2）を埋めます。こういう所は、別の手順から同じ局面が足されると生まれます。
+`book fill2 n`（数を省くと 2）は、`book fill n` と同じく「bookの局面から n 手進めた先がbookの局面になるとき、その間の局面を足す」命令ですが、1手目は**Leafの手（まだLinkになっていない最善の手）だけ**をたどります。「Leafの先の局面がbookになく、その次の局面はbookにある」所（n = 2）を埋めます。こういう所は、別の手順から同じ局面が足されると生まれます。
 
 ### 新しい指定：book fill・fill2 の範囲（book fill 2 5 5）
 
@@ -42,7 +42,7 @@ Egaroucidで学習するとき、Leafの評価値がLinkの最大より大きい
 
 ### book leaf-recalculate の名前：book leaf recalculate
 
-`book leaf-recalculate`（`2`・`3`・`4`）は、`book leaf recalculate`（`2`・`3`・`4`）になりました。**ハイフンの付いた名前は使えなくなりました**（「Unknown book command」と表示されます）。`book leaf expand` も2語で書きます。設定の名前 `book-leaf-recalculate-rounds` は変わりません。
+`book leaf-recalculate`・`leaf-recalculate2`・`3`・`4` は、`book leaf recalculate`・`leaf recalculate2`・`3`・`4` になりました（`book leaf recalculate4 5 5` のように、数字は続けて書きます）。**ハイフンの付いた名前は使えなくなりました**（「Unknown book command」と表示されます）。途中経過と結果の表示も、`Book leaf recalculate4 5 5...` のように新しい名前になります。`book leaf expand` も2語で書きます。設定の名前 `book-leaf-recalculate-rounds` は変わりません。
 
 ### libedax
 
@@ -55,12 +55,12 @@ Egaroucidで学習するとき、Leafの評価値がLinkの最大より大きい
 | `book fill n`（n が2以上） | 1スレッド、1つずつ探索。足した局面を同じ周で埋める元にする。元の局面にLinkを張らない。毎周保存 | 複数スレッドで探し、`book-expand-tasks` に従って同時に探索する。足した局面は次の周に。元の局面にLinkを張り、Leafがその手なら探し直す。周の初めに「Leafの先がbookにある局面」にLinkを張る。保存は `book-deviate-save-rounds` に従う。**できるbookが変わります** |
 | `book fill 1`（`book fill`） | 1手先の局面に欠けたLinkを張る | 同じ |
 | `book fill n X Y`・`book fill2`・`book leaf expand` | なし | 新しい命令・指定 |
-| `book leaf-recalculate`（`2`・`3`・`4`） | この名前 | `book leaf recalculate`（`2`・`3`・`4`）。ハイフンの付いた名前は使えない |
+| `book leaf-recalculate`・`leaf-recalculate2`・`3`・`4` | この名前。表示も `Book leaf-recalculate4 …` | `book leaf recalculate`・`leaf recalculate2`・`3`・`4`。ハイフンの付いた名前は使えない。表示も `Book leaf recalculate4 …` |
 | `book fill abc` のように数でない語が続く | `book fill`（距離1）と同じ | 同じ（範囲の数は、数字で始まる語だけ） |
 
 ### 直していないもの・知っておくこと
 
-- `book fill n` の n は「**ちょうど n 手先**」です（これまでと同じ）。n手より近い所の欠けは埋めません。欠けている局面が1つだけの所は n = 2 で埋まります。`book fill2 1` と、範囲を付けた距離1（`book fill 1 5 5` など）は、足す局面がないので何もしません（「nothing to fill」と表示します）。
+- `book fill n` の n は「**ちょうど n 手先**」です（これまでと同じ）。n手より近い所の欠けは埋めません。欠けている局面が1つだけの所は n = 2 で埋まります。`book fill2 1` と、範囲を付けた距離1（`book fill 1 5 5` など）は、足す局面がないので何もしません（「nothing to fill」と表示します）。`book fill2` は、数を省くと 2 です（`book fill` は、これまでどおり 1）。
 - `book fill`・`fill2` の後は、Leafの評価値がLinkの最大より大きい局面が増えることがあります（Linkを張ってLeafを探し直すため）。それを広げるのは `book leaf expand` です。
 - 実bookでの時間（6億7千万局面、level 18、32スレッド、`book-expand-tasks = auto`。**どの命令も数分だけ動かして止めたときの速さと、数えた数からの見込みで、最後まで行っていません**）：張り直しの段は1分に約3,500局面で、対象は `deviate3 5 5` の範囲で125,909局面（約36分）、book全体で132,753局面です。その後の段は、`book leaf expand 5 5` が1分に約2,900局面で47,839局面、`book fill2 2 5 5` が1分に約2,240局面で450,528局面、`book leaf expand`（book全体）が1分に約3,800局面で4,042,280局面です。最初の周の見込みは、張り直しの段を含めて、`book leaf expand 5 5` が約55分、`book fill2 2 5 5` が約4時間、`book leaf expand`（book全体）が約18時間、`book fill2 2`（book全体。12,737,859局面）が約4日です。`book fill 2 5 5` は20,151,780局面が対象で、`book fill 2`（book全体）は埋め始めを探すだけで1周に21分以上かかります。2周目からは対象が減りますが、合わせた時間は最初の周より長くなります。
 
@@ -1326,7 +1326,7 @@ Edaxは次の順に設定を読み、後のものが前のものより優先さ�
 | `hash-table-size` | `auto` | 探索用ハッシュ表の大きさ（下記）。 |
 | `book-expand-tasks` | `auto` | 学習コマンドで同時に展開する局面の数（下記）。 |
 | `book-store-tasks` | `auto` | `book store`・`book add`・`book learn`（とedax_runner）で同時に学習する棋譜の数（下記）。 |
-| `book-leaf-recalculate-rounds` | `1` | `book leaf-recalculate`（と `2`・`3`・`4`）を繰り返す回数の上限（下記）。 |
+| `book-leaf-recalculate-rounds` | `1` | `book leaf recalculate`（と `2`・`3`・`4`）を繰り返す回数の上限（下記）。 |
 | `probcut-model` | `standard` | 探索の枝刈り（ProbCut）の誤差モデル。`refit` は実験用（上の v4.5.5-nikque.5 の説明を参照）。 |
 
 そのほかによく使う設定：`book-file` と `eval-file`（ファイルの場所）。コマンドラインの `-l`（とプロンプトの `level`）で指定したlevelは、持ち時間制の対局で読みの上限になります。
@@ -1388,7 +1388,7 @@ book-expand-tasks = auto
 
 ### book-leaf-recalculate-rounds
 
-`book-leaf-recalculate-rounds = 1`（同梱の値。`config.ini` がない場合の既定値も同じ）では、`book leaf-recalculate`（と `2`・`3`・`4`）は1回たどって終わります。n（2以上）では、「たどる → Leafを計算し直す → negamax」を最大 n 回繰り返し、Leafが1つも変わらなかった回で終わります。Leafを計算し直すと評価値が動き、命令がたどる範囲も動くので、範囲の中のLeafを全部新しい値にするには繰り返しが要ります（上の「v4.5.5-nikque.13 の変更点」）。
+`book-leaf-recalculate-rounds = 1`（同梱の値。`config.ini` がない場合の既定値も同じ）では、`book leaf recalculate`（と `2`・`3`・`4`）は1回たどって終わります。n（2以上）では、「たどる → Leafを計算し直す → negamax」を最大 n 回繰り返し、Leafが1つも変わらなかった回で終わります。Leafを計算し直すと評価値が動き、命令がたどる範囲も動くので、範囲の中のLeafを全部新しい値にするには繰り返しが要ります（上の「v4.5.5-nikque.13 の変更点」）。
 
 ### book-store-auto-save
 

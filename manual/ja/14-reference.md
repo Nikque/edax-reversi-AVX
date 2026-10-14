@@ -71,7 +71,7 @@ v4.5.5-nikque.13 の、全部のコマンドと設定です（ソースの一覧
 | `deviate3` | 同じ | 同じ（完全読みの Leaf も含む） | `.dev3` | [7.3](07-book-learning.md) |
 | `enhance` | ［X］（2） ［Y］（4）。0〜129 | 評価値を変えそうな Leaf を広げる | `.enh` | [7.4](07-book-learning.md) |
 | `fill` | ［n］（1） ［X Y］。n は 1〜61、X は 0〜129、Y は 0〜7740 | 局面の間を埋める。X Y を付けると `deviate3 X Y` の範囲だけ | `.fill` | [7.4](07-book-learning.md) |
-| `fill2` | 同じ | Leaf の先の欠けを埋める | `.fill2` | [7.4](07-book-learning.md) |
+| `fill2` | ［n］（2） ［X Y］。数の範囲は `fill` と同じ | Leaf の先の欠けを埋める | `.fill2` | [7.4](07-book-learning.md) |
 | `play` | | 手順の先端を、深さまで伸ばす | `.play` | [7.4](07-book-learning.md) |
 | `negamax` | | 評価値を計算し直す | | [8.2](08-book-maintenance.md) |
 | `fix` | | 点検・Link の張り直し・negamax | | [8.2](08-book-maintenance.md) |

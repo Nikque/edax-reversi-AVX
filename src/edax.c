@@ -243,8 +243,8 @@ void help_book(void)
 		"  deviate2 <n1> <n2>  add positions with a per-move loss limit <n1> and\n  a cumulative loss limit for both players <n2>; skip solved leaves.\n"
 		"  deviate3 <n1> <n2>  same loss limits as deviate2, including solved leaves.\n"
 		"  enhance <n1> <n2>   add positions by improving score accuracy with a midgame\n  error <n1> and an endcut error <n2>.\n"
-		"  fill [n] [n1 n2]    add positions between existing positions, up to <n> moves\n  apart; with <n1> <n2>, only from the positions that deviate3 <n1> <n2> walks.\n"
-		"  fill2 [n] [n1 n2]   same as fill, only through the leaf (best move not in the\n  book yet) of a position; with <n1> <n2>, only from the leaves that deviate3\n  <n1> <n2> would expand.\n"
+		"  fill [n] [n1 n2]    add positions between existing positions exactly <n> moves\n  apart (default 1); with <n1> <n2>, only from the positions that deviate3\n  <n1> <n2> walks.\n"
+		"  fill2 [n] [n1 n2]   same as fill (default 2), only through the leaf (best move\n  not in the book yet) of a position; with <n1> <n2>, only from the leaves that deviate3\n  <n1> <n2> would expand.\n"
 		"  leaf recalculate <n1> <n2>  search again the leaves that deviate <n1> <n2> would\n  expand (leaf recalculate2: deviate2; 3, 4: the leaves of all the positions\n  of the walk of deviate, deviate2).\n"
 		"  leaf expand [n1 n2] expand the leaves better than every link of their\n  position; with <n1> <n2>, only in the walk of deviate3 <n1> <n2>.\n"
 		"  prune               remove unreachable positions.\n"
@@ -913,7 +913,7 @@ void ui_loop_edax(UI *ui)
 					const bool leaf_only = (book_cmd[4] == '2');
 					char *limits;
 					int total_loss;
-					val_1 = 1; book_param = parse_int(book_param, &val_1); BOUND(val_1, 1, 61, "fill depth");
+					val_1 = leaf_only ? 2 : 1; book_param = parse_int(book_param, &val_1); BOUND(val_1, 1, 61, "fill depth"); // (fill2 1 adds no position)
 					limits = parse_skip_spaces(book_param);
 					if (isdigit((unsigned char) *limits)) { // (the limits are numbers: another word is ignored, as by the other commands)
 						val_2 = 2; book_param = parse_int(limits, &val_2); BOUND(val_2, 0, 129, "per-move loss");
