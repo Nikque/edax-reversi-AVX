@@ -7318,21 +7318,24 @@ static Board position_leaf_board(const Position *p)
 /**
  * @brief Fill a book from one of its positions.
  *
+ * The positions are only appended to their bucket while a book is filled: the place of a position
+ * (bucket and index, see position_key) stays valid, as for the todo list of book deviate.
+ *
  * @param book Opening book.
- * @param origin Board of the position (any symmetry).
+ * @param key Place of the position (see position_key).
  * @param depth Distance to fill.
  * @param leaf_only Only through the leaf of the position (book fill2), else every move.
  * @return true if positions were added.
  */
-static bool position_fill(Book *book, const Board *origin, const int depth, const bool leaf_only)
+static bool position_fill(Book *book, const unsigned long long key, const int depth, const bool leaf_only)
 {
 	const long long n_nodes = book->stats.n_nodes;
-	Position *p = book_probe(book, origin);
+	Position *p = book_position(book, key);
 	Board board;
 	Link *l;
 	int x;
 
-	if (p == NULL || depth < 1) return false;
+	if (depth < 1) return false;
 	if (leaf_only) {
 		if (p->leaf.move == NOMOVE) return false;
 		board = position_leaf_board(p);
@@ -7343,15 +7346,13 @@ static bool position_fill(Book *book, const Board *origin, const int depth, cons
 	}
 	if (book->stats.n_nodes == n_nodes) return false;
 
-	p = book_probe(book, origin); // (adding positions may have moved it)
-	if (p) {
-		x = p->leaf.move;
-		position_link(p, book);
-		if (x != NOMOVE) foreach_link(l, p) {
-			if (l->move == x) { // the leaf is a link now: search the next leaf
-				position_search(p, book);
-				break;
-			}
+	p = book_position(book, key); // (the positions of its bucket may have moved to another block)
+	x = p->leaf.move;
+	position_link(p, book);
+	if (x != NOMOVE) foreach_link(l, p) {
+		if (l->move == x) { // the leaf is a link now: search the next leaf
+			position_search(p, book);
+			break;
 		}
 	}
 	return true;
@@ -7392,12 +7393,12 @@ static bool board_fill_plan(Board *board, Book *book, int depth)
 }
 
 /** @brief position_fill() as it will run when the boards already planned are added: plan its searches. */
-static void position_fill_plan(Book *book, const Board *origin, const int depth, const bool leaf_only)
+static void position_fill_plan(Book *book, const unsigned long long key, const int depth, const bool leaf_only)
 {
-	const Position *p = book_probe(book, origin);
+	const Position *p = book_position(book, key);
 	Board board;
 
-	if (p == NULL || depth < 1) return;
+	if (depth < 1) return;
 	if (leaf_only) {
 		if (p->leaf.move == NOMOVE) return;
 		board = position_leaf_board(p);
@@ -7415,12 +7416,12 @@ static void position_fill_plan(Book *book, const Board *origin, const int depth,
  * @param book Opening book.
  * @param name Name of the command.
  * @param file File of the timed saves.
- * @param boards Boards of the positions.
+ * @param keys Places of the positions (see position_key).
  * @param n Number of positions.
  * @param depth Distance to fill.
  * @param leaf_only Only through the leaves (book fill2).
  */
-static void book_fill_boards(Book *book, const char *name, const char *file, const Board *boards, const long long n, const int depth, const bool leaf_only)
+static void book_fill_keys(Book *book, const char *name, const char *file, const unsigned long long *keys, const long long n, const int depth, const bool leaf_only)
 {
 	// book-expand-tasks (as book deviate): 1 = one search after the other; n = n searches at the same time;
 	// auto = a search for each thread (the threads of the searches that end first go to the others)
@@ -7434,14 +7435,14 @@ static void book_fill_boards(Book *book, const char *name, const char *file, con
 		if (planned && book_plan_begin(book)) {
 			book_plan->max_workers = MAX(0, options.book_expand_tasks);
 			for (j = i; j < n; ++j) {
-				position_fill_plan(book, boards + j, depth, leaf_only);
+				position_fill_plan(book, keys[j], depth, leaf_only);
 				if (book_plan->failed || book_plan->n_job >= max_jobs) { ++j; break; }
 			}
 			end = j;
 			book_plan_search(book);
 		}
 		for (j = i; j < end && !book->failed; ++j) {
-			position_fill(book, boards + j, depth, leaf_only);
+			position_fill(book, keys[j], depth, leaf_only);
 			if ((j & 1023) == 1023) {
 				bprint("%s...%lld/%lld: %lld positions, %lld links\r", name, j + 1, n, book->stats.n_nodes, book->stats.n_links);
 				if (book_save_interval_elapsed(t)) { // timed progress save
@@ -7490,9 +7491,9 @@ static void book_fill_all(Book *book, const int depth, const bool leaf_only)
 {
 	const char *name = leaf_only ? "Book fill2" : "Book fill";
 	BookTask task[MAX_THREADS];
-	Board *boards;
+	unsigned long long *keys;
 	long long n_diffs = 0, n, j;
-	int i, n_tasks;
+	int i, n_tasks, rounds_since_save = 0;
 	bool oom;
 	char file[FILENAME_MAX + 1];
 
@@ -7504,25 +7505,24 @@ static void book_fill_all(Book *book, const int depth, const bool leaf_only)
 		n_tasks = book_parallel(book, book_fill_scan_task, task, name);
 		n = 0; oom = false;
 		for (i = 0; i < n_tasks; ++i) { n += task[i].n; oom = oom || task[i].oom; }
-		boards = oom ? NULL : (Board*) malloc((n + 1) * sizeof *boards);
-		if (boards) {
+		keys = oom ? NULL : (unsigned long long*) malloc((n + 1) * sizeof *keys);
+		if (keys) {
 			n = 0;
-			for (i = 0; i < n_tasks; ++i) for (j = 0; j < task[i].n; ++j) boards[n++] = TASK_POSITION(book, task[i].item[j])->board;
+			for (i = 0; i < n_tasks; ++i) for (j = 0; j < task[i].n; ++j) keys[n++] = TASK_KEY(task[i].item[j]);
 		}
 		book_tasks_free(task, n_tasks);
-		if (boards == NULL) {
+		if (keys == NULL) {
 			error("cannot allocate the list of the positions to fill from\n");
 			break;
 		}
 		bprint("%s %d: %lld positions to fill from\n", name, depth, n);
-		book_fill_boards(book, name, file, boards, n, depth, leaf_only);
-		free(boards);
+		book_fill_keys(book, name, file, keys, n, depth, leaf_only);
+		free(keys);
 		n_diffs = book->stats.n_nodes + book->stats.n_links;
-		if (n_diffs) {
-			book_negamax(book);
-			book_save_progress(book, file);
-		}
+		if (n_diffs) book_negamax(book);
+		book_deviate_save_progress(book, file, n_diffs, &rounds_since_save); // (as book deviate: book-deviate-save-rounds)
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
+	book_store_release(); // (the searches done at the same time)
 	bprint("%s %d... finished\n", name, depth);
 }
 
@@ -7573,17 +7573,22 @@ static void* fill_filter_run(void *v)
 }
 
 /**
- * @brief The boards of the positions selected by a walk (todo) from which a position would be added, in the order of the book.
+ * @brief The places of the positions selected by a walk (todo) from which a position would be added, in the order of the book.
  *
- * @param n Number of boards (out).
- * @return the boards (to free), or NULL if the memory is exhausted.
+ * The todo list of the walk is kept for these positions only, in place: it is the list returned (no copy).
+ * Without a todo list (memory exhausted during the walk), the book is scanned for the marks into a new list.
+ *
+ * @param n Number of positions (out).
+ * @param owned Set to true if the list returned is a new one, to free (out).
+ * @return the places (see position_key), or NULL if the memory is exhausted.
  */
-static Board* book_fill_selected(Book *book, const int depth, const bool leaf_only, long long *n)
+static unsigned long long* book_fill_selected(Book *book, const int depth, const bool leaf_only, long long *n, bool *owned)
 {
-	Board *boards = NULL;
+	unsigned long long *keys = NULL;
 	long long i;
 
 	*n = 0;
+	*owned = false;
 	if (book->todo_list.valid) {
 		const long long n_todo = book->todo_list.n;
 		FillFilter f[MAX_THREADS];
@@ -7600,24 +7605,22 @@ static Board* book_fill_selected(Book *book, const int depth, const bool leaf_on
 			f[k].depth = depth; f[k].leaf_only = leaf_only;
 		}
 		book_run_workers(fill_filter_run, f, sizeof *f, m);
-		for (i = 0; i < n_todo; ++i) *n += keep[i];
-		boards = (Board*) malloc((*n + 1) * sizeof *boards);
-		if (boards) {
-			*n = 0;
-			for (i = 0; i < n_todo; ++i) if (keep[i]) boards[(*n)++] = book_position(book, book->todo_list.item[i])->board;
-		}
+		keys = book->todo_list.item;
+		for (i = 0; i < n_todo; ++i) if (keep[i]) keys[(*n)++] = keys[i];
+		book->todo_list.n = *n;
 		free(keep);
 	} else { // (no list: the whole book is scanned for the marks)
 		PositionArray *a;
 		Position *p;
 		foreach_position(p, a, book) if (position_is_todo(p, book) && position_fill_wanted(p, book, depth, leaf_only)) ++*n;
-		boards = (Board*) malloc((*n + 1) * sizeof *boards);
-		if (boards) {
+		keys = (unsigned long long*) malloc((*n + 1) * sizeof *keys);
+		if (keys) {
 			*n = 0;
-			foreach_position(p, a, book) if (position_is_todo(p, book) && position_fill_wanted(p, book, depth, leaf_only)) boards[(*n)++] = p->board;
+			*owned = true;
+			foreach_position(p, a, book) if (position_is_todo(p, book) && position_fill_wanted(p, book, depth, leaf_only)) keys[(*n)++] = position_key(book, p);
 		}
 	}
-	return boards;
+	return keys;
 }
 
 /**
@@ -7634,8 +7637,10 @@ void book_fill_walk(Book *book, Board *board, const int depth, const bool leaf_o
 {
 	const char *name = leaf_only ? "Book fill2" : "Book fill";
 	Position *root = book_probe(book, board);
-	Board *boards;
-	long long n_diffs, n;
+	unsigned long long *keys;
+	long long n_diffs, n, n_selected;
+	int rounds_since_save = 0;
+	bool owned;
 	char file[FILENAME_MAX + 1];
 
 	if (root == NULL) return;
@@ -7649,23 +7654,25 @@ void book_fill_walk(Book *book, Board *board, const int depth, const bool leaf_o
 		deviate_walk_all = !leaf_only;
 		book_select_deviate_total(book, root, move_loss, total_loss, false);
 		deviate_walk_all = false;
-		boards = book_fill_selected(book, depth, leaf_only, &n);
-		if (boards == NULL) {
+		n_selected = book->stats.n_todo;
+		keys = book_fill_selected(book, depth, leaf_only, &n, &owned);
+		if (keys == NULL) {
 			error("cannot allocate the list of the positions to fill from\n");
 			break;
 		}
-		bprint("%s %lld positions selected, %lld to fill from\n", name, book->stats.n_todo, n);
+		bprint("%s %lld positions selected, %lld to fill from\n", name, n_selected, n);
 
 		book->stats.n_nodes = book->stats.n_links = 0;
-		book_fill_boards(book, name, file, boards, n, depth, leaf_only);
-		free(boards);
+		book_fill_keys(book, name, file, keys, n, depth, leaf_only);
+		if (owned) free(keys);
 		n_diffs = book->stats.n_nodes + book->stats.n_links;
 
 		root = book_probe(book, board);
-		book_clean(book);
+		book_clean(book); // (the todo list is empty again)
 		book_negamax_position(root, book);
-		if (n_diffs) book_save_progress(book, file);
+		book_deviate_save_progress(book, file, n_diffs, &rounds_since_save); // (as book deviate: book-deviate-save-rounds)
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
+	book_store_release(); // (the searches done at the same time)
 	bprint("%s %d %d %d...finished\n", name, depth, move_loss, total_loss);
 }
 
