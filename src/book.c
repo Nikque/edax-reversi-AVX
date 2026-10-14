@@ -4988,9 +4988,10 @@ void book_play(Book *book)
 	search_pool_release(&expand_pool);
 }
 
-#ifdef BOOK_TEST_FILL_OLD
 /**
- * @brief Fill a book as up to v4.5.5-nikque.13 (test builds, to compare: book fill <n> without limits).
+ * @brief Fill a book as up to v4.5.5-nikque.13: book fill 1 (no position is added: the positions one move
+ * after the positions of the book get their missing links), and every book fill <n> in the test builds
+ * BOOK_TEST_FILL_OLD, to compare.
  *
  * One thread; the positions added in a round are filled from in the same round; the position
  * filled from gets no link to the positions added from it.
@@ -5032,7 +5033,6 @@ static void book_fill_old(Book *book, const int depth)
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	bprint("Book fill... finished\n");
 }
-#endif
 
 /*
  * Parallel selection of the positions to expand (book deviate, deviate2, deviate3).
@@ -7225,6 +7225,8 @@ void book_feed_hash(const Book *book, Board *board, Search *search)
  * positions are added one after the other, in the same order as without a plan, with the results of the
  * planned searches. Up to v4.5.5-nikque.13, book fill used one thread, filled at once from the positions
  * added in the same round, and did not link the position filled from (BOOK_TEST_FILL_OLD: that way).
+ * book fill 1 adds no position and keeps that way: the positions one move after the positions of the
+ * book get their missing links. book fill2 1 and the limited commands with a depth of 1 do nothing.
  */
 
 /** planned searches for each thread in a batch of book fill / fill2 */
@@ -7535,7 +7537,8 @@ void book_fill(Book *book, const int depth)
 #ifdef BOOK_TEST_FILL_OLD
 	book_fill_old(book, depth); // test builds: as up to v4.5.5-nikque.13, to compare
 #else
-	book_fill_all(book, depth, false);
+	if (depth < 2) book_fill_old(book, depth); // (book fill 1 adds no position: the links only, as before)
+	else book_fill_all(book, depth, false);
 #endif
 }
 
