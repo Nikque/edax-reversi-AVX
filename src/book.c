@@ -7669,6 +7669,11 @@ static long long book_link_leaves(Book *book, const char *name, const char *file
 	bool owned = true;
 	char label[64];
 
+#ifdef BOOK_TEST_NO_LINK_LEAVES
+	(void) book; (void) name; (void) file; (void) root; (void) limited; (void) move_loss; (void) total_loss;
+	(void) link_pick; (void) keys; (void) n; (void) owned; (void) label;
+	return 0; // test builds: this step is skipped, to time the other step of the commands alone
+#endif
 	if (limited) {
 		book_clean(book);
 		deviate_walk_all = true;
@@ -7900,3 +7905,57 @@ void book_leaf_expand(Book *book, Board *board, const bool limited, const int mo
 	search_pool_release(&expand_pool);
 	book_store_release(); // (the searches of the leaves linked, done at the same time)
 }
+
+#ifdef BOOK_TEST_PICK_COUNT
+/**
+ * @brief Test builds (book pick-count <x> <y>): count the positions that the first round of book fill 2,
+ * book fill2 2 and book leaf expand would start from, and the leaves that they would link, in the whole
+ * book and in the walk of book deviate3 x y from the current position, with the time each selection takes.
+ * Nothing is added nor searched (the book is negamaxed from the current position, as the commands do).
+ */
+void book_test_pick_count(Book *book, Board *board, const int move_loss, const int total_loss)
+{
+	static const BookPick picks[4] = {{0, false, false}, {2, true, false}, {2, false, false}, {0, false, true}};
+	static const char *const names[4] = {"leaves to link", "fill2 2: positions to fill from", "fill 2: positions to fill from", "leaf expand: leaves better than every link"};
+	static const bool walk_all[4] = {true, false, true, false};
+	unsigned long long *keys;
+	long long n, n_marked, t;
+	Position *root;
+	bool owned;
+	int i;
+
+	static const int whole_order[4] = {3, 0, 1, 2}, walk_order[4] = {0, 3, 1, 2}; // (the quick counts first: a run stopped early keeps them)
+	int j;
+
+	root = book_probe(book, board);
+	if (root == NULL) return;
+	t = real_clock();
+	keys = book_pick_scan(book, names[3], &picks[3], &n);
+	bprint("pick-count, whole book, %s: %lld (%.1f s)\n", names[3], n, (real_clock() - t) / 1000.0);
+	free(keys);
+	t = real_clock();
+	book_clean(book);
+	book_negamax_position(root, book);
+	bprint("pick-count, negamax: %.1f s\n", (real_clock() - t) / 1000.0);
+	for (j = 0; j < 4; ++j) { // the walk of book deviate3 x y
+		i = walk_order[j];
+		t = real_clock();
+		book_clean(book);
+		deviate_walk_all = walk_all[i];
+		book_select_deviate_total(book, root, move_loss, total_loss, false);
+		deviate_walk_all = false;
+		n_marked = book->stats.n_todo;
+		keys = book_pick_todo(book, &picks[i], &n, &owned);
+		bprint("pick-count, walk of deviate3 %d %d, %s: %lld of %lld marked (%.1f s)\n", move_loss, total_loss, names[i], n, n_marked, (real_clock() - t) / 1000.0);
+		if (owned) free(keys);
+	}
+	book_clean(book);
+	for (j = 1; j < 4; ++j) { // the whole book (the scan of book fill 2 is long)
+		i = whole_order[j];
+		t = real_clock();
+		keys = book_pick_scan(book, names[i], &picks[i], &n);
+		bprint("pick-count, whole book, %s: %lld (%.1f s)\n", names[i], n, (real_clock() - t) / 1000.0);
+		free(keys);
+	}
+}
+#endif

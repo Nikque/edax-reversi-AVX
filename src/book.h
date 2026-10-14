@@ -102,6 +102,9 @@ void book_deviate2(Book*, Board*, const int, const int);
 void book_deviate3(Book*, Board*, const int, const int);
 void book_leaf_recalculate(Book*, Board*, const int, const int, const int);
 void book_leaf_expand(Book*, Board*, const bool, const int, const int);
+#ifdef BOOK_TEST_PICK_COUNT
+void book_test_pick_count(Book*, Board*, const int, const int);
+#endif
 void book_enhance(Book*, Board*, const int, const int);
 void book_subtree(Book*, const Board*);
 void book_play(Book*);

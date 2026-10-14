@@ -893,6 +893,14 @@ void ui_loop_edax(UI *ui)
 						book_leaf_expand(book, &play->board, false, 0, 0);
 					}
 
+#ifdef BOOK_TEST_PICK_COUNT
+				// test builds: count what book fill 2 / fill2 2 / leaf expand would start from, without and with limits
+				} else if (strcmp(book_cmd, "pick-count") == 0) {
+					val_1 = 5; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
+					val_2 = 5; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+					book_test_pick_count(book, &play->board, val_1, val_2);
+#endif
+
 				// add position using the "enhance algorithm"
 				} else if (strcmp(book_cmd, "enhance") == 0) {
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "midgame error");
