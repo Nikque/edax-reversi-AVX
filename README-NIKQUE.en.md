@@ -8,6 +8,12 @@ This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5c
 
 After v4.5.5-nikque.15 was published, a second cross-check of the source found more defects (most of them from upstream); they are fixed, with a few points of speed and memory. `eval.dat`, the book file format and the search results do not change (fforum-20-39 gives the same depths, scores, node counts and lines as v4.5.5-nikque.15). On **a correct book**, `book deviate` and the like, game learning, the `book fill` commands, `book fix`, the negamax and the commands that cut a book make the same book as v4.5.5-nikque.15. What changes is the inputs that failed or crashed before, and the points listed in "What behaves differently".
 
+### Additional Windows and Linux fixes (2026-10-16)
+
+- Cassio: EOF after a final command without a newline ended the input thread without notifying the engine thread, which kept waiting. EOF is now queued after that final command. Seven input conditions pass on Windows and Linux, including Linux with ThreadSanitizer.
+- MSVC 19.44, 32-bit AVX2 with `/O2 /GL`: the generated code reused a CRC hash result as part of the board in a later legal-move calculation, producing wrong scores and stack overflow. The hash function is kept out of line only for this configuration. After the fix, 96 exact positions match an independent solver, and all 20 fforum-20-39 depths, scores, node counts and lines match the working 64-bit build (77,639,567 nodes in total).
+- All 42 existing regression cases pass in the updated normal Windows build. Rebuilding the PGO distribution binaries, comparing multithreaded results and measuring speed on an idle PC are still pending.
+
 ### Fixes
 
 - **Book and hash table**
@@ -65,7 +71,7 @@ After v4.5.5-nikque.15 was published, a second cross-check of the source found m
 ### Not changed, and good to know
 
 - The real book (formerly called the 34 GB book) was not used, as the user requested.
-- When this text was written, the Windows builds and tests (MSVC, PGO), the macOS build and a real Android (arm64) device were not checked yet. aarch64 was checked with qemu.
+- The updated Windows PGO distribution builds, the macOS build and a real Android (arm64) device are not checked yet. aarch64 was checked with qemu before these additional fixes.
 - The `MOVE_GENERATOR_NEON` defect is not in the default builds (aarch64 uses another method by default).
 - Some speed points were measured and left as they are because their effect is small: the creation of the helper threads of parallel searches (about 18,000 creations take 47 ms), and the like.
 - The functions of libedax are still called from one thread, one after the other; let one process write a book file (added to "To use it from another program" below). Since 5.3.0+nikque.10, a second edax_runner started in the same folder stops.

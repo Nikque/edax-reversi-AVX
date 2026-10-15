@@ -1071,6 +1071,12 @@ int get_corner_stability(const unsigned long long P)
  * @param board the board.
  * @return the hash code of the bitboard
  */
+#if defined(_MSC_VER) && !defined(__clang__) && defined(_M_IX86) && defined(__AVX2__)
+// MSVC x86 /O2 /GL can reuse the CRC accumulator as board->opponent's
+// low word in the caller's subsequent AVX2 move generation. Keep the
+// destructive CRC intrinsics out of that optimization context.
+__declspec(noinline)
+#endif
 unsigned long long board_get_hash_code(const Board *board)
 {
 	unsigned long long crc = crc32c_u64(0, board->player);

@@ -171,7 +171,10 @@ static void* engine_input_loop(void *v)
 	Engine *engine = (Engine*) v;
 
 
-	while (engine->event->loop && !feof(stdin) && !ferror(stdin)) {
+	// A final line without '\n' already sets feof while returning that line.
+	// Read once more so engine_get_input queues the eof command and wakes the
+	// engine thread, instead of leaving it waiting forever for another message.
+	while (engine->event->loop) {
 		engine_get_input(engine);
 	}
 

@@ -21,3 +21,15 @@ v4.5.5-nikque.3 adds `missinglink` (a link to a missing position is skipped by n
 The final audit of v4.5.5-nikque.8 adds `mergetwice` (a second merge does not take the positions of the first one for duplicated positions; a merge that fails only removes what it added), `negamaxloop` (a link of a damaged book that leads back to its own position does not make the negamax with threads endless) and `learnline` (the first moves of a game to learn are copied without their spaces: a long line is not cut).
 
 Additional case names are listed in `tests/regression.c`. Some cases write small `audit-*` files in the current directory. Run them from a disposable checkout if you want to keep the source directory clean.
+
+To check Cassio's input thread, including EOF immediately after a command with
+no final newline, run `python tests/cassio-eof.py bin/wEdax-x86-64-v4.exe`.
+Use `--cwd bin` if the executable is elsewhere and `bin/data/eval.dat` is used.
+The same test accepts a Linux executable and needs only Python's standard library.
+
+From a native Visual Studio 2022 x86 Developer Command Prompt, run
+`tests\build-regression-x86-avx2.cmd`, then set `EDAX_EVAL_FILE` and run
+`tests\regression-x86-avx2.exe core 1`. Keep this build's `/O2 /GL` options:
+MSVC's x86 optimization of the inlined CRC hash could corrupt a later AVX2
+legal-move calculation, causing wrong scores or repeated passes until stack
+overflow. The `core` case compares 96 exact searches with an independent solver.
