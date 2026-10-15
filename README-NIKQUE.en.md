@@ -47,6 +47,8 @@ After v4.5.5-nikque.14 was published, another reading of the source (a cross-che
 
 - Three of the defects were reproduced on small books with the release of v4.5.5-nikque.14 (prune never ends after the import, a damaged book crashes, an evaluation file passes with half of its header).
 - **On the fixed source, only the builds (Windows, Linux, Android, macOS) and the start of the released files were checked. The test set (regression tests, builds that detect memory errors, ...) runs after the release.** The fixes made after the test set of v4.5.5-nikque.14 (`c177426`) have not been through the test set yet either.
+- **Test set after the release (2026-10-15, source `5eaf9f3`)**: the book regression differs from v4.5.5-nikque.13 in the same files as v4.5.5-nikque.14 did (the step of `book fill` and the steps after it); suite A2 without `book fill` gives the same files as v4.5.5-nikque.13 with 1 and 8 threads. AddressSanitizer, 3 sweeps of 79 cases: no memory error (21 cases not run: inputs lost; 3 or 4 time limits, as before). ThreadSanitizer: the report on the progress counters is gone (the others are the known kinds). Thread creation failing, stop-and-go, repeated searches: as before. The only finding: the repository test `tests/regression.c` used a renamed function and did not build; fixed (`55c35cb`; the released files do not change).
+- **Speed (released builds, 32 threads, order A B B A)**: on a book of 83,000 positions (level 12), `book fill 2`, `fill2 2`, `leaf expand` and `fill2 2 5 5` take the same time as v4.5.5-nikque.14 (within 2%). `book import` of a text book of 4 million positions: 9.7 s → 7.9 s.
 
 ## Changes in v4.5.5-nikque.14
 
