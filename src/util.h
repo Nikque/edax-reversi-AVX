@@ -376,8 +376,9 @@ Thread thread_self(void);
 /** atomic addition */
 static inline void atomic_add(volatile unsigned long long *value, long long i)
 {
-#if defined(USE_GAS_X64)
-  __asm__ __volatile__("lock xaddq %1, %0":"=m"(*value) :"r"(i), "m" (*value));
+#if defined(__GNUC__)
+	// (up to v4.5.5-nikque.15 a "lock xaddq" whose register, written back by xadd, was declared as an input)
+	__atomic_fetch_add(value, i, __ATOMIC_RELAXED);
 #elif defined(USE_MSVC_X64)
 	_InterlockedAdd64(value, i);
 #else

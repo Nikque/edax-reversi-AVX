@@ -352,7 +352,7 @@ static void data_new(HashData *data, HashStoreData *storedata)
 static void hash_new(Hash *hash, HashLock *lock, const Board *board, HashStoreData *storedata)
 {
 	spin_lock(lock);
-	HASH_STATS(if (date == hash->data.date) ++statistics.n_hash_remove;)
+	HASH_STATS(if (storedata->data.wl.c.date == hash->data.wl.c.date) ++statistics.n_hash_remove;)
 	HASH_STATS(++statistics.n_hash_new;)
 	HASH_COLLISIONS(hash->key = storedata->hash_code;)
 	hash->board = *board;
@@ -383,7 +383,7 @@ static void hash_set(Hash *hash, HashLock *lock, const Board *board, HashStoreDa
 {
 	storedata->data.move[1] = NOMOVE;
 	spin_lock(lock);
-	HASH_STATS(if (date == hash->data.date) ++statistics.n_hash_remove;)
+	HASH_STATS(if (storedata->data.wl.c.date == hash->data.wl.c.date) ++statistics.n_hash_remove;)
 	HASH_STATS(++statistics.n_hash_new;)
 	HASH_COLLISIONS(hash->key = storedata->hash_code;)
 	hash->board = *board;

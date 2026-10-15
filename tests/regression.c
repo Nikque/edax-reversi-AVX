@@ -157,6 +157,14 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   ok=ok&&string_to_coordinate("P@d3")==D3&&string_to_coordinate("@@@@")==PASS;
   FILE *f=fopen("audit-loop.ini","w");fputs("option-file audit-loop.ini\nmode 9\n",f);fclose(f);options_parse("audit-loop.ini");options_bound();ok=ok&&options.mode==3;remove("audit-loop.ini");
   printf("PARSERS times, coordinates, option-file loop, mode ok=%d\n",ok);if(!ok)return 2;}
+ else if(!strcmp(t,"tools")){ /* v4.5.5-nikque.16: opening names, shapes after a pass, the moves of an OBF line */
+  int ok=1;const char *l;ShapeHash sh;BoardCache bc;Board b;unsigned seed=3;int found=0;OBF obf;FILE *f;
+  l=opening_get_line("tigre centrale");ok=ok&&l&&!strcmp(l,"f5d6c3d3c4f4c5");l=opening_get_line("tigre");ok=ok&&l&&!strcmp(l,"f5d6c3d3c4");
+  while(!found){board_init(&b);for(;;){unsigned long long m=board_get_moves(&b);if(!m){Board p=b;board_pass(&p);if(board_get_moves(&p)&&board_count_empties(&b)>3)found=1;break;}int k=(int)((seed=seed*1103515245+12345)>>16);k%=bit_count(m);while(k--)m&=m-1;board_next(&b,first_bit(m),&b);}}
+  {Board p=b;board_pass(&p);shapehash_init(&sh,12);boardcache_init(&bc,12);ok=ok&&count_shape(&sh,&bc,&b,1)==(unsigned long long)bit_count(board_get_moves(&p));shapehash_delete(&sh);boardcache_delete(&bc);}
+  f=fopen("audit-moves.obf","w");fputs("---------------------------OX------XO--------------------------- X",f);for(int i=0;i<40;++i)fputs(";f5:+1",f);fputs(";\n",f);fclose(f);
+  f=fopen("audit-moves.obf","r");memset(&obf,0,sizeof obf);obf_read(&obf,f);fclose(f);ok=ok&&obf.n_moves==MAX_MOVE;obf_free(&obf);remove("audit-moves.obf");
+  printf("TOOLS opening names, shapes after a pass, OBF moves ok=%d\n",ok);if(!ok)return 2;}
  else return 1;
  return 0;
 }

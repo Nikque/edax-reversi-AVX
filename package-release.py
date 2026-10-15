@@ -9,6 +9,7 @@ as containing this fork's fixes.
 """
 
 from hashlib import sha256
+from os import replace
 from pathlib import Path
 from sys import argv
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
@@ -81,25 +82,39 @@ def main() -> None:
     if sha256(eval_data).hexdigest() != EVAL_SHA256:
         raise SystemExit("bin/data/eval.dat differs from the upstream v4.5.5 asset")
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with ZipFile(output, "w") as archive:
-        for name in (*OTHER_FILES, *MANUAL_FILES, *BINARIES, *LIBRARIES):
-            if without_macos and name in MACOS_FILES:
-                print(f"left out: {name}")
-                continue
-            path = ROOT / name
-            data = path.read_bytes()
-            info = ZipInfo(name, date_time=(2026, 9, 27, 0, 0, 0))
-            info.create_system = 3
-            executable = name in (*BINARIES, *LIBRARIES) and not name.endswith((".exe", ".dll"))
-            info.external_attr = ((0o100755 if executable else 0o100644) << 16)
-            info.compress_type = ZIP_DEFLATED
-            archive.writestr(info, data, compress_type=ZIP_DEFLATED, compresslevel=9)
+    names = [name for name in (*OTHER_FILES, *MANUAL_FILES, *BINARIES, *LIBRARIES)
+             if not (without_macos and name in MACOS_FILES)]
+    for name in (*OTHER_FILES, *MANUAL_FILES, *BINARIES, *LIBRARIES):
+        if name not in names:
+            print(f"left out: {name}")
+    # every file is checked before the ZIP is written, and the ZIP is written to another file first: a missing
+    # file or a failure leaves no partial ZIP, nor replaces an existing one (up to v4.5.5-nikque.15 it did)
+    missing = [name for name in names if not (ROOT / name).is_file()]
+    if missing:
+        raise SystemExit("missing files: " + ", ".join(missing))
 
-    with ZipFile(output) as archive:
-        bad = archive.testzip()
-        if bad is not None:
-            raise SystemExit(f"ZIP verification failed: {bad}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    partial = output.with_name(output.name + ".tmp")
+    try:
+        with ZipFile(partial, "w") as archive:
+            for name in names:
+                path = ROOT / name
+                data = path.read_bytes()
+                info = ZipInfo(name, date_time=(2026, 9, 27, 0, 0, 0))
+                info.create_system = 3
+                executable = name in (*BINARIES, *LIBRARIES) and not name.endswith((".exe", ".dll"))
+                info.external_attr = ((0o100755 if executable else 0o100644) << 16)
+                info.compress_type = ZIP_DEFLATED
+                archive.writestr(info, data, compress_type=ZIP_DEFLATED, compresslevel=9)
+
+        with ZipFile(partial) as archive:
+            bad = archive.testzip()
+            if bad is not None:
+                raise SystemExit(f"ZIP verification failed: {bad}")
+        replace(partial, output)
+    finally:
+        if partial.exists():
+            partial.unlink()
     print(f"Created {output} ({output.stat().st_size} bytes)")
 
 

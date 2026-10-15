@@ -113,7 +113,7 @@ extern unsigned char edge_stability[256 * 256];
 #if COUNT_LAST_FLIP == COUNT_LAST_FLIP_NEON
   #ifdef LASTFLIP_LOWCUT
 	extern int mm_solve_1(uint64x1_t P, int alpha, int pos);
-	#define solve_1(P,alpha,pos)	mm_solve_1(vcreate_u64(player), (alpha), (pos))
+	#define solve_1(P,alpha,pos)	mm_solve_1(vcreate_u64(P), (alpha), (pos))	// (P: "player" up to v4.5.5-nikque.15)
   #else // SIMULLASTFLIP
 	extern int mm_solve_exact_1(uint64x1_t P, int pos);
 	#define mm_solve_1(P,alpha,pos)	mm_solve_exact_1((P), (pos))

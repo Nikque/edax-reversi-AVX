@@ -999,7 +999,7 @@ static unsigned long long count_shape(ShapeHash *hash, BoardCache *cache, const 
 			}
 		} else {
 			board_next(board, PASS, &next);
-			if (can_move(board->player, board->opponent)) {
+			if (can_move(next.player, next.opponent)) { // (the board after the pass: up to v4.5.5-nikque.15 the board that has no move)
 				nodes += count_shape(hash, cache, &next, depth);
 			}
 		}
@@ -1034,7 +1034,7 @@ static unsigned long long count_shape_6x6(ShapeHash *hash, BoardCache *cache, co
 			}
 		} else {
 			board_next(board, PASS, &next);
-			if (can_move_6x6(board->player, board->opponent)) {
+			if (can_move_6x6(next.player, next.opponent)) { // (the board after the pass: see count_shape)
 				nodes += count_shape_6x6(hash, cache, &next, depth);
 			}
 		}
@@ -1101,7 +1101,7 @@ bool seek_position(const Board *target, const Board *board, Line *line) {
 	if (moves) {
 		moves &= mask;
 		foreach_bit (x, moves) {
-			line_push(line, x);
+			if (!line_push(line, x)) return false; // (a full line)
 			board_next(board, x, &next);
 			if (seek_position(target, &next, line)) return true;
 			line_pop(line);
@@ -1109,7 +1109,11 @@ bool seek_position(const Board *target, const Board *board, Line *line) {
 	} else {
 		board_next(board, PASS, &next);
 		if (can_move(next.player, next.opponent)) {
+			// the pass is in the line, as in the other lines (up to v4.5.5-nikque.15 it was left out: the moves after it
+			// were printed with the colors of the other player)
+			if (!line_push(line, PASS)) return false;
 			if (seek_position(target, &next, line)) return true;
+			line_pop(line);
 		}
 	}
 

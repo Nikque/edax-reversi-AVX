@@ -1304,7 +1304,9 @@ static bool match(const char *s1, const char *s2)
 		while (isspace((unsigned char) *s1) || ispunct((unsigned char) *s1)) ++s1;
 		while (isspace((unsigned char) *s2) || ispunct((unsigned char) *s2)) ++s2;
 
-		if (*s1 == '\0' || *s2 == '\0') return (*s2 == '\0');
+		// the whole name (up to v4.5.5-nikque.15 a name of the list that was the start of the given one matched it:
+		// "tigre centrale" was "tigre", the first of the list)
+		if (*s1 == '\0' || *s2 == '\0') return (*s1 == '\0' && *s2 == '\0');
 
 		c1 = (unsigned char) *s1++; // (a negative char is no argument of tolower())
 		c2 = (unsigned char) *s2++;
