@@ -3099,7 +3099,7 @@ bool book_import(Book *book, const char *file)
 		if (n_wrong) warn("%lld lines of %s hold no position: skipped\n", n_wrong, file);
 		if (book->n_nodes == 0 || book->failed || ferror(f)) { // a part of the file only is not imported: the current book is kept
 			bprint("\n");
-			if (book->failed) error("not enough memory to import \"%s\"\n", file);
+			if (book->failed) error("\"%s\" was not imported (see above)\n", file); // (memory exhausted, or too many positions)
 			else if (ferror(f)) error("cannot read \"%s\"\n", file);
 			else error("no position found in \"%s\"\n", file);
 			fclose(f);
