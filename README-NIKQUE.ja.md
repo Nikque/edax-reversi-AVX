@@ -67,7 +67,7 @@ v4.5.5-nikque.15 の公開の後のソースの読み直し（2 回目のクロ�
 - Windows（MSVC・PGO）のビルドと試験、macOS のビルド、Android（arm64）の実機での確認は、この文書を書いた時点でまだです。aarch64 は qemu で確かめました。
 - `MOVE_GENERATOR_NEON` の誤りは、配布版の既定の構成（aarch64 は別の方式）では使われていません。
 - 速さの点で、次のものは測った結果、効きが小さいので直していません：同時に探索するときの手伝いのスレッドを作る回数（約 1 万 8 千回で 47 ミリ秒）など。
-- edax_runner を同じフォルダーで 2 つ動かすこと、bookと学習リスト・学習済み記録を 1 つのまとまりとして入れ替えないことは、これまでと同じです。
+- libedax の関数は、これまでどおり 1 つのスレッドから順に呼びます。1 つのbookのファイルに書くプロセスは 1 つにしてください（下の「ほかのプログラムから使うには」に書き足しました）。edax_runner は 5.3.0+nikque.10 から、同じフォルダーで 2 つ目を起動すると止まります。
 
 ### 確認
 
@@ -1037,6 +1037,7 @@ Edaxをほかのプログラムから呼び出せるライブラリ（libedax）
 2. C・C++ からは `src/libedax.h` を取り込みます。ほかの言語からは、その言語の外部関数呼び出し（FFI）でライブラリを読み込みます（Dart には [libedax4dart](https://pub.dev/packages/libedax4dart) があります。Python の ctypes、C# の P/Invoke などでも同じ関数を呼べます）。
 3. 最初に `libedax_initialize` を呼び（設定を読みます）、`edax_init` で対局を始め、最後に `libedax_terminate` を呼びます。関数は edax のコマンドに対応しています（`edax_play`・`edax_go`・`edax_hint`・`edax_book_*` など。一覧は `src/libedax.h`、使い方の例は全関数を呼ぶ `tests/libedax_test.c`）。
 4. 同時に使えるEdaxは、1つのプロセスにつき1つです（元のlibedaxと同じ）。関数は1つのスレッドから順に呼んでください（`edax_stop` と `edax_book_stop_count_bestpath` は、実行中の処理を止めるために別のスレッドから呼べます）。
+5. bookはメモリに読み込んで使い、保存のときにファイルを置き換えます。同じbookのファイルを2つのプロセス（Edax・libedaxを使うプログラム）で学習して保存すると、後に保存した方だけが残ります。1つのbookのファイルに書くプロセスは1つにしてください。読めなかったbookを保存で上書きしないために、保存の前に `edax_book_keep_unread_file`（v4.5.5-nikque.16 から）を呼べます。
 
 短い例（`tests/libedax_example.c`。Windows と Linux でビルドして動作を確認しています）：
 

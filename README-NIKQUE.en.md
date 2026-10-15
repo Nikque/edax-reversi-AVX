@@ -67,7 +67,7 @@ After v4.5.5-nikque.15 was published, a second cross-check of the source found m
 - When this text was written, the Windows builds and tests (MSVC, PGO), the macOS build and a real Android (arm64) device were not checked yet. aarch64 was checked with qemu.
 - The `MOVE_GENERATOR_NEON` defect is not in the default builds (aarch64 uses another method by default).
 - Some speed points were measured and left as they are because their effect is small: the creation of the helper threads of parallel searches (about 18,000 creations take 47 ms), and the like.
-- Running two edax_runner in the same folder, and replacing the book, the learning list and the learned log as one unit, are as before.
+- The functions of libedax are still called from one thread, one after the other; let one process write a book file (added to "To use it from another program" below). Since 5.3.0+nikque.10, a second edax_runner started in the same folder stops.
 
 ### Checks
 
@@ -1037,6 +1037,7 @@ The 93 functions of [libedax by lavox](https://github.com/lavox/edax-reversi) ([
 2. In C or C++, include `src/libedax.h`. In another language, load the library with its foreign function interface (Dart has [libedax4dart](https://pub.dev/packages/libedax4dart); ctypes of Python, P/Invoke of C#, ... call the same functions).
 3. Call `libedax_initialize` first (it reads the settings), `edax_init` to start a game, and `libedax_terminate` at the end. The functions are the commands of edax (`edax_play`, `edax_go`, `edax_hint`, `edax_book_*`, ...): they are listed in `src/libedax.h`, and `tests/libedax_test.c` calls every one of them.
 4. A process has one Edax (as with the original libedax). Call the functions from one thread, one after the other (`edax_stop` and `edax_book_stop_count_bestpath` can be called from another thread to stop what is running).
+5. A book is loaded into memory, and a save replaces the file. If two processes (Edax, programs using libedax) learn into the same book file and save it, only the last save remains: let one process write a book file. To avoid replacing a book that could not be read, `edax_book_keep_unread_file` (since v4.5.5-nikque.16) can be called before a save.
 
 A short example (`tests/libedax_example.c`; built and run on Windows and Linux):
 
