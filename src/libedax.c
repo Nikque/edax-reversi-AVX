@@ -378,7 +378,7 @@ static void lib_position_set(LibedaxPosition *dst, const Position *p, const Book
 {
 	const Link *l = position_links(p);
 	LibedaxLink *link = lib_links[lib_i_links = (lib_i_links + 1) % LIB_N_LINKS];
-	int i;
+	int i, n_link;
 
 	dst->board[0].player = p->board.player;
 	dst->board[0].opponent = p->board.opponent;
@@ -396,7 +396,9 @@ static void lib_position_set(LibedaxPosition *dst, const Position *p, const Book
 		if (lib_bestpath.black[k]) dst->flag |= LIBEDAX_FLAG_BESTPATH_BLACK;
 	}
 
-	for (i = 0; i < p->n_link; ++i) {
+	// (a damaged book file may hold more links than a position has moves: the array holds MAX_MOVE + 2)
+	n_link = p->n_link < MAX_MOVE + 2 ? p->n_link : MAX_MOVE + 2;
+	for (i = 0; i < n_link; ++i) {
 		link[i].score = l[i].score;
 		link[i].move = l[i].move;
 	}
@@ -409,7 +411,7 @@ static void lib_position_set(LibedaxPosition *dst, const Position *p, const Book
 	dst->score.value = p->score.value;
 	dst->score.lower = p->score.lower;
 	dst->score.upper = p->score.upper;
-	dst->n_link = p->n_link;
+	dst->n_link = n_link;
 	dst->level = p->level;
 }
 

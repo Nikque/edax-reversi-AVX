@@ -194,24 +194,30 @@ static bool book_game_boards(Book*, const Game*, const bool);
 /**
  * @brief Replace the links of a position.
  *
+ * Fewer links than the position has are written in place (no memory is allocated: removing links never fails).
+ *
  * @param position Position (its previous links are released).
  * @param links New links (may not alias the position's storage).
  * @param n Number of links.
- * @return false if memory is exhausted (the position is left without links).
+ * @return false if memory is exhausted (the position is left as it was).
  */
 static bool position_set_links(Position *position, const Link *links, const int n)
 {
-	if (position->n_link > POSITION_INLINE_LINKS) free(position->links.array);
-	position->links.array = NULL;
-	position->n_link = 0;
+	Link *array = NULL;
+
 	if (n > POSITION_INLINE_LINKS) {
-		Link *array = (Link*) malloc(sizeof (Link) * n);
+		if (position->n_link >= n) { // the array of the position is large enough
+			memcpy(position->links.array, links, sizeof (Link) * n);
+			position->n_link = (unsigned char) n;
+			return true;
+		}
+		array = (Link*) malloc(sizeof (Link) * n);
 		if (array == NULL) return false;
 		memcpy(array, links, sizeof (Link) * n);
-		position->links.array = array;
-	} else if (n > 0) {
-		memcpy(position->links.in, links, sizeof (Link) * n);
 	}
+	if (position->n_link > POSITION_INLINE_LINKS) free(position->links.array);
+	position->links.array = array;
+	if (array == NULL && n > 0) memcpy(position->links.in, links, sizeof (Link) * n);
 	position->n_link = (unsigned char) n;
 	return true;
 }
@@ -678,15 +684,19 @@ static int position_get_moves(const Position *position, const Board *board, Move
 		board_symetry(&position->board, s, &sym);
 
 		if (board_equal(&sym, board)) {
-			for (i = 0; i < position->n_link; ++i) {
+			// a damaged book file may hold more moves than a position has, or moves that are no square:
+			// they are left out (the list holds MAX_MOVE moves; a wrong square would index the flip tables)
+			const Move *const end = movelist->move + MAX_MOVE + 1;
+			for (i = 0; i < position->n_link && move < end; ++i) {
 				x = symetry(position_links(position)[i].move, s);
+				if (x < A1 || x > PASS) continue;
 				board_get_move_flip(board, x, move);
 				move->score = position_links(position)[i].score;
 				previous = previous->next = move;
 				++move;
 			}
 			x = symetry(position->leaf.move, s);
-			if (x != NOMOVE) {
+			if (A1 <= x && x <= PASS && move < end) {
 				board_get_move_flip(board, x, move);
 				move->score = position->leaf.score;
 				previous = previous->next = move;
@@ -2242,30 +2252,6 @@ static int position_array_add(PositionArray *a, const Position *p, const unsigne
 }
 
 /**
- * @brief Remove a position from an array.
- *
- * @param a Positions' array.
- * @param p Position to add.
- * @return true in case of success.
- */
-static bool position_array_remove(PositionArray *a, const Position *p)
-{
-	int i, j;
-
-	for (i = 0; i < a->n; ++i) {
-		if (board_equal(&a->positions[i].board, &p->board)) {
-			position_free(a->positions + i);
-			for (j = i + 1; j < a->n; ++j) {
-				a->positions[j - 1] = a->positions[j];
-			}
-			--a->n;
-			return true;
-		}
-	}
-	return false;
-}
-
-/**
  * @brief Free resources used by a position array.
  *
  * @param a Positions' array.
@@ -2398,19 +2384,23 @@ static int book_add(Book *book, const Position *p)
 }
 
 /**
- * @brief Remove a position from the book.
+ * @brief Remove a position from the book, by its place.
+ *
+ * The position is removed from the array that holds it, whatever its hash code tells: a position whose
+ * board was changed by book fix (made unique) may be in another bucket than its board's, and searching
+ * the board's bucket would not find it (the callers, which loop on the array, would never end).
  *
  * @param book Opening book.
- * @param p Position to add.
+ * @param a Array that holds the position.
+ * @param i Index of the position in the array.
  */
-static void book_remove(Book *book, const Position *p)
+static void book_remove_at(Book *book, PositionArray *a, const int i)
 {
-	const unsigned long long i = board_get_hash_code(&p->board) & (book->n - 1);
-
-	if (position_array_remove(book->array + i, p)) {
-		--book->n_nodes;
-		--book->stats.n_nodes;
-	}
+	position_free(a->positions + i);
+	memmove(a->positions + i, a->positions + i + 1, (size_t) (a->n - i - 1) * sizeof (Position));
+	--a->n;
+	--book->n_nodes;
+	--book->stats.n_nodes;
 }
 
 /** @return the place of a position in the book: bucket << 32 | index in the bucket. */
@@ -4069,7 +4059,7 @@ merge_end:
 	if (!ok && n_added) { // remove what was added: the destination is left unchanged
 		PositionArray *a;
 		for (a = dest->array; a < dest->array + dest->n; ++a)
-		for (k = 0; k < a->n; ++k) if (position_is_done(a->positions + k, dest)) { book_remove(dest, a->positions + k); --k; }
+		for (k = 0; k < a->n; ++k) if (position_is_done(a->positions + k, dest)) { book_remove_at(dest, a, k); --k; }
 	}
 	if (ok) dest->need_saving = dest->need_saving || n_added > 0;
 	bprint("Merging book %s...%lld positions added\n", file, n_added);
@@ -5878,7 +5868,7 @@ void book_prune(Book *book)
 		SUBTREE_STAT("mark");
 		for (a = book->array; a < book->array + book->n; ++a)
 		for (i = 0; i < a->n; ++i) {
-			if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
+			if (!position_is_done(a->positions + i, book)) {book_remove_at(book, a, i); --i;}
 			else a->positions[i].state &= (unsigned char) ~(PRUNE_SEEN_A | PRUNE_SEEN_B);
 		}
 		SUBTREE_STAT("remove");
@@ -5939,7 +5929,7 @@ void book_subtree(Book *book, const Board *board)
 #endif
 		SUBTREE_STAT("mark");
 		for (a = book->array; a < book->array + book->n; ++a)
-		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove(book, a->positions + i); --i;}
+		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove_at(book, a, i); --i;}
 		SUBTREE_STAT("remove");
 		// the book that was cut is saved when Edax ends (up to v4.5.5-nikque.12 only if the negamax changed a score)
 		if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;
