@@ -7240,8 +7240,8 @@ void book_feed_hash(const Book *book, Board *board, Search *search)
  * is left (the next leaf may be better than the links again). Without limits: every position of the book
  * that is not under its depth. With a per-move and a cumulative loss limit: the positions of the walk of
  * book deviate3 from the current position (the leaves of the solved positions too). Every round first
- * links the leaves that lead to a position of the book (the leaves only: the other moves are linked by
- * book fix).
+ * links the positions whose leaf leads to a position of the book (all the missing links of these positions;
+ * the other positions are linked by book fix).
  *
  * The positions of every command are found without any copy of the book: by several threads that scan
  * the book by bucket ranges (book_pick_scan), or by the walk of book deviate3, whose marks are then kept
@@ -7430,7 +7430,7 @@ static bool position_fill(Book *book, const unsigned long long key, const int de
 	const long long n_nodes = book->stats.n_nodes;
 	Position *p = book_position(book, key);
 	Board board;
-	Link *l;
+	long long n_links;
 	bool filled;
 	int x;
 
@@ -7451,14 +7451,11 @@ static bool position_fill(Book *book, const unsigned long long key, const int de
 
 	p = book_position(book, key); // (the positions of its bucket may have moved to another block)
 	x = p->leaf.move;
+	n_links = book->stats.n_links;
 	position_link(p, book);
-	if (x != NOMOVE) foreach_link(l, p) {
-		if (l->move == x) { // the leaf is a link now: search the next leaf (its score is the score of the link, as in position_expand)
-			p->leaf.score = l->score;
-			position_search(p, book);
-			break;
-		}
-	}
+	if (book->stats.n_links != n_links) book->need_saving = true; // (only links may be added: the book is saved at the end)
+	// the leaf is a link now (position_add_link has removed the leaf): search the next leaf, if a move is left
+	if (x != NOMOVE && p->leaf.move == NOMOVE) position_search(p, book);
 	return book->stats.n_nodes != n_nodes;
 }
 
@@ -7703,7 +7700,8 @@ static unsigned long long* book_pick_todo(Book *book, const BookPick *pick, long
  * book fix links them too, but searching a leaf again may make it better than every link: the commands
  * that fill or expand do it themselves, so that they end with neither kind of leaf. book fill and fill2 link
  * every such move (as up to v4.5.5-nikque.13, book fill linked every position next to the positions it
- * filled from); book leaf expand links the leaves only. The searches are done as those of book fill
+ * filled from); book leaf expand picks the positions whose leaf leads to a position of the book (and adds all their
+ * missing links: position_link). The searches are done as those of book fill
  * (book-expand-tasks).
  *
  * @param book Opening book.
@@ -7713,8 +7711,8 @@ static unsigned long long* book_pick_todo(Book *book, const BookPick *pick, long
  * @param limited With loss limits: the positions of the walk of book deviate3 only; else the whole book.
  * @param move_loss Maximum loss for one move.
  * @param total_loss Maximum cumulative loss for both players.
- * @param all_moves Every move (book fill, fill2), else the leaf only (book leaf expand).
- * @return the number of positions linked (0: nothing was done).
+ * @param all_moves Every move (book fill, fill2), else the positions whose leaf leads to a position of the book (book leaf expand).
+ * @return the number of links added (0: nothing was done).
  */
 static long long book_link_moves(Book *book, const char *name, const char *file, Position *root, const bool limited, const int move_loss, const int total_loss, const bool all_moves)
 {
@@ -7740,17 +7738,18 @@ static long long book_link_moves(Book *book, const char *name, const char *file,
 	}
 	if (keys == NULL) {
 		error("cannot allocate the list of the positions to link\n");
+		book->failed = true; // (the command stops: not the same as nothing to link)
 		return 0;
 	}
+	book->stats.n_nodes = book->stats.n_links = 0;
 	if (n) {
 		snprintf(label, sizeof label, "%s (links)", name);
 		if (all_moves) bprint("%s: %lld positions have a move to a position of the book that is not a link\n", label, n);
 		else bprint("%s: %lld leaves lead to a position of the book\n", label, n);
-		book->stats.n_nodes = book->stats.n_links = 0;
 		book_fill_keys(book, label, file, keys, n, 0, false);
 	}
 	if (owned) free(keys);
-	return n;
+	return book->stats.n_links; // (the links added: 0 if none could be, a link that cannot be allocated is not added)
 }
 
 /**
@@ -7780,6 +7779,7 @@ static void book_fill_all(Book *book, const int depth, const bool leaf_only)
 		keys = book_pick_scan(book, name, &pick, &n);
 		if (keys == NULL) {
 			error("cannot allocate the list of the positions to fill from\n");
+			book->failed = true;
 			break;
 		}
 		bprint("%s %d: %lld positions to fill from\n", name, depth, n);
@@ -7866,6 +7866,7 @@ void book_fill_walk(Book *book, Board *board, const int depth, const bool leaf_o
 		keys = book_pick_todo(book, &pick, &n, &owned);
 		if (keys == NULL) {
 			error("cannot allocate the list of the positions to fill from\n");
+			book->failed = true;
 			break;
 		}
 		bprint("%s %lld positions selected, %lld to fill from\n", name, n_selected, n);
@@ -7940,6 +7941,7 @@ void book_leaf_expand(Book *book, Board *board, const bool limited, const int mo
 		}
 		if (!listed) {
 			error("cannot allocate the list of the positions to expand\n");
+			book->failed = true;
 			break;
 		}
 		bprint("%s %lld todo\n", name, book->stats.n_todo);

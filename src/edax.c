@@ -108,6 +108,12 @@
 #include "util.h"
 
 #include <ctype.h>
+
+/** @return true if a word starts with a number, signed or not (as parse_int reads it). */
+static bool starts_with_number(const char *s)
+{
+	return isdigit((unsigned char) s[0]) || ((s[0] == '+' || s[0] == '-') && isdigit((unsigned char) s[1]));
+}
 #include "ui.h"
 #ifdef __linux__
 	#include <sys/time.h>
@@ -885,7 +891,7 @@ void ui_loop_edax(UI *ui)
 				// and a cumulative loss limit, of the positions of a deviate3 walk
 				} else if (strcmp(book_cmd, "leaf expand") == 0) {
 					char *limits = parse_skip_spaces(book_param);
-					if (isdigit((unsigned char) *limits)) { // (the limits are numbers: another word is ignored, as by the other commands)
+					if (starts_with_number(limits)) { // (the limits are numbers, signed or not: another word is ignored, as by the other commands)
 						val_1 = 2; book_param = parse_int(limits, &val_1); BOUND(val_1, 0, 129, "per-move loss");
 						val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
 						book_leaf_expand(book, &play->board, true, val_1, val_2);
@@ -915,7 +921,7 @@ void ui_loop_edax(UI *ui)
 					int total_loss;
 					val_1 = leaf_only ? 2 : 1; book_param = parse_int(book_param, &val_1); BOUND(val_1, 1, 61, "fill depth"); // (fill2 1 adds no position)
 					limits = parse_skip_spaces(book_param);
-					if (isdigit((unsigned char) *limits)) { // (the limits are numbers: another word is ignored, as by the other commands)
+					if (starts_with_number(limits)) { // (the limits are numbers, signed or not: another word is ignored, as by the other commands)
 						val_2 = 2; book_param = parse_int(limits, &val_2); BOUND(val_2, 0, 129, "per-move loss");
 						total_loss = 4; book_param = parse_int(book_param, &total_loss); BOUND(total_loss, 0, 7740, "cumulative loss");
 						book_fill_walk(book, &play->board, val_1, leaf_only, val_2, total_loss);
