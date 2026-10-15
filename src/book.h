@@ -43,6 +43,8 @@ typedef struct Book {
 	struct PositionArray *array;
 	struct PositionStack* stack;
 	void *pool;                  /**< positions stored at load time (see book_load) */
+	long long pool_size;         /**< number of positions the pool can hold */
+	long long pool_unused;       /**< places of the pool no longer used (see book_pool_reclaim) */
 	int n;
 	unsigned int n_nodes;       /**< position count (saved as a 32-bit unsigned count) */
 	bool need_saving;
@@ -90,6 +92,7 @@ void book_sort(Book *book);
 void book_negamax(Book*);
 void book_negamax_subtree(Book*, const Board*);
 void book_prune(Book*);
+void book_pool_reclaim(Book*);
 void book_deepen(Book*);
 void book_correct_solved(Book*);
 void book_link(Book*);

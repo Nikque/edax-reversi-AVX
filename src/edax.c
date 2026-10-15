@@ -950,6 +950,7 @@ void ui_loop_edax(UI *ui)
 				// the searches used to learn games or to link the book at the same time (book-store-tasks) are
 				// kept from a book store to the next one (as with auto-store), and released by the other commands
 				if (strcmp(book_cmd, "store") != 0) book_store_release();
+				book_pool_reclaim(book); // (no position is pointed to between two commands)
 				book->options.verbosity = book->search->options.verbosity;
 				book->search->options.verbosity = options.verbosity;
 				play_no_stop(play, false);

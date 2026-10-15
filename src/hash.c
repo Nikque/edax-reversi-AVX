@@ -52,7 +52,11 @@ void hash_init(HashTable *hash_table, const unsigned long long size)
 	assert((n_way & -n_way) == n_way);
 
 	info("< init hashtable of %llu entries>\n", size);
-	if (hash_table->hash != NULL) free(hash_table->memory);
+	if (hash_table->hash != NULL) { // a new size: the former table and its locks are released
+		free(hash_table->memory);
+		for (i = 0; i < hash_table->n_lock; ++i) spin_free(hash_table->lock + i);
+		free(hash_table->lock);
+	}
 	hash_table->memory = malloc((size + n_way + 1) * sizeof (Hash));
 	if (hash_table->memory == NULL) {
 		fatal_error("hash_init: cannot allocate the hash table\n");
@@ -75,6 +79,9 @@ void hash_init(HashTable *hash_table, const unsigned long long size)
 	hash_table->lock_mask = hash_table->n_lock - 1;
 	// hash_table->n_lock += n_way + 1;
 	hash_table->lock = (HashLock*) malloc(hash_table->n_lock * sizeof (HashLock));
+	if (hash_table->lock == NULL) {
+		fatal_error("hash_init: cannot allocate the hash table locks\n");
+	}
 
 	for (i = 0; i < hash_table->n_lock; ++i) spin_init(hash_table->lock + i);
 }

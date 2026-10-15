@@ -4,7 +4,11 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.3).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.14) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.4).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.15) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+
+## Changes in v4.5.5-eval2.4
+
+v4.5.5-eval2.3 now holds **the changes of v4.5.5-nikque.15** (the fixes of the defects found by a cross-check, and the points of speed and memory: "Changes in v4.5.5-nikque.15" below). The same two fixes are made in the evaluation function file of this series (`eval.c`): the header of the evaluation file passes only when both halves of its 8 bytes are right, and libedax initialized again with another `eval-file` loads that file. The evaluation function and `eval.dat` are those of v4.5.5-eval2.1 (the same file). **This version was published after the builds and a start check only (the tests run after the release).**
 
 ## Changes in v4.5.5-eval2.3
 
@@ -159,6 +163,50 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+## Changes in v4.5.5-nikque.15
+
+After v4.5.5-nikque.14 was published, another reading of the source (a cross-check) found some defects; they are fixed, with a few points of speed and memory. `eval.dat`, the book file format and the search do not change. On **a correct book**, `book deviate` and the like, game learning, `book fill`, `fill2`, `leaf expand`, `book fix`, negamax and pruning make the same book as v4.5.5-nikque.14. The results change only with a book holding boards that are not unique, a damaged book, exhausted memory, and the `book import` of a large text book (see "What behaves differently" below).
+
+### Fixes
+
+- **After the `book import` of a text book with a board that is not unique, `book prune` and `book subtree` never ended** (from upstream). A board written in another orientation (another of its 8 symmetries) went to a place where it is not looked for. The `book fix` that follows the import made only the board unique, and the position stayed where it is not found. Prune could not find it to remove it and looped forever (reproduced on a small book: the initial position and a position after the first move written as d3, c4 or e6). The fixes:
+  - `book import` makes the board unique before it adds it (the leaf move turns with it). Of two lines with the same board, the first is kept.
+  - `book prune`, `book subtree` and the rollback of `book merge` remove a position by its place (the loop always ends).
+  - `book fix` first turns the positions whose board is not unique (a book file of another tool) to their unique board, with their links and leaf, and moves them to the right place. A position already there with the same board is kept. Up to now, such a position was searched again.
+- **A damaged book file (or one written by another tool) made Edax crash** (from upstream). With a file whose position has too many moves, or a link that is no square, `book show` and `play` crashed (reproduced on a small book). `book load` and `book merge` do not load a file with a position that has more moves than a position can have, a move that is no square, or a level above 60: "Truncated or damaged opening book" (the current book stays). The list of moves and the copy of a position in libedax no longer write beyond their size.
+- **The check of the header of the evaluation file passed with one half of its 8 bytes** (from upstream; reproduced). Both must be right.
+- **`book import` replaced the current book with the part read so far when the memory was exhausted or the file could not be read** (from upstream). It fails, and the current book stays.
+- **Each change of the size of the hash tables leaked the array of locks** (from upstream: XBoard `memory`, and since v4.5.5-nikque.13 a change of `hash-table-size`). The former array is released; when the new one cannot be allocated, Edax ends with an error, as for the table itself.
+- **With exhausted memory, removing links (after `book prune`, in `book fix`) could remove all the links of a position** (from an earlier nikque version). Fewer links are written in place (no memory is allocated).
+- **libedax: after `libedax_terminate`, `libedax_initialize` with another `eval-file` kept the former weights.** Another file name is loaded.
+- The progress counters are read and written with atomic accesses between the threads (reported by ThreadSanitizer; they were only displayed).
+
+### Speed and memory (the books are the same)
+
+- On **Linux and macOS** too, the unused part of the block that holds the positions of a loaded book (the pool) is released after `book prune` and `book subtree`, and after `book load` (up to now on Windows only).
+- When learning adds a position to a loaded book, its bucket is copied out of the pool, and its place in the pool stayed unused. After a book command or a libedax call, the pool is compacted and its end released when the unused places are more than a quarter of it.
+- `book fill`, `fill2`, `leaf expand`: the list of positions is sorted after it is narrowed (it was sorted whole, then narrowed). The array of marks (1 byte per item) and the copy of the list (8 bytes per item) are gone; `leaf expand` no longer sorts the list twice; the list gives back its memory when most positions were left out.
+
+### What behaves differently (summary)
+
+- `book import` of a text book with boards that are not unique: the positions are found (up to now they could not be found, and `book fix` searched them again).
+- `book fix` of a book with boards that are not unique: the positions are turned to their unique board with their links and leaf (up to now they were searched again).
+- Damaged book files: `book load` and `book merge` fail (up to now they were loaded and could crash later).
+- An evaluation file with only one half of its header right: not loaded (Edax ends with an error).
+- `book import` of a large text book: the number of buckets grows with the positions (faster). The order of the buckets changes, so learning in the same run as the import may handle the positions in another order and make another book.
+- A failed `book import` (memory, reading): the current book stays.
+- libedax: an initialization with another `eval-file` loads its weights.
+
+### Not changed, and good to know
+
+- Without a range, `book fill`, `fill2` and `leaf expand` still negamax the book from the initial position (as told for v4.5.5-nikque.14).
+- edax_runner copies the rest of the learning list for each learned line it takes out (only as many as the games learned at the same time: little effect, kept as it is).
+
+### Checks
+
+- Three of the defects were reproduced on small books with the release of v4.5.5-nikque.14 (prune never ends after the import, a damaged book crashes, an evaluation file passes with half of its header).
+- **On the fixed source, only the builds (Windows, Linux, Android, macOS) and the start of the released files were checked. The test set (regression tests, builds that detect memory errors, ...) runs after the release.** The fixes made after the test set of v4.5.5-nikque.14 (`c177426`) have not been through the test set yet either.
+
 ## Changes in v4.5.5-nikque.14
 
 New commands fill the gaps of a book and expand the leaves that are better than every link; both take the same range as `book deviate3`. `book fill` is faster (the book it makes changes), and `book leaf-recalculate` is renamed `book leaf recalculate`. The evaluation data `eval.dat`, the book file format and the search do not change. The books made by `book deviate`, `deviate2`, `deviate3`, by learning games, by `book fix`, the negamax and the commands that cut a book are the same as with v4.5.5-nikque.13.
@@ -215,7 +263,7 @@ New functions: `edax_book_fill2(depth)`, `edax_book_fill_limited(depth, move los
 
 ### Not changed, and good to know
 
-- A cross-check (another reading of the source) found some doubts in parts that come from earlier versions (to be examined and fixed in the next version; none of them is in what this version changed, and none was reproduced yet). In particular, with **a book file written by another program, or damaged** (`book load`, `book import`), `book fix` may no longer find some positions, and a position with too many moves may corrupt the memory. Work on a copy of such a book.
+- A cross-check (another reading of the source) found some doubts in parts that come from earlier versions (to be examined and fixed in the next version; none of them is in what this version changed, and none was reproduced yet). In particular, with **a book file written by another program, or damaged** (`book load`, `book import`), `book fix` may no longer find some positions, and a position with too many moves may corrupt the memory. Work on a copy of such a book. (Fixed in v4.5.5-nikque.15.)
 - Without a range, `book fill`, `fill2` and `leaf expand` negamax the book from the initial position after each round (as `book fix` and `book play` do). On a book without the initial position (cut by `book subtree`, for example), the scores are not followed back: use a range (`book fill2 2 5 5`, ...) from the position the book was cut from.
 - The n of `book fill n` means **exactly n moves later** (as before). Gaps nearer than n moves are not filled. A gap of a single missing position is filled with n = 2. `book fill2 1` and a distance of 1 with a range (`book fill 1 5 5`, ...) do nothing, as they add no position ("nothing to fill"). Without a number, `book fill2` uses 2 (`book fill` still uses 1).
 - After `book fill` and `fill2`, there can be more positions whose leaf score is greater than the best link score (the links are added and the leaves searched again; 927 → 1,639 positions on the test book). `book leaf expand` expands them. To fill the gaps and to remove the leaves better than the links, run `fill2`, then `leaf expand`.
