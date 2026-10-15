@@ -22,11 +22,11 @@ bookの欠けた所を埋める命令と、Linkより良いLeafを広げる命�
 
 Egaroucidで学習するとき、Leafの評価値がLinkの最大より大きい局面があると学習がおかしくなるので、bookの側で直すために足しました。
 
-### Leafの先がbookにある局面のLinkを張る（book fill・fill2・leaf expand）
+### 欠けたLinkを張る（book fill・fill2・leaf expand）
 
-**Leafの手の先の局面が、もうbookにある**局面があります。別の手順から同じ局面が足されると生まれ、`book deviate` でも生まれます（試験用のbookでは、nikque.13 の `book deviate 2 8` で作った5万6千局面のうち366局面。実bookでは6億7千万局面のうち132,753局面で、95%が `deviate3 5 5` の範囲の中にありました）。`book fix` でLinkが張られますが、Leafを探し直すとまたLinkより良くなることがあります。
+**手の先の局面が、もうbookにあるのに、その手がLinkになっていない**局面があります。別の手順から同じ局面が足されると生まれ、`book deviate` でも生まれます（`book deviate` はLinkを張り直さないため）。その手がLeafの手のこともあります。試験用のbook（nikque.13 の `book deviate 2 8` で作った5万6千局面）では609局面（そのうちLeafの手は366局面）。実book（6億7千万局面）では215,723局面（Leafの手は132,753局面）で、そのうち201,536局面（Leafの手は125,909局面）が `deviate3 5 5` の範囲の中にありました（数えただけです）。`book fix` でLinkが張られますが、Leafを探し直すとまたLinkより良くなることがあります。
 
-`book fill`・`fill2`・`leaf expand` は、どの周も初めにこれらの局面にLinkを張り、Leafを探し直します（範囲を付けたときは、その範囲の中だけ）。張るもの・埋めるもの・広げるものがなくなるまで繰り返すので、終わった後は、範囲の中にこういう局面は残りません。また、局面を足した元の局面には、その場でLinkを張ります（そのLeafが足した手だったときは、`book deviate` で広げたときと同じく、探し直して次のLeafを決めます）。
+`book fill`・`fill2` は、どの周も初めにこれらの局面に**すべての手の**Linkを張ります。`book leaf expand` は**Leafの手だけ**を張ります（Leaf以外の手は `book fix` で張ってください）。Leafの手がLinkになった局面は、Leafを探し直します。範囲を付けたときは、その範囲の中だけです。張るもの・埋めるもの・広げるものがなくなるまで繰り返すので、終わった後は、範囲の中にこういう局面は残りません（`book fill`・`fill2` の後は、範囲の中に欠けたLinkがありません）。v4.5.5-nikque.13 までの `book fill` も、埋め始めの局面のまわりの局面の欠けたLinkを張っていました。また、局面を足した元の局面には、その場でLinkを張ります（そのLeafが足した手だったときは、`book deviate` で広げたときと同じく、探し直して次のLeafを決めます）。
 
 ### book fill を速く（できるbookが変わります）
 
@@ -52,7 +52,7 @@ Egaroucidで学習するとき、Leafの評価値がLinkの最大より大きい
 
 | 場面 | v4.5.5-nikque.13 まで | v4.5.5-nikque.14 |
 |---|---|---|
-| `book fill n`（n が2以上） | 1スレッド、1つずつ探索。足した局面を同じ周で埋める元にする。元の局面にLinkを張らない。毎周保存 | 複数スレッドで探し、`book-expand-tasks` に従って同時に探索する。足した局面は次の周に。元の局面にLinkを張り、Leafがその手なら探し直す。周の初めに「Leafの先がbookにある局面」にLinkを張る。保存は `book-deviate-save-rounds` に従う。**できるbookが変わります** |
+| `book fill n`（n が2以上） | 1スレッド、1つずつ探索。足した局面を同じ周で埋める元にする。元の局面にLinkを張らない。毎周保存 | 複数スレッドで探し、`book-expand-tasks` に従って同時に探索する。足した局面は次の周に。元の局面にLinkを張り、Leafがその手なら探し直す。周の初めに、欠けたLinkを張る（すべての手）。保存は `book-deviate-save-rounds` に従う。**できるbookが変わります** |
 | `book fill 1`（`book fill`） | 1手先の局面に欠けたLinkを張る | 同じ |
 | `book fill n X Y`・`book fill2`・`book leaf expand` | なし | 新しい命令・指定 |
 | `book leaf-recalculate`・`leaf-recalculate2`・`3`・`4` | この名前。表示も `Book leaf-recalculate4 …` | `book leaf recalculate`・`leaf recalculate2`・`3`・`4`。ハイフンの付いた名前は使えない。表示も `Book leaf recalculate4 …` |
@@ -61,7 +61,7 @@ Egaroucidで学習するとき、Leafの評価値がLinkの最大より大きい
 ### 直していないもの・知っておくこと
 
 - `book fill n` の n は「**ちょうど n 手先**」です（これまでと同じ）。n手より近い所の欠けは埋めません。欠けている局面が1つだけの所は n = 2 で埋まります。`book fill2 1` と、範囲を付けた距離1（`book fill 1 5 5` など）は、足す局面がないので何もしません（「nothing to fill」と表示します）。`book fill2` は、数を省くと 2 です（`book fill` は、これまでどおり 1）。
-- `book fill`・`fill2` の後は、Leafの評価値がLinkの最大より大きい局面が増えることがあります（Linkを張ってLeafを探し直すため）。それを広げるのは `book leaf expand` です。
+- `book fill`・`fill2` の後は、Leafの評価値がLinkの最大より大きい局面が増えることがあります（Linkを張ってLeafを探し直すため。試験用のbookでは927 → 1,639局面）。それを広げるのは `book leaf expand` です。「欠けを埋める」と「Linkより良いLeafをなくす」の両方をしたいときは、`fill2` → `leaf expand` の順にかけてください。
 - 実bookでの時間（6億7千万局面、level 18、32スレッド、`book-expand-tasks = auto`。**どの命令も数分だけ動かして止めたときの速さと、数えた数からの見込みで、最後まで行っていません**）：張り直しの段は1分に約3,500局面で、対象は `deviate3 5 5` の範囲で125,909局面（約36分）、book全体で132,753局面です。その後の段は、`book leaf expand 5 5` が1分に約2,900局面で47,839局面、`book fill2 2 5 5` が1分に約2,240局面で450,528局面、`book leaf expand`（book全体）が1分に約3,800局面で4,042,280局面です。最初の周の見込みは、張り直しの段を含めて、`book leaf expand 5 5` が約55分、`book fill2 2 5 5` が約4時間、`book leaf expand`（book全体）が約18時間、`book fill2 2`（book全体。12,737,859局面）が約4日です。`book fill 2 5 5` は20,151,780局面が対象で、`book fill 2`（book全体）は埋め始めを探すだけで1周に21分以上かかります。2周目からは対象が減りますが、合わせた時間は最初の周より長くなります。
 
 ### 確認
