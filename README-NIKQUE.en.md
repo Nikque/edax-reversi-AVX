@@ -67,7 +67,7 @@ New functions: `edax_book_fill2(depth)`, `edax_book_fill_limited(depth, move los
 
 ### Checks
 
-**The complete test set** (the set of v4.5.5-nikque.13, on the final source, against builds of the source of v4.5.5-nikque.13 with the same options)
+**The complete test set** (the set of v4.5.5-nikque.13, on the source before the last fixes, `9666634`, against builds of the source of v4.5.5-nikque.13 with the same options)
 
 - **One-thread search**: the 69 positions give the same depth, score, node count and principal variation as before (Windows test builds: 64 bits and two 32-bit builds; Linux, 4 builds). Distribution executables: the same node counts for the 5 Windows and 4 Linux executables. Repeated searches with 8 and 32 threads (Windows 6,000 + 2,000 positions, Linux): 0 wrong results.
 - **Book regression** (every book command, 1 and 8 threads, with a book of 6.49 million positions): the only differences with v4.5.5-nikque.13 are the step of `book fill` and the steps after it (in suite A the negamax, fix, correct, export, import, subtree, deviate and store after `book fill 2` start from the book that `fill` made; in suite G, `fill` and the `fix` after it). **Suite A without `book fill` (A2) gives the same files as v4.5.5-nikque.13, with 1 and 8 threads.** Between the distribution executables, the same steps only differ.
