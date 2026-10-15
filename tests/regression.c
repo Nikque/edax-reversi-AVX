@@ -46,6 +46,32 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
   book_free(&b);puts("PASS deviate save cadence: final-only, every 10 rounds, final remainder, and every round");
  }
+ else if(!strcmp(t,"reproducible")){
+  /* book-seed: the random numbers of a book start from the seed; auto and a wrong value leave it to the clock */
+  Book r={0};Random want;options_read("book-seed","12345");book_init(&r);random_seed(&want,12345);int ok=options.book_seed_set&&r.random.x==want.x;book_free(&r);
+  options_read("book-seed","auto");ok=ok&&!options.book_seed_set;options_read("book-seed","-1");ok=ok&&!options.book_seed_set;options_read("book-seed","1x");ok=ok&&!options.book_seed_set;
+  printf("REPRODUCIBLE seed option ok=%d\n",ok);if(!ok)return 2;
+  /* the links of a new position are checked against the book before its expansion is applied */
+  Search s;init_search(&s,4);Book b={0};b.search=&s;book_init(&b);Board start;board_init(&start);
+  Position c,d;position_init(&c);c.board=start;position_link(&c,&b);int fresh=position_links_current(&c,&b);
+  position_init(&d);board_next(&start,F5,&d.board);d.score.value=3;position_unique(&d);if(book_add(&b,&d)<=0)return 2;
+  int stale_new=!position_links_current(&c,&b);position_link(&c,&b);int relinked=position_links_current(&c,&b)&&c.n_link==4; /* (the 4 first moves give the same position) */
+  for(int i=0;i<c.n_link;++i)relinked=relinked&&position_links(&c)[i].score==-3;
+  Board after;board_next(&start,F5,&after);book_probe(&b,&after)->score.value=5;int stale_score=!position_links_current(&c,&b);position_free(&c);book_free(&b);
+  printf("REPRODUCIBLE links check: fresh=%d new_position=%d relinked=%d new_score=%d\n",fresh,stale_new,relinked,stale_score);if(!fresh||!stale_new||!relinked||!stale_score)return 2;
+  /* the same book with 4 threads (expansions applied in the order of the list) and with 1 (one after the other) */
+  options_read("book-reproducible","on");options.book_file="audit-repro.dat";
+  const char *out[3]={"audit-repro-4a.dat","audit-repro-4b.dat","audit-repro-1.dat"};const int tasks[3]={4,4,1};unsigned char *bytes[3];long size[3];
+  /* (a shallow book: positions down to 52 empties, 8 moves; with 36 empties the book grew to hundreds of MB) */
+  for(int k=0;k<3;++k){options.n_task=tasks[k];book_new(&b,2,52);book_deviate(&b,&start,2,4);if(!book_save(&b,out[k]))return 2;printf("REPRODUCIBLE n_task=%d positions=%d\n",tasks[k],b.n_nodes);book_free(&b);
+   FILE *f=fopen(out[k],"rb");if(!f)return 2;fseek(f,0,SEEK_END);size[k]=ftell(f);rewind(f);bytes[k]=malloc(size[k]);if(fread(bytes[k],1,size[k],f)!=(size_t)size[k])return 2;fclose(f);remove(out[k]);}
+  remove("audit-repro.dat.dev");
+  for(int k=1;k<3;++k){int same=size[k]==size[0]&&!memcmp(bytes[k],bytes[0],10)&&!memcmp(bytes[k]+18,bytes[0]+18,size[0]-18);
+   printf("REPRODUCIBLE %s against %s: same except the date=%d (%ld, %ld bytes)\n",out[k],out[0],same,size[k],size[0]);if(!same)return 2;}
+  printf("REPRODUCIBLE expansions searched again (their links changed): %lld\n",book_test_expand_redo);
+  for(int k=0;k<3;++k)free(bytes[k]);options_read("book-reproducible","off");search_free(&s);
+  puts("PASS reproducible: book-seed, links check, the same book with 4 threads (twice) and 1 thread");
+ }
  else if(!strcmp(t,"analyze")){Search s;init_search(&s,1);Game g;game_init(&g);g.initial_board=late_board(4);printf("ANALYZE custom initial empty=%d moves=0\n",board_count_empties(&g.initial_board));fflush(stdout);game_analyze(&g,&s,4,false);search_free(&s);}
  else if(!strcmp(t,"enhance")){Search s;init_search(&s,1);Book b={0};b.search=&s;book_init(&b);b.options.level=0;b.options.n_empties=58;options.book_file="audit-enhance.dat";Board start;board_init(&start);book_add_board(&b,&start);book_enhance(&b,&start,64,64);printf("ENHANCE nodes_after=%d\n",b.n_nodes);book_clean(&b);position_negamax(book_probe(&b,&start),&b);book_clean(&b);position_enhance(book_probe(&b,&start),&b);int pending=0;Position *p;PositionArray *a;Book *bp=&b;foreach_position(p,a,bp)pending+=position_is_todo(p,bp);printf("ENHANCE pending_after_finished=%d\n",pending);book_free(&b);search_free(&s);}
  else if(!strcmp(t,"core")){core(argc>2?atoi(argv[2]):1);}

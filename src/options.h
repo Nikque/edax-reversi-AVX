@@ -97,6 +97,9 @@ typedef struct {
 	int book_store_tasks;                 /**< games learned at the same time by book store/add/learn (each game uses n_task / book_store_tasks threads), and leaf searches of book link done at the same time; 0 = auto (n_task, the default), 1 = one position after the other */
 	bool book_store_auto_save;            /**< save the book to "<book-file>.store" after book store and after each group of games of book learn (the default); off: a program that saves the book itself after each call (edax_runner) does not write it twice */
 	int book_leaf_recalculate_rounds;     /**< passes of book leaf recalculate (2, 3, 4) at most: a pass that changes no leaf is the last one; 1 = a single pass (the default) */
+	bool book_seed_set;                   /**< book-seed given: the random numbers of the book (moves chosen among equal ones) start from book_seed; else from the clock (the default) */
+	unsigned long long book_seed;         /**< seed of the random numbers of the book (see book_seed_set) */
+	bool book_reproducible;               /**< the book functions give the same book from a run to the next (one-thread searches, expansions applied in the order of the list); off by default */
 
 	// TODO: add more options?
 } Options;

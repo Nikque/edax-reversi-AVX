@@ -1112,6 +1112,7 @@ typedef struct LearnGame {
 	Move game[PLAY_GAME_SIZE]; /**< moves of the game (with the passes: as Play.game; 80 up to v4.5.5-nikque.12) */
 	int n_game;                /**< number of moves */
 	bool legal;                /**< the first moves are legal */
+	unsigned long long seed;   /**< seed of the random choices among the book moves of this game */
 } LearnGame;
 
 /** games played at the same time */
@@ -1127,7 +1128,7 @@ typedef struct LearnShared {
 typedef struct LearnLane {
 	LearnShared *shared;
 	Search *search;
-	Random random;             /**< to choose among the book moves */
+	Random random;             /**< to choose among the book moves (seeded for each game) */
 	bool progress;             /**< this one shows the progress */
 	int n_tasks;               /**< threads of its search */
 } LearnLane;
@@ -1202,7 +1203,7 @@ static void learn_lane_share_threads(LearnLane *lane)
 	LearnShared *s = lane->shared;
 	int n;
 
-	if (lane->n_tasks >= LEARN_LANE_SHARE_MAX) return;
+	if (lane->n_tasks >= LEARN_LANE_SHARE_MAX || options.book_reproducible) return; // (book-reproducible: one-thread searches)
 	lock(s);
 	n = MIN(s->n_threads / s->n_busy, MAX_THREADS - 1);
 	unlock(s);
@@ -1246,6 +1247,7 @@ static void* learn_lane_run(void *v)
 
 		g = s->game + i;
 		player = learn_game_start(g, &board);
+		random_seed(&lane->random, g->seed); // (the choices of a game do not depend on the lane that plays it)
 		search_cleanup(search); // as play_new()
 		left[0] = left[1] = options.time;
 		while (g->legal && g->n_game < PLAY_GAME_SIZE && !board_is_game_over(&board)) {
@@ -1336,7 +1338,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 	play_stop_pondering(play);
 
 	if (book_store_task_count() > 1) {
-		const int n_tasks = lane_tasks = MAX(1, book_store_thread_count() / n_lanes);
+		const int n_tasks = lane_tasks = options.book_reproducible ? 1 : MAX(1, book_store_thread_count() / n_lanes); // (a search with several threads can give another game)
 
 		game = (LearnGame*) calloc(n, sizeof *game);
 		buffer = (char*) malloc((size_t) n * LEARN_MOVES_SIZE);
@@ -1398,6 +1400,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			learn_moves_copy(buffer + i * LEARN_MOVES_SIZE, moves[i]);
 			game[i].moves = buffer + i * LEARN_MOVES_SIZE;
 			game[i].randomness = randomness ? randomness[i] : book_randomness;
+			game[i].seed = random_get(&book->random);
 		}
 		shared.book = book; shared.game = game; shared.n = n; shared.next = shared.n_done = 0;
 		shared.n_threads = book_store_thread_count(); shared.n_busy = n_lanes;
@@ -1407,7 +1410,6 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			lane[i].search = search[i];
 			lane[i].progress = (i == 0);
 			lane[i].n_tasks = lane_tasks;
-			random_seed(&lane[i].random, random_get(&book->random));
 		}
 		book_print("Playing games...\r");
 		thread_run_workers(learn_lane_run, lane, sizeof *lane, n_lanes, true, false); // (this thread runs the first lane)

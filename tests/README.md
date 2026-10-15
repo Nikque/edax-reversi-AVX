@@ -20,6 +20,8 @@ v4.5.5-nikque.3 adds `missinglink` (a link to a missing position is skipped by n
 
 The final audit of v4.5.5-nikque.8 adds `mergetwice` (a second merge does not take the positions of the first one for duplicated positions; a merge that fails only removes what it added), `negamaxloop` (a link of a damaged book that leads back to its own position does not make the negamax with threads endless) and `learnline` (the first moves of a game to learn are copied without their spaces: a long line is not cut).
 
+`reproducible` checks `book-seed` (the random numbers of a book start from the seed; `auto` and a wrong value leave them to the clock), the check of the links of a new position before its expansion is applied, and that `book-reproducible on` gives the same book (except the save date) with 4 threads, twice, and with 1 thread (`book new 2 52`, `book deviate 2 4`). It uses 4 threads.
+
 Additional case names are listed in `tests/regression.c`. Some cases write small `audit-*` files in the current directory. Run them from a disposable checkout if you want to keep the source directory clean.
 
 To check Cassio's input thread, including EOF immediately after a command with

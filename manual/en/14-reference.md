@@ -149,6 +149,8 @@ Each of them can be given in three ways: in `config.ini` (`name = value`), on th
 | `book-expand-tasks` | 1 to the number of logical CPUs, `auto` | 1 | `auto` | The number of positions expanded at the same time |
 | `book-store-tasks` | 1 to the number of logical CPUs, `auto` | `auto` | `auto` | The number of games learned at the same time |
 | `book-leaf-recalculate-rounds` | 1 to 1000000 | 1 | 1 | The limit for the number of passes of the `book leaf recalculate` family |
+| `book-seed` | 0 to 2^64 - 1, `auto` | `auto` | `auto` | The seed of the random choice among book moves of equal score (`auto`: from the clock) |
+| `book-reproducible` | `on` / `off` | `off` | `off` | Book commands give the same book from a run to the next ([chapter 7](07-book-learning.md)) |
 | `probcut-model` | `standard` / `refit` | `standard` | `standard` | The pruning method (`refit` is experimental) |
 | `auto-start`, `auto-swap`, `auto-store`, `auto-quit` | `on` / `off` | `off` | | What happens when a game ends ([3.9](03-playing.md)) |
 | `repeat` | a number | 0 | | The number of games played in a row |

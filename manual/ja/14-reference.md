@@ -149,6 +149,8 @@ v4.5.5-nikque.13 の、全部のコマンドと設定です（ソースの一覧
 | `book-expand-tasks` | 1〜論理 CPU の数、`auto` | 1 | `auto` | 同時に広げる局面の数 |
 | `book-store-tasks` | 1〜論理 CPU の数、`auto` | `auto` | `auto` | 同時に学習する棋譜の数 |
 | `book-leaf-recalculate-rounds` | 1〜1000000 | 1 | 1 | `book leaf recalculate` 系の回数の上限 |
+| `book-seed` | 0〜2^64−1、`auto` | `auto` | `auto` | book の同点候補を選ぶ乱数の種（`auto` は時計から） |
+| `book-reproducible` | `on`／`off` | `off` | `off` | book のコマンドを、毎回同じ book になるように行う（[7章](07-book-learning.md)） |
 | `probcut-model` | `standard`／`refit` | `standard` | `standard` | 枝刈りの方式（`refit` は実験用） |
 | `auto-start`・`auto-swap`・`auto-store`・`auto-quit` | `on`／`off` | `off` | | 終局したときの動作（[3.9](03-playing.md)） |
 | `repeat` | 数 | 0 | | 続けて打つ局数 |
