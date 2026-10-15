@@ -248,3 +248,23 @@ S3はbookを使うまま棋譜を学習し、S3offはbook offを入れる。ソ�
 PGO5実行ファイルすべてで20問の深さ・評価値が一致し、Cassioの7条件が各版で通った。DLL3種は各204件・失敗0。配布v4は計測時と同じSHA-256。詳細は配布Windows検証.jsonとrelease-接頭辞のログ。
 
 ソースID19e99cbを試験した後のコミットは文書と再作成バイナリーの更新で、エンジンソースは変更していない。比較のCSV・JSON・生ログ・再現スクリプトはReleaseのbenchmark-data ZIPにまとめる。
+
+## 他OSのCIとAndroidビルド失敗（実行結果）
+
+CI: https://github.com/Nikque/edax-reversi-AVX/actions/runs/38789794186 、ビルド元2c4f555583474326a0f224de970afa869ba8b0b5（エンジンsrcは試験した19e99cbと同一）。Windows3構成、Linux、macOS x64/arm64の6ジョブは成功。LinuxとmacOS arm64のDLL/API試験は各204件・失敗0。macOS両実行ファイルのCI探索も終了0。Windows ARM64はビルド確認で、実機実行は未確認。
+
+Androidのarmeabi-v7a/arm64-v8aはNDK27.3.13750724で次のコンパイルエラー、終了2。指定どおりエンジンのソースを直していない。今回のZIPにAndroidの2実行ファイル・2ライブラリーを含めず、旧版のバイナリーも代用しない。従来のAndroidファイルはv15のReleaseに残る。
+
+```text
+./ggs.c:974:22: error: use of undeclared identifier 'IPPROTO_TCP'
+  hints.ai_protocol = IPPROTO_TCP;
+1 error generated.
+```
+
+再現（GitHub Actionsと同じ）：
+
+```sh
+"$ANDROID_NDK_HOME/ndk-build" -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application.mk APP_ABI='armeabi-v7a arm64-v8a' APP_PLATFORM=android-21 -j2
+```
+
+原文はandroid-build-failed.log。成功したCIログ、配布ファイル19本の由来・SHAは比較資料のci-*.logと配布物由来.json。Androidは「失敗」、実機がないAndroid/Windows ARM64の実行確認は「できなかった」とし、成功に数えない。Androidを除いたZIPはpackage-release-without-android.pyで作成する。

@@ -6,6 +6,8 @@ This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5c
 
 ## Changes in v4.5.5-nikque.16
 
+**Android is omitted from this release.** Its CI build failed with undeclared IPPROTO_TCP in ggs.c. No old Android binaries are substituted. See the [failure and reproduction](manual/ja/validation-nikque16.md). The ZIP is named `-without-android.zip`; build it with `python package-release-without-android.py output.zip`.
+
 A second source cross-check and the additional checks below found defects after v4.5.5-nikque.15. `eval.dat` and the book format are unchanged. On Windows PGO v4, all 20 fforum-20-39 depths and scores match at 32 and 8 threads, twice per version. Strict book byte equality did not pass because of save dates and S3 variation; 11 multithreaded conditions exceeded the difference observed between two old runs. These limits are reported, rather than calling every check a pass. See the [Japanese validation report](manual/ja/validation-nikque16.md).
 
 ### Additional Windows and Linux fixes (2026-10-16)
@@ -92,7 +94,7 @@ The 51,106-game base has no final newline: A outputs 51,105 games, B 51,106; B's
 ### Not changed, and good to know
 
 - The real book (formerly called the 34 GB book) was not used, as the user requested.
-- All five Windows PGO executables and three DLLs have been rebuilt and checked. Linux, macOS, Android and Windows ARM64 will be rebuilt in CI. Android and Windows ARM64 have not been checked on physical devices.
+- All five Windows PGO executables and three DLLs have been rebuilt and checked. Linux, macOS and Windows ARM64 CI builds succeeded. Android failed because IPPROTO_TCP is undeclared in ggs.c; it is omitted without changing engine source. Android and Windows ARM64 have not been checked on physical devices.
 - The `MOVE_GENERATOR_NEON` defect is not in the default builds (aarch64 uses another method by default).
 - Some speed points were measured and left as they are because their effect is small: the creation of the helper threads of parallel searches (about 18,000 creations take 47 ms), and the like.
 - The functions of libedax are still called from one thread, one after the other; let one process write a book file (added to "To use it from another program" below). Since 5.3.0+nikque.10, a second edax_runner started in the same folder stops.
