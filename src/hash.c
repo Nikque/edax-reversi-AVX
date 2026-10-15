@@ -228,6 +228,23 @@ static inline unsigned int entry_level(const HashTable *hash_table, Hash *hash)
 }
 
 /**
+ * @brief Lock of the entries a hash code goes to.
+ *
+ * The lock is chosen from the entries (hash_code & hash_mask), not from the hash code: the
+ * hash codes that only differ by their lowest bits go to the same HASH_N_WAY entries, and must
+ * take the same lock. Up to v4.5.5-nikque.15 the lock was hash_code & lock_mask: two threads could
+ * write the same entry under two locks, and leave a board with the data of another board.
+ *
+ * @param hash_table Hash table.
+ * @param hash_code Hash code.
+ * @return the lock.
+ */
+static inline HashLock* hash_lock(const HashTable *hash_table, const unsigned long long hash_code)
+{
+	return hash_table->lock + (((hash_code & hash_table->hash_mask) / HASH_N_WAY) & hash_table->lock_mask);
+}
+
+/**
  * @brief update an hash table item.
  *
  * This is done when the level is the same as the previous storage.
@@ -518,7 +535,7 @@ void hash_feed(HashTable *hash_table, const Board *board, const unsigned long lo
 	storedata->data.wl.c.cost = 0;
 
 	worst = hash = hash_table->hash + (hash_code & hash_table->hash_mask);
-	lock = hash_table->lock + (hash_code & hash_table->lock_mask);
+	lock = hash_lock(hash_table, hash_code);
 	if (hash_reset(hash_table, hash, lock, board, storedata)) return;
 
 	for (i = 1; i < HASH_N_WAY; ++i) {
@@ -570,7 +587,7 @@ void hash_store(HashTable *hash_table, const Board *board, const unsigned long l
 	HashLock *lock;
 
 	worst = hash = hash_table->hash + (hash_code & hash_table->hash_mask);
-	lock = hash_table->lock + (hash_code & hash_table->lock_mask);
+	lock = hash_lock(hash_table, hash_code);
 	storedata->data.wl.c.date = hash_table->date + hash_table->base;
 	if (hash_update(hash_table, hash, lock, board, storedata)) return;
 
@@ -644,7 +661,7 @@ void hash_force(HashTable *hash_table, const Board *board, const unsigned long l
 	HashLock *lock;
 
 	worst = hash = hash_table->hash + (hash_code & hash_table->hash_mask);
-	lock = hash_table->lock + (hash_code & hash_table->lock_mask);
+	lock = hash_lock(hash_table, hash_code);
 	storedata->data.wl.c.date = hash_table->date + hash_table->base;
 	if (hash_replace(hash_table, hash, lock, board, storedata)) return;
 
@@ -681,7 +698,7 @@ bool hash_get(HashTable *hash_table, const Board *board, const unsigned long lon
 	hash = hash_table->hash + (hash_code & hash_table->hash_mask);
 	for (i = 0; i < HASH_N_WAY; ++i) {
 		HASH_COLLISIONS(if (hash->key == hash_code) {)
-		HASH_COLLISIONS(	lock = hash_table->lock + (hash_code & hash_table->lock_mask);)
+		HASH_COLLISIONS(	lock = hash_lock(hash_table, hash_code);)
 		HASH_COLLISIONS(	spin_lock(lock);)
 		HASH_COLLISIONS(	if (hash->key == hash_code && !board_equal(board, &hash->board)) {)
 		HASH_COLLISIONS(		++statistics.n_hash_collision;)
@@ -692,7 +709,7 @@ bool hash_get(HashTable *hash_table, const Board *board, const unsigned long lon
 		HASH_COLLISIONS(	spin_unlock(lock);)
 		HASH_COLLISIONS(})
 		if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
-			lock = hash_table->lock + (hash_code & hash_table->lock_mask);
+			lock = hash_lock(hash_table, hash_code);
 			spin_lock(lock);
 			if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 				*data = hash->data;
@@ -740,7 +757,7 @@ void hash_exclude_move(HashTable *hash_table, const Board *board, const unsigned
 	hash = hash_table->hash + (hash_code & hash_table->hash_mask);
 	for (i = 0; i < HASH_N_WAY; ++i) {
 		if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
-			lock = hash_table->lock + (hash_code & hash_table->lock_mask);
+			lock = hash_lock(hash_table, hash_code);
 			spin_lock(lock);
 			if (board_equal(&hash->board, board) && hash_is_live(hash_table, hash)) {
 				if (hash->data.move[0] == move) {

@@ -97,6 +97,33 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   char line[400],copy[LEARN_MOVES_SIZE];int i,ok;
   strcpy(line,"F5d6");for(i=4;i<253;++i)line[i]=' ';strcpy(line+253,"c3g5");
   learn_moves_copy(copy,line);ok=!strcmp(copy,"f5d6c3g5");printf("LEARN line of %d bytes copied as \"%s\" ok=%d\n",(int)strlen(line),copy,ok);if(!ok)return 2;}
+ else if(!strcmp(t,"hashlock")){ /* v4.5.5-nikque.16: the hash codes of the same entries take the same lock (the lock was hash_code & lock_mask) */
+  HashTable h={0};int bad=0;hash_init(&h,1024);
+  for(unsigned long long k=0;k<100000;++k){unsigned long long c=k*0x9E3779B97F4A7C15ULL;for(int d=1;d<HASH_N_WAY;++d)if(hash_lock(&h,c)!=hash_lock(&h,c^(unsigned long long)d))++bad;}
+  printf("HASH lock of the same entries: n_lock=%d hash_mask=%llu different=%d\n",h.n_lock,h.hash_mask,bad);hash_cleanup(&h);free(h.memory);if(bad)return 2;}
+ else if(!strcmp(t,"lastgame")){ /* v4.5.5-nikque.16: the last game of a file without an end of line, and of a pgn file, is loaded */
+  const char *ext[]={".txt",".pgn",".ggf",".sgf",".edx"};const char *line[]={"f5d6c3d3c4f4f6f3e6e7d7g6g5f7e8","f5f6e6f4e3c5c4","f5d6c5f4e3"};int ok=1;
+  for(int e=0;e<5;++e){char name[32];Base b;Game g;FILE *f;long n;char *buf;sprintf(name,"audit-lastgame%s",ext[e]);remove(name);base_init(&b);
+   for(int i=0;i<3;++i){game_init(&g);text_to_game(line[i],&g);base_append(&b,&g);}base_save(&b,name);base_free(&b);
+   f=fopen(name,"rb");fseek(f,0,SEEK_END);n=ftell(f);rewind(f);buf=malloc(n);if(fread(buf,1,n,f)!=(size_t)n)n=0;fclose(f);if(e<4)while(n>0&&(buf[n-1]=='\n'||buf[n-1]=='\r'))--n;
+   f=fopen(name,"wb");fwrite(buf,1,n,f);fclose(f);free(buf);base_init(&b);int loaded=base_load(&b,name);printf("BASE %s without the final end of line: loaded=%d games=%d (expected 3)\n",ext[e],loaded,b.n_games);
+   if(!loaded||b.n_games!=3||b.game[2].move[4]!=g.move[4]){ok=0;}base_free(&b);remove(name);}
+  if(!ok)return 2;}
+ else if(!strcmp(t,"basereplace")){ /* v4.5.5-nikque.16: base correct/complete save to another file first, then replace the file */
+  Base b;Game g;FILE *f;int ok;remove("audit-replace.txt");remove("audit-replace.txt.saving.txt");f=fopen("audit-replace.txt","w");fputs("f5d6\nf5f6\nf5d6c3",f);fclose(f);
+  base_init(&b);ok=base_load(&b,"audit-replace.txt")&&b.n_games==3;game_init(&g);text_to_game("f5f4",&g);b.game[0]=g;ok=ok&&base_replace(&b,"audit-replace.txt");base_free(&b);
+  base_init(&b);ok=ok&&base_load(&b,"audit-replace.txt")&&b.n_games==3&&b.game[0].move[1]==g.move[1];base_free(&b);f=fopen("audit-replace.txt.saving.txt","r");if(f){fclose(f);ok=0;}
+  printf("BASE replace: 3 games, first one changed, no file left aside ok=%d\n",ok);remove("audit-replace.txt");if(!ok)return 2;}
+ else if(!strcmp(t,"keepunread")){ /* v4.5.5-nikque.16: a book file that could not be loaded is kept as .damaged before a book saved to another file replaces it */
+  Search s;init_search(&s,1);Book b={0};FILE *f;int ok,kept;remove("audit-unread.dat");remove("audit-unread.dat.damaged");remove("audit-unread.dat.saving");
+  f=fopen("audit-unread.dat","wb");for(int i=0;i<300;++i)fputc(i*7,f);fclose(f);b.search=&s;ok=!book_load(&b,"audit-unread.dat");book_free(&b);
+  book_init(&b);b.search=&s;book_new(&b,2,36);ok=ok&&book_save(&b,"audit-unread.dat.saving");ok=ok&&book_keep_unread_file("audit-unread.dat");
+  f=fopen("audit-unread.dat.damaged","rb");kept=f!=NULL;if(f){fseek(f,0,SEEK_END);kept=ftell(f)==300;fclose(f);}ok=ok&&kept&&rename("audit-unread.dat.saving","audit-unread.dat")==0;
+  ok=ok&&book_keep_unread_file("audit-unread.dat");f=fopen("audit-unread.dat.damaged.1","rb");if(f){fclose(f);ok=0;} /* (once kept, the file is no longer the one that could not be loaded) */
+  printf("BOOK unread file kept as .damaged (300 bytes)=%d ok=%d\n",kept,ok);book_free(&b);remove("audit-unread.dat");remove("audit-unread.dat.damaged");search_free(&s);if(!ok)return 2;}
+ else if(!strcmp(t,"statsrange")){ /* v4.5.5-nikque.16: book stats counts apart the scores out of -64..64 (a book file holds up to +/-127) */
+  Search s;init_search(&s,1);Book b={0};Board init;Position *p;b.search=&s;book_new(&b,2,36);board_init(&init);p=book_probe(&b,&init);if(!p)return 2;p->score.value=127;
+  book_stats(&b);p->score.value=-127;book_stats(&b);printf("BOOK stats with scores +/-127 done\n");book_free(&b);search_free(&s);}
  else return 1;
  return 0;
 }

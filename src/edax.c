@@ -992,10 +992,9 @@ void ui_loop_edax(UI *ui)
 					int n_empties = 24;
 					base_param = parse_int(base_param, &n_empties);
 
-					if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+					if (base_load(&base, base_file)) { // a file which was not loaded (or not completely) is kept as it is
 						base_analyze(&base, &play->search, n_empties, true);
-						remove(base_file);
-						base_save(&base, base_file);
+						base_replace(&base, base_file); // (the file is replaced once the games are saved to another file)
 					}
 
 				// check erroneous games
@@ -1008,10 +1007,9 @@ void ui_loop_edax(UI *ui)
 
 				// terminate unfinished base
 				} else if (strcmp(base_cmd, "complete") == 0) {
-					if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+					if (base_load(&base, base_file)) { // a file which was not loaded (or not completely) is kept as it is
 						base_complete(&base, &play->search);
-						remove(base_file);
-						base_save(&base, base_file);
+						base_replace(&base, base_file); // (the file is replaced once the games are saved to another file)
 					}
 
 				// convert a base to another format

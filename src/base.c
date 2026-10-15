@@ -691,8 +691,9 @@ void base_free(Base *base)
  *
  * @param base Game base.
  * @param game Game to add.
+ * @return false if the memory is exhausted (the game is not added).
  */
-void base_append(Base *base, const Game *game)
+bool base_append(Base *base, const Game *game)
 {
 	if (base->n_games == base->size) {
 		Game *ptr;
@@ -703,12 +704,13 @@ void base_append(Base *base, const Game *game)
 		ptr = (Game*) realloc(base->game, size * sizeof (Game));
 		if (ptr == NULL) {
 			error("cannot reallocate base game");
-			return;
+			return false;
 		}
 		base->game = ptr;
 		base->size = size;
 	}
 	base->game[base->n_games++] = *game;
+	return true;
 }
 
 /**
@@ -730,36 +732,45 @@ void base_unique(Base *base)
 	base->n_games = k;
 }
 
+/** @brief Read a game from a ggf, sgf or wthor file: a game was read unless the end of the file was reached. */
+static bool base_import_ggf(Game *game, FILE *f) { game_import_ggf(game, f); return !feof(f); }
+static bool base_import_sgf(Game *game, FILE *f) { game_import_sgf(game, f); return !feof(f); }
+static bool base_import_wthor(Game *game, FILE *f) { game_import_wthor(game, f); return !feof(f); }
+
 /**
- * @brief Load a game database.
+ * @brief Load a game database, telling whether the whole file was read.
  *
- * @param base Game base.
+ * @param base Game base (the games are added to it).
  * @param file Game filename.
+ * @param complete Set to true if the file was opened and read to its end, without any error.
+ * @return true if the base holds games.
  */
-bool base_load(Base *base, const char *file)
+static bool base_load_checked(Base *base, const char *file, bool *complete)
 {
-	void (*load)(Game*, FILE*) = game_import_text;
+	bool (*load)(Game*, FILE*) = game_import_text_checked;
 	Game game;
 	FILE *f;
 	char ext[8];
 	int l;
+	bool ok = true;
 	WthorHeader header;
 
+	*complete = false;
 	l = strlen(file);
 	if (l < 4) { warn("Unknown game format extension: %s\n", file); return false; }
 	strcpy(ext, file + l - 4); string_to_lowercase(ext);
-	if (strcmp(ext, ".txt") == 0) load = game_import_text;
-	else if (strcmp(ext, ".ggf") == 0) load = game_import_ggf;
-	else if (strcmp(ext, ".sgf") == 0) load = game_import_sgf;
-	else if (strcmp(ext, ".pgn") == 0) load = game_import_pgn;
-	else if (strcmp(ext, ".wtb") == 0) load = game_import_wthor;
-	else if (strcmp(ext, ".edx") == 0) load = game_read;
+	if (strcmp(ext, ".txt") == 0) load = game_import_text_checked;
+	else if (strcmp(ext, ".ggf") == 0) load = base_import_ggf;
+	else if (strcmp(ext, ".sgf") == 0) load = base_import_sgf;
+	else if (strcmp(ext, ".pgn") == 0) load = game_import_pgn_checked;
+	else if (strcmp(ext, ".wtb") == 0) load = base_import_wthor;
+	else if (strcmp(ext, ".edx") == 0) load = game_read_checked;
 	else {
 		warn("Unknown game format extension: %s\n", ext);
 		return false;
 	}
 
-	if (load == game_import_wthor || load == game_read) f = fopen(file, "rb");
+	if (load == base_import_wthor || load == game_read_checked) f = fopen(file, "rb");
 	else f = fopen(file, "r");
 	if (f == NULL) {
 		warn("Cannot open file %s\n", file);
@@ -767,36 +778,56 @@ bool base_load(Base *base, const char *file)
 	}
 
 	info("loading games...");
-	if (load == game_import_wthor) wthor_header_read(&header, f);
-	for (;;) {
-		load(&game, f);
-		if (ferror(f) || feof(f)) break;
-		base_append(base, &game);
+	if (load == base_import_wthor) wthor_header_read(&header, f);
+	// the last game of a file is read when the end of the file is reached (a text file without an end of line
+	// after its last game, a pgn file): up to v4.5.5-nikque.15 it was not added
+	while (load(&game, f)) {
+		if (ferror(f) || !base_append(base, &game)) { ok = false; break; }
 	}
+	if (ferror(f)) ok = false;
 	info("done (%d games loaded)\n", base->n_games);
+	if (!ok) warn("%s could not be read completely (%d games loaded)\n", file, base->n_games);
 
 	fclose(f);
+	*complete = ok;
 
 	return base->n_games > 0;
 }
 
 /**
- * @brief Save a game database.
+ * @brief Load a game database.
  *
  * @param base Game base.
  * @param file Game filename.
+ * @return true if the base holds games, and the file was read to its end without any error.
  */
-void base_save(const Base *base, const char *file)
+bool base_load(Base *base, const char *file)
+{
+	bool complete;
+	return base_load_checked(base, file, &complete) && complete;
+}
+
+/**
+ * @brief Save a game database.
+ *
+ * The games are added to the games the file already holds.
+ *
+ * @param base Game base.
+ * @param file Game filename.
+ * @return true if the games were written (false: the file could not be read completely, or written).
+ */
+bool base_save(const Base *base, const char *file)
 {
 	void (*save)(const Game*, FILE*)= game_export_text;
 	FILE *f;
 	char ext[8];
 	int i, l;
+	bool ok, complete;
 	WthorBase wbase;
 	Base old;
 
 	l = strlen(file);
-	if (l < 4) { warn("Unknown game format extension: %s\n", file); return; }
+	if (l < 4) { warn("Unknown game format extension: %s\n", file); return false; }
 	strcpy(ext, file + l - 4); string_to_lowercase(ext);
 	if (strcmp(ext, ".txt") == 0) save = game_export_text;
 	else if (strcmp(ext, ".ggf") == 0) save = game_export_ggf;
@@ -805,36 +836,84 @@ void base_save(const Base *base, const char *file)
 	else if (strcmp(ext, ".wtb") == 0) {
 		wthor_load(&wbase, file);
 		base_to_wthor(base, &wbase);
-		wthor_save(&wbase, file);
+		ok = wthor_save(&wbase, file);
 		wthor_free(&wbase);
-		return;
+		return ok;
 	} else if (strcmp(ext, ".edx") == 0) save = game_write;
 	else {
 		warn("Unknown game format extension: %s\n", ext);
-		return;
+		return false;
 	}
 
 	base_init(&old);
-	base_load(&old, file);
+	if ((f = fopen(file, "r")) != NULL) { // the games of the file are kept: it must be read completely
+		fclose(f);
+		base_load_checked(&old, file, &complete);
+		if (!complete) {
+			warn("Cannot read all the games of %s: it was not replaced\n", file);
+			base_free(&old);
+			return false;
+		}
+	}
 	for (i = 0; i < base->n_games; ++i) {
-		base_append(&old, base->game + i);
+		if (!base_append(&old, base->game + i)) {
+			base_free(&old);
+			return false;
+		}
 	}
 
 	f = fopen(file, save == game_write ? "wb" : "w");
 	if (f == NULL) {
 		warn("Cannot open file %s\n", file);
 		base_free(&old);
-		return;
+		return false;
 	}
 	for (i = 0; i < old.n_games && !ferror(f); ++i) {
 		save(old.game + i, f);
 	}
 
-	fclose(f);
+	ok = !ferror(f);
+	if (fclose(f) != 0) ok = false;
+	if (!ok) warn("Error while writing %s\n", file);
 	base_free(&old);
 
+	return ok;
 }
 
+/**
+ * @brief Replace a game database by the games of a base (base correct, base complete).
+ *
+ * The games are saved to another file first: the file is only replaced once they are written.
+ * Up to v4.5.5-nikque.15 the file was removed before the games were saved.
+ *
+ * @param base Game base.
+ * @param file Game filename.
+ * @return true if the file was replaced.
+ */
+bool base_replace(const Base *base, const char *file)
+{
+	const int l = strlen(file);
+	char *tmp_file;
+	bool ok;
+
+	if (l < 4) { warn("Unknown game format extension: %s\n", file); return false; }
+	tmp_file = (char*) malloc(l + 16);
+	if (tmp_file == NULL) return false;
+	sprintf(tmp_file, "%s.saving%s", file, file + l - 4); // (the same extension: the same format)
+	remove(tmp_file);
+	ok = base_save(base, tmp_file);
+#ifdef _WIN32
+	if (ok && !MoveFileExA(tmp_file, file, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) ok = false;
+#else
+	if (ok && rename(tmp_file, file) != 0) ok = false;
+#endif
+	if (!ok) {
+		warn("Cannot save the games to %s: it was not replaced\n", file);
+		remove(tmp_file);
+	}
+	free(tmp_file);
+	return ok;
+}
 
 /**
  * @brief Convert a game database to a set of problems.

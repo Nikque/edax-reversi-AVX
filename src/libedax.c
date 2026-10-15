@@ -1604,6 +1604,24 @@ LIBEDAX_API int edax_book_failed(void)
 }
 
 /**
+ * @brief Keep the book file that could not be loaded at the start under another name, before
+ * a book saved to another file replaces it.
+ *
+ * edax_book_save_checked(book_file) keeps the book file that could not be loaded as
+ * <book_file>.damaged before replacing it. A program that saves the book to another file, then
+ * renames it to the book file, calls this function before the rename (with the book file name).
+ *
+ * @param book_file book file name to be replaced.
+ * @return 1 if the file can be replaced (it was loaded, or it is now kept as <book_file>.damaged),
+ *         0 if it could not be loaded and could not be kept: it must not be replaced.
+ */
+LIBEDAX_API int edax_book_keep_unread_file(const char *book_file)
+{
+	if (g_ui == NULL || book_file == NULL) return 0;
+	return book_keep_unread_file(book_file) ? 1 : 0;
+}
+
+/**
  * @brief book import command.
  * @param import_file file name to import.
  */
@@ -2356,14 +2374,13 @@ LIBEDAX_API void edax_base_correct(const char *base_file, const int n_empties)
 	base_init(&base);
 
 	// correct erroneous games
-	if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+	if (base_load(&base, base_file)) { // a file which was not loaded (or not completely) is kept as it is
 		// as the commands which change the book: edax_stop() would only cut one search short, and
 		// its unfinished result would go to the file
 		const bool running = lib_book_change_set(true);
 		base_analyze(&base, &g_ui->play->search, n_empties, true);
 		lib_book_change_set(running);
-		remove(base_file);
-		base_save(&base, base_file);
+		base_replace(&base, base_file); // (the file is replaced once the games are saved to another file)
 	}
 
 	base_free(&base);
@@ -2381,12 +2398,11 @@ LIBEDAX_API void edax_base_complete(const char *base_file)
 	base_init(&base);
 
 	// terminate unfinished base
-	if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+	if (base_load(&base, base_file)) { // a file which was not loaded (or not completely) is kept as it is
 		const bool running = lib_book_change_set(true); // (see edax_base_correct)
 		base_complete(&base, &g_ui->play->search);
 		lib_book_change_set(running);
-		remove(base_file);
-		base_save(&base, base_file);
+		base_replace(&base, base_file); // (the file is replaced once the games are saved to another file)
 	}
 
 	base_free(&base);

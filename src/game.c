@@ -471,12 +471,28 @@ void game_write(const Game *game, FILE *f)
  */
 void game_import_text(Game *game, FILE *f)
 {
+	game_import_text_checked(game, f);
+}
+
+/**
+ * @brief Read a game from a text file, telling whether a line was read.
+ *
+ * The last line of a file may have no end of line: it is read too (the end of the file is then
+ * reached). base_load() used to stop at the end of the file without adding it.
+ *
+ * @param game The output game (initialized when there is no line left).
+ * @param f The file stream.
+ * @return true if a line was read.
+ */
+bool game_import_text_checked(Game *game, FILE *f)
+{
 	char *line = string_read_line(f);
 
 	if (line) text_to_game(line, game);
 	else  game_init(game);
 
 	free(line);
+	return line != NULL;
 }
 
 /**
@@ -988,7 +1004,24 @@ void game_export_sgf(const Game *game, FILE *f)
  */
 void game_import_pgn(Game *game, FILE *f)
 {
+	game_import_pgn_checked(game, f);
+}
+
+/**
+ * @brief Read a game from a pgn file, telling whether a game was read.
+ *
+ * A game ends at the start of the next one ('[') or at the end of the file: the last game of a
+ * file is read when the end of the file is reached. base_load() used to stop at the end of the
+ * file without adding it.
+ *
+ * @param game The output game.
+ * @param f The file stream.
+ * @return true if a game was read (false: only spaces or comments were left).
+ */
+bool game_import_pgn_checked(Game *game, FILE *f)
+{
 	int c, state, i, j, k, n;
+	bool found = false;
 	char move[5] = "--\0\0";
 	int score[2] = {0, 0};
 	char info_tag[257] = "", info_value[257] = ""; // 256 is the maximal info size according to PGN standard
@@ -1229,13 +1262,13 @@ void game_import_pgn(Game *game, FILE *f)
 				break;
 			}
 		}
-			
+		if (state != STATE_START && state != STATE_END_GAME) found = true;
 	}
 
-	if (!game_check(game)) {
+	if (found && !game_check(game)) {
 		warn("error while importing a PGN game\n");
 	}
-	return;
+	return found;
 }
 
 /**

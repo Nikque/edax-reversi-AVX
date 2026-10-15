@@ -833,11 +833,17 @@ static void position_get_random_move(const Position *position, const Board *boar
 /**
  * @brief Add a link to this position.
  *
+ * The result tells apart a link that was already present (0) from a link that could not be added
+ * (-1: no memory). Up to v4.5.5-nikque.15 both were false: a leaf that could not become a link was
+ * then replaced by the result of a new search, and the failure was not told.
+ *
  * @param position Position to chose a move from.
  * @param link Link to add.
- * @return true if the link has been added, false if it was already present.
+ * @return LINK_ADDED if the link has been added, LINK_PRESENT if it was already present,
+ *         LINK_FAILED if it could not be added (no memory).
  */
-static bool position_add_link(Position *position, const Link *link)
+enum { LINK_FAILED = -1, LINK_PRESENT = 0, LINK_ADDED = 1 };
+static int position_add_link(Position *position, const Link *link)
 {
 	Link *l;
 	int last = position->n_link;
@@ -845,7 +851,7 @@ static bool position_add_link(Position *position, const Link *link)
 	foreach_link (l, position) {
 		if (l->move == link->move) {
 			l->score = link->score; // update the link ?
-			return false;
+			return LINK_PRESENT;
 		}
 	}
 
@@ -860,7 +866,7 @@ static bool position_add_link(Position *position, const Link *link)
 		}
 		if (l == NULL) {
 			error("cannot allocate opening book position's moves\n");
-			return false;
+			return LINK_FAILED;
 		}
 		l[last] = *link;
 		position->links.array = l;
@@ -871,7 +877,7 @@ static bool position_add_link(Position *position, const Link *link)
 
 	if (link->move == position->leaf.move) position->leaf = BAD_LINK;
 
-	return true;
+	return LINK_ADDED;
 }
 
 /**
@@ -974,7 +980,8 @@ static void position_search(Position *position, Book *book)
 	const int r = book_plan ? position_search_planned(position, book) : position_search_with(position, book->search);
 
 	if (r & 1) ++book->stats.n_links;
-	if (r) book->need_saving = true;
+	if (r & 4) book->failed = true; // the leaf could not become a link (no memory): it was kept, not searched again
+	if (r & 3) book->need_saving = true;
 }
 
 /**
@@ -982,7 +989,8 @@ static void position_search(Position *position, Book *book)
  *
  * @param position Position to search.
  * @param search Search to use.
- * @return 1 if the leaf became a link, | 2 if a search was done.
+ * @return 1 if the leaf became a link, | 2 if a search was done; 4 if the leaf could not become a link
+ *         (no memory: nothing was done).
  */
 static int position_search_with(Position *position, Search *search)
 {
@@ -995,8 +1003,10 @@ static int position_search_with(Position *position, Search *search)
 #ifdef BOOK_TEST_ISOLATE
 	search_cleanup(search); // test builds: every search starts with empty hash tables, as the planned searches do
 #endif
-	if (position->leaf.move != NOMOVE && position_add_link(position, &position->leaf)) {
-		r = 1;
+	if (position->leaf.move != NOMOVE) {
+		const int added = position_add_link(position, &position->leaf);
+		if (added == LINK_FAILED) return 4; // the leaf is kept: a new search would replace it
+		if (added == LINK_ADDED) r = 1;
 	}
 
 	if (leaf_search_needed(position->n_link, n_moves, position->score.value == -SCORE_INF)) {
@@ -1059,7 +1069,9 @@ static void position_link(Position *position, Book *book)
 			if (child) {
 				link.score = -child->score.value;
 				link.move = x;
-				book->stats.n_links += position_add_link(position, &link);
+				const int added = position_add_link(position, &link);
+				if (added == LINK_ADDED) ++book->stats.n_links;
+				else if (added == LINK_FAILED) book->failed = true;
 			}
 		}
 	} else if (can_move(position->board.opponent, position->board.player)) {// pass ?
@@ -1069,7 +1081,9 @@ static void position_link(Position *position, Book *book)
 		if (child) {
 			link.score = -child->score.value;
 			link.move = PASS;
-			book->stats.n_links += position_add_link(position, &link);
+			const int added = position_add_link(position, &link);
+			if (added == LINK_ADDED) ++book->stats.n_links;
+			else if (added == LINK_FAILED) book->failed = true;
 		}
 	}
 }
@@ -2843,6 +2857,29 @@ static bool book_set_aside(const char *file, const char *ext, const char *reason
 }
 
 /**
+ * @brief Keep the book file that could not be loaded under another name now, before a book
+ * saved to another file replaces it.
+ *
+ * book_save() does it when the book is saved to that file. A program that saves the book to
+ * another file and then renames it to the book file (edax_runner: book.dat.saving, then book.dat)
+ * calls this before the rename: else the file that could not be loaded is replaced and lost.
+ *
+ * @param file Book file to be replaced.
+ * @return true if the file can be replaced (it was loaded, or it is now kept as <file>.damaged);
+ *         false if it could not be loaded and could not be kept: it must not be replaced.
+ */
+bool book_keep_unread_file(const char *file)
+{
+	if (file == NULL || book_unread_file == NULL || strcmp(file, book_unread_file) != 0) return true;
+	if (!book_set_aside(file, ".damaged", "could not be loaded")) {
+		error("\nCannot keep the book that could not be loaded; %s must not be replaced\n", file);
+		return false;
+	}
+	book_unread_set(NULL);
+	return true;
+}
+
+/**
  * @brief Release the end of the pool: it holds n positions from its start (the rest is no longer used).
  *
  * The block is made smaller in place with MSVC; elsewhere realloc() may move it, and the buckets
@@ -3988,7 +4025,9 @@ static void book_link_tasks(Book *book, const bool exact)
 				child = book_probe(book, &target);
 				link.score = -child->score.value;
 				link.move = x;
-				if (position_add_link(p, &link)) ++book->stats.n_links;
+				const int added = position_add_link(p, &link);
+				if (added == LINK_ADDED) ++book->stats.n_links;
+				else if (added == LINK_FAILED) book->failed = true;
 			}
 			if (last && p->leaf.move == NOMOVE) {
 				const MergeHint *hint = merge_hint_find(TASK_KEY(item));
@@ -4598,8 +4637,10 @@ static void* book_expand_worker(void *v)
 		q = book_probe(book, &parent.board); // the parent may have moved: probe it again
 		if (q) {
 			q->leaf = leaf;
-			if (position_add_link(q, &q->leaf)) ++book->stats.n_links;
-			if (r & 2) {
+			const int added = position_add_link(q, &q->leaf);
+			if (added == LINK_ADDED) ++book->stats.n_links;
+			if (added == LINK_FAILED || (r & 4)) book->failed = true; // no memory: the leaf is kept (its position is added below)
+			else if (r & 2) {
 				q->leaf = parent.leaf;
 				if (q->leaf.score > q->score.value) q->score.value = q->leaf.score;
 			}
@@ -6757,7 +6798,7 @@ static void* plan_worker_run(void *v)
 		Link link;
 		unsigned long long links;
 		int i, x, n, n_done;
-		bool done;
+		bool done, linked;
 
 		lock(plan);
 		i = plan->next < plan->n_job ? plan->next++ : -1;
@@ -6775,13 +6816,18 @@ static void* plan_worker_run(void *v)
 			p.level = job->level;
 			link.score = -SCORE_INF; // the search does not use the scores of the links
 			links = job->links;
+			linked = true;
 			foreach_bit(x, links) {
 				link.move = (unsigned char) x;
-				position_add_link(&p, &link);
+				if (position_add_link(&p, &link) == LINK_FAILED) linked = false;
 			}
 			if (job->pass) {
 				link.move = PASS;
-				position_add_link(&p, &link);
+				if (position_add_link(&p, &link) == LINK_FAILED) linked = false;
+			}
+			if (!linked) { // no memory: a search would not exclude every linked move. The job is not done:
+				done = false; // the position is searched when it is added (position_search_planned)
+				break;
 			}
 
 			for (;;) { // the threads of this search
@@ -6940,8 +6986,10 @@ static int position_search_planned(Position *position, Book *book)
 	const int n_moves = get_mobility(position->board.player, position->board.opponent);
 	int r = 0;
 
-	if (position->leaf.move != NOMOVE && position_add_link(position, &position->leaf)) {
-		r = 1;
+	if (position->leaf.move != NOMOVE) {
+		const int added = position_add_link(position, &position->leaf);
+		if (added == LINK_FAILED) return 4; // the leaf is kept: a new search would replace it
+		if (added == LINK_ADDED) r = 1;
 	}
 
 	if (leaf_search_needed(position->n_link, n_moves, position->score.value == -SCORE_INF)) {
@@ -7319,6 +7367,7 @@ void book_stats(Book *book)
 	unsigned long long n_hash[256];
 	unsigned long long n_pos[61], n_leaf[61], n_link[61], n_terminal[61];
 	unsigned long long n_score[129];
+	unsigned long long n_bad_stage, n_bad_score;
 
 	printf("\n\nBook statistics:\n");
 
@@ -7335,22 +7384,30 @@ void book_stats(Book *book)
 	printf("\nStage distribution:\n");
 	printf("stage    positions        links       leaves      terminal nodes\n");
 	for (i = 0; i < 61; ++i) n_pos[i] = n_leaf[i] = n_link[i] = n_terminal[i] = 0;
+	// a damaged book may hold boards with more than 60 empties, and scores out of -64..64 (up to +/-127,
+	// what the book file can hold): they are counted apart (up to v4.5.5-nikque.15 they were counted out of
+	// the tables)
+	n_bad_stage = n_bad_score = 0;
 	foreach_position(p, a, book) {
 		i = board_count_empties(&p->board);
+		if (i > 60) { ++n_bad_stage; continue; }
 		++n_pos[i];
 		if (p->leaf.move != NOMOVE) ++n_leaf[i];
 		if (p->n_link == 0) ++n_terminal[i];
 		n_link[i] += p->n_link;
 	}
 	for (i = 0; i < 61; ++i) if (n_pos[i]) printf("%5d %12llu %12llu %12llu %12llu\n", i, n_pos[i], n_link[i], n_leaf[i], n_terminal[i]);
+	if (n_bad_stage) printf("more than 60 empties (damaged): %llu positions\n", n_bad_stage);
 		
 	printf("\nBest Score Distribution:\n");
 	printf("Score    positions\n");
 	for (i = 0; i < 129; ++i) n_score[i] = 0;
 	foreach_position(p, a, book) {
-		++n_score[64 + p->score.value];
+		if (p->score.value < SCORE_MIN || p->score.value > SCORE_MAX) ++n_bad_score;
+		else ++n_score[64 + p->score.value];
 	}
 	for (i = 0; i < 129; ++i) if (n_score[i]) printf("%+5d %12llu\n", i - 64, n_score[i]);
+	if (n_bad_score) printf("out of -64..+64: %llu positions\n", n_bad_score);
 	printf("\n\n");
 	fflush(stdout);
 }
