@@ -717,22 +717,34 @@ LIBEDAX_API void edax_setboard_from_obj(const LibedaxBoard *board, const int tur
 
 	// set a new initial position
 	play_stop_pondering(play);
-	play->initial_board.player = board->player;
-	play->initial_board.opponent = board->opponent;
-	if (turn == BLACK) {
-		play->initial_player = BLACK;
-	} else if (turn == WHITE) {
-		board_swap_players(&play->initial_board);
-		play->initial_player = WHITE;
-	} else {
-		play->initial_player = EMPTY;
-	}
-	if (play->initial_board.player & play->initial_board.opponent) { /* bad board */
-		play->initial_board.opponent &= (~play->initial_board.player);
-	}
-	if (play->initial_player == EMPTY) { /* bad turn */
-		play->initial_player = (board_count_empties(&play->initial_board) & 1);
-		if (play->initial_player == WHITE) board_swap_players(&play->initial_board);
+	{
+		Board b;
+		int player;
+		b.player = board->player;
+		b.opponent = board->opponent;
+		if (turn == BLACK) {
+			player = BLACK;
+		} else if (turn == WHITE) {
+			board_swap_players(&b);
+			player = WHITE;
+		} else {
+			player = EMPTY;
+		}
+		if (b.player & b.opponent) { /* bad board */
+			b.opponent &= (~b.player);
+		}
+		if (player == EMPTY) { /* bad turn */
+			player = (board_count_empties(&b) & 1);
+			if (player == WHITE) board_swap_players(&b);
+		}
+		// fewer than 4 discs: the current game is kept (up to v4.5.5-nikque.15 the board was searched with
+		// more than 60 empties, out of the table of the levels)
+		if (!board_is_usable(&b)) {
+			warn("edax_setboard_from_obj: a board needs at least 4 discs\n");
+			return;
+		}
+		play->initial_board = b;
+		play->initial_player = player;
 	}
 	play_force_init(play, "");
 	play_new(play);
@@ -1492,8 +1504,12 @@ LIBEDAX_API void edax_book_depth(const int depth)
 	if (g_ui == NULL) return;
 	book = lib_book_begin();
 
-	// set book depth (until which to learn)
-	book->options.n_empties = 61 - depth;
+	// set book depth (until which to learn); as "book depth" (up to v4.5.5-nikque.15 any depth)
+	{
+		int d = depth;
+		BOUND(d, 1, 61, "book depth");
+		book->options.n_empties = 61 - d;
+	}
 
 	lib_book_end(book);
 }

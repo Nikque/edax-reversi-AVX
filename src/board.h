@@ -43,6 +43,7 @@ void board_rand(Board*, int, struct Random*);
 int board_count_last_flips(const Board*, const int);
 unsigned long long board_get_move_flip(const Board*, const int, struct Move*);
 bool board_check_move(const Board*, struct Move*);
+bool board_is_usable(const Board*);
 void board_swap_players(Board*);
 void board_update(Board*, const struct Move*);
 void board_restore(Board*, const struct Move*);

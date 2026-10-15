@@ -682,7 +682,7 @@ char* parse_game(const char *string, const Board *board_init, Line *line)
 	board = *board_init;
 
 	while ((next = parse_move(string, &board, &move)) != string || move.x == PASS) {
-		line_push(line, move.x);
+		if (!line_push(line, move.x)) break; // (a full line)
 		board_update(&board, &move);
 		string = next;
 	}

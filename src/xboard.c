@@ -173,7 +173,7 @@ static void xboard_move(const int x)
 	}
 	fflush(stdout);
 	if (log_is_open(xboard_log)) {
-		if (x == PASS) printf("edax> move @@@@\n");
+		if (x == PASS) fprintf(xboard_log->f, "edax> move @@@@\n");
 		else {
 			fprintf(xboard_log->f, "edax> move P@");
 			move_print(x, 1, xboard_log->f);
@@ -199,10 +199,10 @@ static void xboard_hint(Play *play)
 		printf("Hint:P@");
 		move_print(x, 1, stdout);
 		putchar('\n');
-		fflush(stdout);
 	}
+	fflush(stdout);
 	if (log_is_open(xboard_log)) {
-		if (x == PASS) printf("edax> Hint:@@@@\n");
+		if (x == PASS) fprintf(xboard_log->f, "edax> Hint:@@@@\n");
 		else {
 			fprintf(xboard_log->f, "edax> Hint:P@");
 			move_print(x, 1, xboard_log->f);
@@ -406,8 +406,7 @@ static void xboard_loop_analyze(UI *ui)
 
 		} else if ((strcmp(cmd, "setboard") == 0)) {
 			xboard_stop_analyzing(play);
-			play_set_board_from_FEN(play, param);
-			if (play->initial_player == EMPTY) xboard_error("(bad FEN): %s\n", param);
+			if (!play_set_board_from_FEN(play, param)) xboard_error("(bad FEN): %s\n", param);
 			xboard_analyze(play);
 
 		} else if (strcmp(cmd, "exit") == 0) {
@@ -416,7 +415,7 @@ static void xboard_loop_analyze(UI *ui)
 			ui_loop_xboard(ui);
 			return;
 
-		} else if (strcmp(cmd, "quit") == 0) {
+		} else if (strcmp(cmd, "quit") == 0 || strcmp(cmd, "eof") == 0) { // (the end of the input: nothing else will come)
 			xboard_stop_analyzing(play);
 			free(cmd); free(param);
 			return;
@@ -549,7 +548,7 @@ void ui_loop_xboard(UI *ui)
 			// random command
 			} else if ((strcmp(cmd, "force") == 0)) {
 				play_stop_pondering(play);
-				last_edax_turn = edax_turn;
+				if (edax_turn != EMPTY) last_edax_turn = edax_turn; // (a second "force" kept EMPTY, an index out of the clocks, up to v4.5.5-nikque.15)
 				edax_turn = EMPTY;
 
 			// go think!
@@ -651,8 +650,7 @@ void ui_loop_xboard(UI *ui)
 			
 			// setboard
 			} else if ((strcmp(cmd, "setboard") == 0)) {
-				play_set_board_from_FEN(play, param);
-				if (play->initial_player == EMPTY) xboard_error("(bad FEN): %s\n", param);
+				if (!play_set_board_from_FEN(play, param)) xboard_error("(bad FEN): %s\n", param);
 				xboard_check_game_over(play);
 
 			} else if ((strcmp(cmd, "edit") == 0)) {

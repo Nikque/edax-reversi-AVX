@@ -124,6 +124,33 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
  else if(!strcmp(t,"statsrange")){ /* v4.5.5-nikque.16: book stats counts apart the scores out of -64..64 (a book file holds up to +/-127) */
   Search s;init_search(&s,1);Book b={0};Board init;Position *p;b.search=&s;book_new(&b,2,36);board_init(&init);p=book_probe(&b,&init);if(!p)return 2;p->score.value=127;
   book_stats(&b);p->score.value=-127;book_stats(&b);printf("BOOK stats with scores +/-127 done\n");book_free(&b);search_free(&s);}
+ else if(!strcmp(t,"gamescore")){ /* v4.5.5-nikque.16: the score of a game of an odd number of moves had the wrong sign */
+  int bad[2]={0,0},total[2]={0,0};
+  for(int k=0;k<4000;++k){Game g;Board b;int n=0,black=1;game_init(&g);board_init(&b);
+   for(;;){unsigned long long m=board_get_moves(&b);if(!m){board_pass(&b);black^=1;m=board_get_moves(&b);if(!m)break;}int r=rr()%bit_count(m);while(r--)m&=m-1;g.move[n++]=first_bit(m);board_next(&b,first_bit(m),&b);black^=1;}
+   int p=bit_count(b.player),o=bit_count(b.opponent),e=64-p-o,d=p-o;if(d>0)d+=e;else if(d<0)d-=e;++total[n&1];if(game_score(&g)!=(black?d:-d))++bad[n&1];}
+  printf("GAME score: even moves %d games %d wrong, odd moves %d games %d wrong\n",total[0],bad[0],total[1],bad[1]);if(bad[0]||bad[1]||!total[1])return 2;}
+ else if(!strcmp(t,"badinput")){ /* v4.5.5-nikque.16: FEN rows, edx games, boards of fewer than 4 discs, book depth */
+  Board b;Game g;FILE *f;int ok=1;
+  if(board_from_FEN(&b,"9p b")!=EMPTY||board_from_FEN(&b,"8/8/8/8/8/8/8/8/8/p b")!=EMPTY||board_from_FEN(&b,"8/8/8/3Pp3/3pP3/8/8 b")!=EMPTY)ok=0;
+  if(board_from_FEN(&b,"8/8/8/3Pp3/3pP3/8/8/8 b")!=BLACK||board_count_empties(&b)!=60)ok=0;
+  b.player=1;b.opponent=2;if(board_is_usable(&b))ok=0;board_init(&b);if(!board_is_usable(&b))ok=0;
+  game_init(&g);g.move[0]=100;f=fopen("audit-bad.edx","wb");fwrite(&g,sizeof g,1,f);fclose(f);f=fopen("audit-bad.edx","rb");if(game_read_checked(&g,f))ok=0;fclose(f);
+  game_init(&g);g.player=7;f=fopen("audit-bad.edx","wb");fwrite(&g,sizeof g,1,f);fclose(f);f=fopen("audit-bad.edx","rb");if(game_read_checked(&g,f))ok=0;fclose(f);
+  {Base base;base_init(&base);if(base_load(&base,"audit-bad.edx"))ok=0;base_free(&base);}remove("audit-bad.edx");
+  {Line l;line_init(&l,BLACK);for(int i=0;i<GAME_SIZE;++i)line_push(&l,PASS);if(line_push(&l,PASS)||l.n_moves!=GAME_SIZE)ok=0;}
+  printf("BAD input refused ok=%d\n",ok);if(!ok)return 2;}
+ else if(!strcmp(t,"wthortrunc")){ /* v4.5.5-nikque.16: games are not added to a wthor file that cannot be read completely */
+  Base b;Game g;FILE *f;long n;char buf[1024];int ok;remove("audit-trunc.wtb");base_init(&b);for(int i=0;i<3;++i){game_init(&g);text_to_game(i?"f5f6e6f4":"f5d6c3",&g);base_append(&b,&g);}
+  ok=base_save(&b,"audit-trunc.wtb");base_free(&b);f=fopen("audit-trunc.wtb","rb");n=fread(buf,1,sizeof buf,f);fclose(f);f=fopen("audit-trunc.wtb","wb");fwrite(buf,1,n-30,f);fclose(f);
+  base_init(&b);game_init(&g);text_to_game("f5f4",&g);base_append(&b,&g);ok=ok&&!base_save(&b,"audit-trunc.wtb");base_free(&b);f=fopen("audit-trunc.wtb","rb");fseek(f,0,SEEK_END);ok=ok&&ftell(f)==n-30;fclose(f);
+  printf("WTHOR truncated file kept ok=%d\n",ok);remove("audit-trunc.wtb");remove("WTHOR.JOU");if(!ok)return 2;}
+ else if(!strcmp(t,"cassiolist")){ /* v4.5.5-nikque.16: the list of the positions of Cassio keeps every position */
+  options.n_task=1;options.hash_table_size=10;options.verbosity=0;options.cpu_affinity=false;eval_open(eval_path());search_global_init();
+  Engine *e=calloc(1,sizeof *e);Board b[3];int ok;e->search=engine_create_search();e->last_position.n=0;
+  for(int i=0;i<3;++i){b[i]=late_board(20+i);is_position_new(e,b+i);}
+  ok=e->last_position.n==3&&board_equal(e->last_position.board,b+2)&&board_equal(e->last_position.board+1,b+1)&&board_equal(e->last_position.board+2,b);
+  ok=ok&&!is_position_new(e,b);printf("CASSIO position list of 3 ok=%d\n",ok);engine_free(e->search);free(e);if(!ok)return 2;}
  else return 1;
  return 0;
 }

@@ -89,7 +89,7 @@ void play_pass(Play*);
 void play_undo(Play*);
 void play_redo(Play*);
 void play_set_board(Play*, const char*);
-void play_set_board_from_FEN(Play*, const char*);
+bool play_set_board_from_FEN(Play*, const char*);
 void play_game(Play*, const char*);
 bool play_move(Play*, int);
 bool play_user_move(Play*, const char*);

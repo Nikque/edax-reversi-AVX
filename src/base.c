@@ -151,6 +151,7 @@ static void wthor_players_load(WthorBase *base, const char *file)
 		if (base->player) {
 			for (i = 0; i < base->n_players; ++i) {
 				r += fread(base->player[i], 20, 1, f);
+				base->player[i][19] = '\0'; // (a name of 20 characters has no end)
 			}
 		} else {
 			warn("Cannot allocate Wthor players' array\n");
@@ -260,6 +261,7 @@ static void wthor_tournaments_load(WthorBase *base, const char *file)
 		if (base->tournament) {
 			for (i = r = 0; i < base->n_tournaments; ++i) {
 				r += fread(base->tournament[i], 26, 1, f);
+				base->tournament[i][25] = '\0'; // (a name of 26 characters has no end)
 			}
 		} else {
 			warn("Cannot allocate Wthor tournaments' array\n");
@@ -343,15 +345,22 @@ bool wthor_load(WthorBase *base, const char *file)
 	wthor_players_load(base, path);
 
 	if ((f = fopen(file, "rb")) != NULL) {
-		if (wthor_header_read(&base->header, f) && base->header.board_size == 8) {
+		if (wthor_header_read(&base->header, f) && base->header.board_size == 8 && (int) base->header.n_games >= 0) {
 			base->n_games = base->header.n_games;
 
-			base->game = (WthorGame*) malloc(base->n_games * sizeof (WthorGame));
+			base->game = (WthorGame*) malloc((base->n_games ? base->n_games : 1) * sizeof (WthorGame));
 			if (base->game) {
 				r = (fread(base->game, sizeof (WthorGame), base->n_games, f) == (unsigned) base->n_games);
 				if (!r) warn("Error while reading %s\n", file);
 			} else {
 				warn("Cannot allocate whor games\n");
+			}
+			// a file that could not be read completely holds no game (up to v4.5.5-nikque.15 the games that were
+			// not read were kept as they were in memory, and saved with the next games)
+			if (!r) {
+				free(base->game);
+				base->game = NULL;
+				base->n_games = base->header.n_games = 0; // (foreach_wthorgame goes through header.n_games)
 			}
 		}
 		fclose(f);
@@ -393,13 +402,15 @@ bool wthor_save(WthorBase *base, const char *file)
 	wthor_players_save(base, path);
 
 	if ((f = fopen(file, "wb")) != NULL) {
+		// the header, then every game (up to v4.5.5-nikque.15 the count of the writes, at most 2, was compared
+		// with the count of the games, and any write was taken for a success)
 		wthor_header_set(&base->header, base->n_games, 0, 0);
 		r = wthor_header_write(&base->header, f);
-		if (base->game) {
-			r += (fwrite(base->game, sizeof (WthorGame), base->n_games, f) == (unsigned) base->n_games);
+		if (r && base->n_games > 0) {
+			r = (base->game != NULL && fwrite(base->game, sizeof (WthorGame), base->n_games, f) == (unsigned) base->n_games);
 		}
-		if (r != base->n_games) warn("Error while writing %s\n", file);
-		fclose(f);
+		if (fclose(f) != 0) r = 0;
+		if (!r) warn("Error while writing %s\n", file);
 	} else {
 		warn("Cannot open file %s\n", file);
 	}
@@ -417,11 +428,14 @@ bool base_to_wthor(const Base *base, WthorBase *wthor)
 {
 	bool ok = true;
 	int i, j;
+	WthorGame *game;
 
+	// (up to v4.5.5-nikque.15 the number of games was changed and the games lost when there was no memory)
 	j = wthor->n_games;
-	wthor->n_games = j + base->n_games;
-	wthor->game = (WthorGame*) realloc(wthor->game, wthor->n_games * sizeof (WthorGame));
-	if (wthor->game) {
+	game = (WthorGame*) realloc(wthor->game, (j + base->n_games ? j + base->n_games : 1) * sizeof (WthorGame));
+	if (game) {
+		wthor->game = game;
+		wthor->n_games = j + base->n_games;
 		for (i = 0; i < base->n_games; ++i, ++j) {
 			game_to_wthor(base->game + i, wthor->game + j);
 			wthor->game[j].black = wthor_player_get(wthor, base->game[i].name[BLACK]); 
@@ -447,12 +461,14 @@ void wthor_print_game(WthorBase *base, int i, FILE *f)
 	Game game;
 
 	if (0 <= i && i < base->n_games) {
+		// the numbers of a damaged file may be beyond the names (or the names were not read)
+		const WthorGame *g = base->game + i;
+		const char *tournament = (base->tournament && 0 <= g->tournament && g->tournament < base->n_tournaments) ? base->tournament[g->tournament] : "?";
+		const char *black = (base->player && 0 <= g->black && g->black < base->n_players) ? base->player[g->black] : "?";
+		const char *white = (base->player && 0 <= g->white && g->white < base->n_players) ? base->player[g->white] : "?";
 
 		fprintf(f, "Game #%d: %s: %4d - %s vs. %s: ",
-			i, base->tournament[base->game[i].tournament],
-			base->header.game_year,
-			base->player[base->game[i].black],
-			base->player[base->game[i].white]);
+			i, tournament, base->header.game_year, black, white);
 
 		wthor_to_game(base->game + i, &game);
 		game_export_text(&game, f);
@@ -477,11 +493,17 @@ static void wthorgame_get_board(WthorGame *game, const int n_empties, Board *boa
 	char s_move[4];
 
 	*player = BLACK; board_init(board);
-	for (i = 0; i < 60 - n_empties && game->x[i]; ++i) {
+	// (the depth of the header may be negative, and a move of a damaged file may be no square)
+	for (i = 0; i < 60 && i < 60 - n_empties && game->x[i]; ++i) {
+		const int x = move_from_wthor(game->x[i]);
 		if (board_is_pass(board)) {
 			board_pass(board); *player ^= 1;
 		}
-		board_get_move_flip(board, move_from_wthor(game->x[i]), &move);
+		if (x < A1 || x > H8) {
+			warn("Illegal move %d\n", game->x[i]);
+			break;
+		}
+		board_get_move_flip(board, x, &move);
 		if (board_check_move(board, &move)) {
 			board_update(board, &move); *player ^= 1;
 		} else {
@@ -785,6 +807,9 @@ static bool base_load_checked(Base *base, const char *file, bool *complete)
 		if (ferror(f) || !base_append(base, &game)) { ok = false; break; }
 	}
 	if (ferror(f)) ok = false;
+	// a binary file ends after its last game: a truncated or damaged game stops before (up to v4.5.5-nikque.15
+	// the games read until then were taken for the whole file)
+	if (load == game_read_checked && (!feof(f) || ftell(f) % (long) sizeof (Game) != 0)) ok = false;
 	info("done (%d games loaded)\n", base->n_games);
 	if (!ok) warn("%s could not be read completely (%d games loaded)\n", file, base->n_games);
 
@@ -834,9 +859,19 @@ bool base_save(const Base *base, const char *file)
 	else if (strcmp(ext, ".sgf") == 0) save = game_export_sgf;
 	else if (strcmp(ext, ".pgn") == 0) save = game_export_pgn;
 	else if (strcmp(ext, ".wtb") == 0) {
-		wthor_load(&wbase, file);
-		base_to_wthor(base, &wbase);
-		ok = wthor_save(&wbase, file);
+		// the games of the file are kept: it must be read completely (up to v4.5.5-nikque.15 a file that could
+		// not be read was replaced, with the games that were not read)
+		if ((f = fopen(file, "rb")) != NULL) {
+			fclose(f);
+			if (!wthor_load(&wbase, file)) {
+				warn("Cannot read all the games of %s: it was not replaced\n", file);
+				wthor_free(&wbase);
+				return false;
+			}
+		} else {
+			wthor_load(&wbase, file); // (no file: the names of the players and tournaments, and no game)
+		}
+		ok = base_to_wthor(base, &wbase) && wthor_save(&wbase, file);
 		wthor_free(&wbase);
 		return ok;
 	} else if (strcmp(ext, ".edx") == 0) save = game_write;
@@ -929,7 +964,15 @@ void base_to_problem(Base *base, const int n_empties, const char *problem)
 	char s[80];
 	FILE *f;
 
+	if (n_empties < 0 || n_empties > 60) { // (a game holds 60 moves)
+		warn("%s: %d empties is out of range\n", problem, n_empties);
+		return;
+	}
 	f = fopen(problem, "w");
+	if (f == NULL) { // (up to v4.5.5-nikque.15 a file that could not be opened stopped Edax)
+		warn("Cannot open file %s\n", problem);
+		return;
+	}
 
 	for (i = 0; i < base->n_games; ++i) {
 		if (game_get_board(base->game + i, 60 - n_empties, &board)) {
@@ -954,7 +997,15 @@ void base_to_FEN(Base *base, const int n_empties, const char *problem)
 	Board board;
 	FILE *f;
 
+	if (n_empties < 0 || n_empties > 60) { // (a game holds 60 moves)
+		warn("%s: %d empties is out of range\n", problem, n_empties);
+		return;
+	}
 	f = fopen(problem, "w");
+	if (f == NULL) { // (up to v4.5.5-nikque.15 a file that could not be opened stopped Edax)
+		warn("Cannot open file %s\n", problem);
+		return;
+	}
 
 	for (i = 0; i < base->n_games; ++i) {
 		if (game_get_board(base->game + i, 60 - n_empties, &board)) {

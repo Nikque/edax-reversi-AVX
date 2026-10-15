@@ -672,6 +672,7 @@ void ui_loop_edax(UI *ui)
 				// set book depth (until which to learn)
 				} else if (strcmp(book_cmd, "depth") == 0) { // learn
 					val_1 = 36; book_param = parse_int(book_param, &val_1);
+					BOUND(val_1, 1, 61, "book depth"); // (up to v4.5.5-nikque.15 any depth: a game of 60 moves was read beyond its moves)
 					book->options.n_empties = 61 - val_1;
 
 				// create a new empty book

@@ -1019,8 +1019,9 @@ static int position_search_with(Position *position, Search *search)
 
 		if (search->options.verbosity >= 2) {
 			board_print(&search->board, search->player, stdout);
-			puts(search->options.header);
-			puts(search->options.separator);
+			// (libedax and nboard have no header: up to v4.5.5-nikque.15 "book verbose 2" then gave NULL to puts())
+			if (search->options.header) puts(search->options.header);
+			if (search->options.separator) puts(search->options.separator);
 		}
 
 		time = search->options.time;
@@ -2970,6 +2971,7 @@ bool book_load(Book *book, const char *file)
 			goto book_load_failed;
 		}
 		BOUND(loaded.options.level, 0, 60, "book level"); // damaged settings: the level is an index of LEVEL[][]
+		BOUND(loaded.options.n_empties, 0, 60, "book depth (empties)"); // (a game holds 60 moves: see book_check_game)
 		{	// every position takes at least POSITION_FIXED_SIZE bytes and its leaf: reject a count the file cannot hold
 			const long long remaining = book_file_remaining(f);
 			if (remaining < 0 || (long long) expected > remaining / (long long) (POSITION_FIXED_SIZE + sizeof (Link))) {
@@ -6311,7 +6313,7 @@ void book_get_line(Book *book, const Board *board, const Move *move, Line *line)
 
 	while ((position = book_probe(book, &b)) != NULL && !board_is_game_over(&position->board)) {
 		position_get_random_move(position, &b, &m, &book->random, 0);
-		line_push(line, m.x);
+		if (!line_push(line, m.x)) break; // a full line (the links of a damaged book may go round)
 		board_update(&b, &m);
 	}
 }
@@ -6379,7 +6381,17 @@ void book_get_game_stats(Book *book, const Board *board, GameStats *stat)
 			Board target;
 			Link *l;
 			GameStats child;
-			
+			const int n_empties = board_count_empties(&position->board);
+
+			// the leaf counts as position_negamax() counts it (up to v4.5.5-nikque.15 it was left out)
+			if (position->leaf.score > -SCORE_INF) {
+				++stat->n_lines;
+				if (n_empties <= 60 && LEVEL[position->level][n_empties].depth == n_empties && LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) {
+					if (position->leaf.score > 0) ++stat->n_wins;
+					else if (position->leaf.score < 0) ++stat->n_losses;
+					else ++stat->n_draws;
+				}
+			}
 			foreach_link(l, position) {
 				board_next(&position->board, l->move, &target);
 				book_get_game_stats(book, &target, &child);
@@ -7105,7 +7117,7 @@ static bool book_game_boards(Book *book, const Game *game, const bool plan)
 
 	board_init(&board);
 	if (!board_equal(&board, &game->initial_board)) return false; // skip non standard game
-	for (i = n_moves = 0; i < 60 - book->options.n_empties && game->move[i] != NOMOVE; ++i) {
+	for (i = n_moves = 0; i < 60 && i < 60 - book->options.n_empties && game->move[i] != NOMOVE; ++i) {
 		if (!can_move(board.player, board.opponent)) {
 			stack[n_moves++] = MOVE_PASS;
 			board_pass(&board);
@@ -7194,7 +7206,7 @@ void book_check_game(Book *book, MoveHash *hash, const Game *game, BookCheckGame
 
 	board_init(&board);
 	if (!board_equal(&board, &game->initial_board)) return; // skip non standard game
-	for (i = n_moves = 0; i <= 60 - book->options.n_empties && game->move[i] != NOMOVE; ++i) {
+	for (i = n_moves = 0; i < 60 && i <= 60 - book->options.n_empties && game->move[i] != NOMOVE; ++i) {
 		if (!can_move(board.player, board.opponent)) {
 			stack[n_moves++] = MOVE_PASS;
 			board_pass(&board);
@@ -7211,7 +7223,7 @@ void book_check_game(Book *book, MoveHash *hash, const Game *game, BookCheckGame
 	while (--n_moves >= 0) {
 		board_restore(&board, stack + n_moves);
 		if (movehash_append(hash, &board, stack[n_moves].x)) {
-			if (book_get_moves(book, &board, &movelist)) {
+			if (book_get_moves(book, &board, &movelist) && movelist.n_moves > 0) { // (a position without any move: missing)
 				bestscore = movelist_first(&movelist)->score;
 				foreach_move(iter, movelist) {
 					if (iter->x == stack[n_moves].x) {
@@ -7266,12 +7278,15 @@ static void extract_skeleton(Book *book, Board *board, Line *pv, Base *base)
 	Game game;
 	int bestscore;
 
-	if (book_get_moves(book, board, &movelist)) {
+	// a position of the book without any move (the end of a game) ends a line as a position out of the book
+	// (up to v4.5.5-nikque.15 the best of its empty list of moves was read: a null pointer)
+	if (book_get_moves(book, board, &movelist) && movelist.n_moves > 0) {
 		bestscore = movelist_best(&movelist)->score;
 		
 		foreach_move(move, movelist) {
 			if (move->score == bestscore) {
-				board_update(board, move); line_push(pv, move->x);
+				if (!line_push(pv, move->x)) continue; // a full line (the links of a damaged book may go round)
+				board_update(board, move);
 					extract_skeleton(book, board, pv, base);
 				board_restore(board, move); line_pop(pv);
 			}

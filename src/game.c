@@ -149,6 +149,29 @@ bool wthor_equals(const WthorGame *game_1, const WthorGame *game_2)
 }
 
 /**
+ * @brief Set the initial board of a game read from a file (GGF "BO", PGN "FEN").
+ *
+ * A board that is refused (no player to move, fewer than 4 discs, ...) leaves the initial board as it
+ * is: up to v4.5.5-nikque.15 the player of the game became EMPTY, an index out of the clocks.
+ *
+ * @param game Game.
+ * @param s Board text.
+ * @param set board_set() or board_from_FEN().
+ */
+static void game_set_initial_board(Game *game, const char *s, int (*set)(Board*, const char*))
+{
+	Board board;
+	const int player = set(&board, s);
+
+	if ((player == BLACK || player == WHITE) && board_is_usable(&board)) {
+		game->initial_board = board;
+		game->player = player;
+	} else {
+		warn("unusable initial board: %s\n", s);
+	}
+}
+
+/**
  * @brief update a board.
  *
  */
@@ -169,6 +192,13 @@ bool game_update_board(Board *board, int x)
 /**
  * @brief update a player.
  *
+ * The player to move changes with a pass, and with the move (a legal one: an illegal move stops the game).
+ * Up to v4.5.5-nikque.15 it only changed with a pass, as the board changed with every move: the score of
+ * a game of an odd number of moves had the wrong sign.
+ *
+ * @param board Board (passed if needed).
+ * @param x Move.
+ * @return true if the player to move after the move is the other one.
  */
 static bool game_update_player(Board *board, int x)
 {
@@ -180,7 +210,7 @@ static bool game_update_player(Board *board, int x)
 			board_pass(board);
 			swap = !swap;
 		}
-		if (board_get_move_flip(board, x, &move) == 0) swap = !swap;
+		if (board_get_move_flip(board, x, &move) != 0) swap = !swap;
 	}
 	
 	return swap;
@@ -439,15 +469,39 @@ void game_read(Game *game, FILE *f)
 }
 
 /**
+ * @brief Tell whether a game read from a binary file can be used.
+ *
+ * The player to move is an index (of the clocks...), the moves index the tables of the squares, the
+ * names are printed: a damaged file could make them be read or written out of bounds (up to
+ * v4.5.5-nikque.15 they were not checked). The board holds at least 4 discs, not on the same squares.
+ *
+ * @param game The game (the names are ended if needed).
+ * @return true if the game can be used.
+ */
+static bool game_is_sound(Game *game)
+{
+	int i;
+
+	game->name[BLACK][31] = game->name[WHITE][31] = '\0';
+	if (game->player != BLACK && game->player != WHITE) return false;
+	if (game->initial_board.player & game->initial_board.opponent) return false;
+	if (bit_count(game->initial_board.player | game->initial_board.opponent) < 4) return false;
+	for (i = 0; i < 60; ++i) {
+		if (game->move[i] != NOMOVE && (game->move[i] < A1 || game->move[i] > H8)) return false;
+	}
+	return true;
+}
+
+/**
  * @brief Read a game from a binary file, reporting incomplete files.
  *
- * @param game The output game (initialized when the file is incomplete).
+ * @param game The output game (initialized when the file is incomplete or the game is damaged).
  * @param f The file stream.
- * @return true if a complete game was read.
+ * @return true if a complete game, that can be used, was read.
  */
 bool game_read_checked(Game *game, FILE *f)
 {
-	if (fread(game, sizeof (Game), 1, f) == 1) return true;
+	if (fread(game, sizeof (Game), 1, f) == 1 && game_is_sound(game)) return true;
 	game_init(game);
 	return false;
 }
@@ -634,7 +688,7 @@ void game_import_ggf(Game* game, FILE* f)
 			if (strcmp(tag,"GM") == 0 && strcmp(value, "othello") != 0) break;
 			if (strcmp(tag, "BO") == 0) {
 				if (value[0] != '8') break;
-				game->player = board_set(&game->initial_board, value + 2);
+				game_set_initial_board(game, value + 2, board_set);
 			} else if (strcmp(tag, "PB") == 0) {
 				memcpy(game->name[BLACK], value, 31);
 				game->name[BLACK][31] = '\0';
@@ -721,7 +775,7 @@ int parse_ggf(Game *game, const char *string)
 				if (value[0] != '8') {
 					return -1;
 				}
-				game->player = board_set(&game->initial_board, value + 2);
+				game_set_initial_board(game, value + 2, board_set);
 			} else if (strcmp(tag, "PB") == 0) {
 				memcpy(game->name[BLACK], value, 31);
 				game->name[BLACK][31] = '\0';
@@ -1107,7 +1161,7 @@ bool game_import_pgn_checked(Game *game, FILE *f)
 							game->date.hour = value[0]; game->date.minute = value[1]; game->date.second = value[2];
 						}
 					} else if (strcmp(info_tag, "fen") == 0) {
-						game->player = board_from_FEN(&game->initial_board, info_value);
+						game_set_initial_board(game, info_value, board_from_FEN);
 					}
 					break;
 			}				
@@ -1711,9 +1765,9 @@ int game_complete(Game *game, Search *search)
 	search->options.verbosity = 0;
 	search_cleanup(search);
 
-	player = game->player;
 	for (n = 0; n < 60; ++n) {
 		board = game->initial_board;
+		player = game->player; // (up to v4.5.5-nikque.15 it was set once, before the first search)
 		for (i = 0; i < 60 && game->move[i] != NOMOVE; ++i) {
 			player ^= game_update_player(&board, game->move[i]);
 			if (!game_update_board(&board, game->move[i])) {

@@ -115,7 +115,7 @@ bool play_load(Play *play, const char *file)
 
 	if (load == game_read) {
 		if (!game_read_checked(&game, f)) {
-			snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Incomplete game file %s\n", file);
+			snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Incomplete or damaged game file %s\n", file);
 			fclose(f);
 			return false;
 		}
@@ -125,6 +125,10 @@ bool play_load(Play *play, const char *file)
 	fclose(f);
 
 	// check every move before the current game is replaced (same rules as play_move)
+	if (!board_is_usable(&game.initial_board) || (game.player != BLACK && game.player != WHITE)) {
+		snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Unusable initial board in %s\n", file);
+		return false;
+	}
 	{
 		Board board = game.initial_board;
 		int player = game.player;
@@ -667,13 +671,22 @@ void play_redo(Play *play)
  */
 void play_set_board(Play *play, const char *board)
 {
+	Board b;
+	int player;
+
 	play_stop_pondering(play);
-	play->initial_player = board_set(&play->initial_board, board);
-	if (play->initial_player == EMPTY) { /* bad board ? */
-		play->initial_board.opponent &= (~play->initial_board.player);
-		play->initial_player = (board_count_empties(&play->initial_board) & 1);
-		if (play->initial_player == WHITE) board_swap_players(&play->initial_board);
+	player = board_set(&b, board);
+	if (player == EMPTY) { /* bad board ? */
+		b.opponent &= (~b.player);
+		player = (board_count_empties(&b) & 1);
+		if (player == WHITE) board_swap_players(&b);
 	}
+	if (!board_is_usable(&b)) { // (fewer than 4 discs: the current game is kept)
+		warn("setboard: a board needs at least 4 discs\n");
+		return;
+	}
+	play->initial_board = b;
+	play->initial_player = player;
 	play_force_init(play, "");
 	play_new(play);
 }
@@ -682,15 +695,27 @@ void play_set_board(Play *play, const char *board)
  * @brief Set a new board.
  * @param play Play.
  * @param board A new board.
+ * @return false if the FEN is refused (the current game is kept).
  */
-void play_set_board_from_FEN(Play *play, const char *board)
+bool play_set_board_from_FEN(Play *play, const char *board)
 {
+	Board b;
+	int player;
+
 	play_stop_pondering(play);
-	play->initial_player = board_from_FEN(&play->initial_board, board);
-	if (play->initial_player != EMPTY) {
-		play_force_init(play, "");
-		play_new(play);
+	// a FEN that is refused leaves the current game as it is (up to v4.5.5-nikque.15 the initial board was
+	// changed, and the initial player became EMPTY)
+	player = board_from_FEN(&b, board);
+	if (player == EMPTY) return false;
+	if (!board_is_usable(&b)) {
+		warn("setboard: a board needs at least 4 discs\n");
+		return false;
 	}
+	play->initial_board = b;
+	play->initial_player = player;
+	play_force_init(play, "");
+	play_new(play);
+	return true;
 }
 
 /**
