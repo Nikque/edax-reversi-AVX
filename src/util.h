@@ -43,6 +43,7 @@ void print_scientific(double, const char*, FILE*);
 char* string_duplicate(const char*);
 long long string_to_time(const char*);
 char* string_read_line(FILE*);
+bool file_replace(const char*, const char*);
 char* string_copy_line(FILE*);
 void string_to_lowercase(char*);
 void string_to_uppercase(char*);

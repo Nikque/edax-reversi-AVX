@@ -140,9 +140,10 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   {Base base;base_init(&base);if(base_load(&base,"audit-bad.edx"))ok=0;base_free(&base);}remove("audit-bad.edx");
   {Line l;line_init(&l,BLACK);for(int i=0;i<GAME_SIZE;++i)line_push(&l,PASS);if(line_push(&l,PASS)||l.n_moves!=GAME_SIZE)ok=0;}
   printf("BAD input refused ok=%d\n",ok);if(!ok)return 2;}
- else if(!strcmp(t,"wthortrunc")){ /* v4.5.5-nikque.16: games are not added to a wthor file that cannot be read completely */
+ else if(!strcmp(t,"wthortrunc")){ /* v4.5.5-nikque.16: a wthor file that cannot be read completely is not loaded, and no game is added to it */
   Base b;Game g;FILE *f;long n;char buf[1024];int ok;remove("audit-trunc.wtb");base_init(&b);for(int i=0;i<3;++i){game_init(&g);text_to_game(i?"f5f6e6f4":"f5d6c3",&g);base_append(&b,&g);}
-  ok=base_save(&b,"audit-trunc.wtb");base_free(&b);f=fopen("audit-trunc.wtb","rb");n=fread(buf,1,sizeof buf,f);fclose(f);f=fopen("audit-trunc.wtb","wb");fwrite(buf,1,n-30,f);fclose(f);
+  ok=base_save(&b,"audit-trunc.wtb");base_free(&b);{Base c;base_init(&c);ok=ok&&base_load(&c,"audit-trunc.wtb")&&c.n_games==3;base_free(&c);}
+  f=fopen("audit-trunc.wtb","rb");n=fread(buf,1,sizeof buf,f);fclose(f);f=fopen("audit-trunc.wtb","wb");fwrite(buf,1,n-30,f);fclose(f);{Base c;base_init(&c);ok=ok&&!base_load(&c,"audit-trunc.wtb");base_free(&c);} /* (a truncated wthor file is not loaded) */
   base_init(&b);game_init(&g);text_to_game("f5f4",&g);base_append(&b,&g);ok=ok&&!base_save(&b,"audit-trunc.wtb");base_free(&b);f=fopen("audit-trunc.wtb","rb");fseek(f,0,SEEK_END);ok=ok&&ftell(f)==n-30;fclose(f);
   printf("WTHOR truncated file kept ok=%d\n",ok);remove("audit-trunc.wtb");remove("WTHOR.JOU");if(!ok)return 2;}
  else if(!strcmp(t,"cassiolist")){ /* v4.5.5-nikque.16: the list of the positions of Cassio keeps every position */

@@ -825,7 +825,7 @@ static bool base_load_checked(Base *base, const char *file, bool *complete)
 	Game game;
 	FILE *f;
 	char ext[8];
-	int l;
+	int l, n_games;
 	bool ok = true;
 	WthorHeader header;
 
@@ -852,7 +852,8 @@ static bool base_load_checked(Base *base, const char *file, bool *complete)
 	}
 
 	info("loading games...");
-	if (load == base_import_wthor) wthor_header_read(&header, f);
+	n_games = base->n_games;
+	if (load == base_import_wthor && !wthor_header_read(&header, f)) ok = false;
 	// the last game of a file is read when the end of the file is reached (a text file without an end of line
 	// after its last game, a pgn file): up to v4.5.5-nikque.15 it was not added
 	while (load(&game, f)) {
@@ -862,6 +863,8 @@ static bool base_load_checked(Base *base, const char *file, bool *complete)
 	// a binary file ends after its last game: a truncated or damaged game stops before (up to v4.5.5-nikque.15
 	// the games read until then were taken for the whole file)
 	if (load == game_read_checked && (!feof(f) || ftell(f) % (long) sizeof (Game) != 0)) ok = false;
+	// a wthor file holds the count of its games in its header: fewer games is a truncated file
+	if (ok && load == base_import_wthor && base->n_games - n_games < header.n_games) ok = false;
 	info("done (%d games loaded)\n", base->n_games);
 	if (!ok) warn("%s could not be read completely (%d games loaded)\n", file, base->n_games);
 
@@ -988,11 +991,7 @@ bool base_replace(const Base *base, const char *file)
 	sprintf(tmp_file, "%s.saving%s", file, file + l - 4); // (the same extension: the same format)
 	remove(tmp_file);
 	ok = base_save(base, tmp_file);
-#ifdef _WIN32
-	if (ok && !MoveFileExA(tmp_file, file, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) ok = false;
-#else
-	if (ok && rename(tmp_file, file) != 0) ok = false;
-#endif
+	if (ok && !file_replace(tmp_file, file)) ok = false;
 	if (!ok) {
 		warn("Cannot save the games to %s: it was not replaced\n", file);
 		remove(tmp_file);

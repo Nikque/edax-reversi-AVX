@@ -544,12 +544,13 @@ void game_import_text(Game *game, FILE *f)
 bool game_import_text_checked(Game *game, FILE *f)
 {
 	char *line = string_read_line(f);
+	const bool read = (line != NULL);
 
-	if (line) text_to_game(line, game);
+	if (read) text_to_game(line, game);
 	else  game_init(game);
 
 	free(line);
-	return line != NULL;
+	return read;
 }
 
 /**

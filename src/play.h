@@ -88,6 +88,7 @@ void play_update(Play*, Move*);
 void play_pass(Play*);
 void play_undo(Play*);
 void play_redo(Play*);
+bool play_set_initial_board(Play*, const Board*, const int);
 void play_set_board(Play*, const char*);
 bool play_set_board_from_FEN(Play*, const char*);
 void play_game(Play*, const char*);

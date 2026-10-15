@@ -3357,11 +3357,7 @@ static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 			return false;
 		}
 	}
-#ifdef _WIN32
-	if (!MoveFileExA(tmp_file, file, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-#else
-	if (rename(tmp_file, file) != 0) {
-#endif
+	if (!file_replace(tmp_file, file)) {
 		error("\nCannot save book to %s; existing book was not replaced\n", file);
 		remove(tmp_file);
 		free(tmp_file);

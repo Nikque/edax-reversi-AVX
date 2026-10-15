@@ -665,6 +665,30 @@ void play_redo(Play *play)
 }
 
 /**
+ * @brief Start a new game from a board given from outside (setboard, FEN, libedax).
+ *
+ * A board of fewer than 4 discs, or with discs on the same square, is refused: the current game is kept
+ * (up to v4.5.5-nikque.15 it was searched with more than 60 empties, out of the table of the levels).
+ *
+ * @param play Play.
+ * @param board The initial board.
+ * @param player The player to move.
+ * @return false if the board is refused.
+ */
+bool play_set_initial_board(Play *play, const Board *board, const int player)
+{
+	if (!board_is_usable(board)) {
+		warn("setboard: a board needs at least 4 discs\n");
+		return false;
+	}
+	play->initial_board = *board;
+	play->initial_player = player;
+	play_force_init(play, "");
+	play_new(play);
+	return true;
+}
+
+/**
  * @brief Set a new board.
  * @param play Play.
  * @param board A new board.
@@ -681,14 +705,7 @@ void play_set_board(Play *play, const char *board)
 		player = (board_count_empties(&b) & 1);
 		if (player == WHITE) board_swap_players(&b);
 	}
-	if (!board_is_usable(&b)) { // (fewer than 4 discs: the current game is kept)
-		warn("setboard: a board needs at least 4 discs\n");
-		return;
-	}
-	play->initial_board = b;
-	play->initial_player = player;
-	play_force_init(play, "");
-	play_new(play);
+	play_set_initial_board(play, &b, player);
 }
 
 /**
@@ -706,16 +723,7 @@ bool play_set_board_from_FEN(Play *play, const char *board)
 	// a FEN that is refused leaves the current game as it is (up to v4.5.5-nikque.15 the initial board was
 	// changed, and the initial player became EMPTY)
 	player = board_from_FEN(&b, board);
-	if (player == EMPTY) return false;
-	if (!board_is_usable(&b)) {
-		warn("setboard: a board needs at least 4 discs\n");
-		return false;
-	}
-	play->initial_board = b;
-	play->initial_player = player;
-	play_force_init(play, "");
-	play_new(play);
-	return true;
+	return player != EMPTY && play_set_initial_board(play, &b, player);
 }
 
 /**

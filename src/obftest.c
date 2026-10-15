@@ -112,12 +112,7 @@ static FILE* obf_output_open(const char *file, char **tmp)
  */
 static void obf_output_close(FILE *f, const char *file, char *tmp)
 {
-	bool ok = (fclose(f) == 0);
-#ifdef _WIN32
-	if (ok && !MoveFileExA(tmp, file, MOVEFILE_REPLACE_EXISTING)) ok = false;
-#else
-	if (ok && rename(tmp, file) != 0) ok = false;
-#endif
+	const bool ok = (fclose(f) == 0) && file_replace(tmp, file);
 	if (!ok) {
 		warn("cannot write %s\n", file);
 		remove(tmp);

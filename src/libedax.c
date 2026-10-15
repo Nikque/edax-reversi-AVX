@@ -712,42 +712,31 @@ LIBEDAX_API void edax_setboard(const char *board)
 LIBEDAX_API void edax_setboard_from_obj(const LibedaxBoard *board, const int turn)
 {
 	Play *play;
+	Board b;
+	int player;
 	if (g_ui == NULL || board == NULL) return;
 	play = g_ui->play;
 
 	// set a new initial position
 	play_stop_pondering(play);
-	{
-		Board b;
-		int player;
-		b.player = board->player;
-		b.opponent = board->opponent;
-		if (turn == BLACK) {
-			player = BLACK;
-		} else if (turn == WHITE) {
-			board_swap_players(&b);
-			player = WHITE;
-		} else {
-			player = EMPTY;
-		}
-		if (b.player & b.opponent) { /* bad board */
-			b.opponent &= (~b.player);
-		}
-		if (player == EMPTY) { /* bad turn */
-			player = (board_count_empties(&b) & 1);
-			if (player == WHITE) board_swap_players(&b);
-		}
-		// fewer than 4 discs: the current game is kept (up to v4.5.5-nikque.15 the board was searched with
-		// more than 60 empties, out of the table of the levels)
-		if (!board_is_usable(&b)) {
-			warn("edax_setboard_from_obj: a board needs at least 4 discs\n");
-			return;
-		}
-		play->initial_board = b;
-		play->initial_player = player;
+	b.player = board->player;
+	b.opponent = board->opponent;
+	if (turn == BLACK) {
+		player = BLACK;
+	} else if (turn == WHITE) {
+		board_swap_players(&b);
+		player = WHITE;
+	} else {
+		player = EMPTY;
 	}
-	play_force_init(play, "");
-	play_new(play);
+	if (b.player & b.opponent) { /* bad board */
+		b.opponent &= (~b.player);
+	}
+	if (player == EMPTY) { /* bad turn */
+		player = (board_count_empties(&b) & 1);
+		if (player == WHITE) board_swap_players(&b);
+	}
+	play_set_initial_board(play, &b, player); // (a board of fewer than 4 discs is refused: the current game is kept)
 }
 
 /**

@@ -262,6 +262,24 @@ char* string_read_line(FILE *f)
 	return line;
 }
 
+/**
+ * @brief Replace a file by another one, that was written under another name first.
+ *
+ * The book, the game files and the OBF files are saved this way: a file is never left half written.
+ *
+ * @param from File written.
+ * @param to File to replace (it may not exist).
+ * @return true if the file was replaced.
+ */
+bool file_replace(const char *from, const char *to)
+{
+#ifdef _WIN32
+	return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+	return rename(from, to) == 0;
+#endif
+}
+
 
 /**
  * @brief Duplicate a string.
@@ -797,47 +815,6 @@ char* parse_real(const char *string, double *result)
 	}
 	return (char*) string;
 }
-
-/**
- * @brief parse time as "D:HH:MM:SS.C".
- *
- * @param string Time as a string.
- * @param t Output time in milliseconds.
- * @return The remaining of the input string.
- */
-char* parse_time(const char *string, long long *t)
-{
-	int n = 0;
-	double x = 0.0;
-
-	*t = 0;
-	
-	if (string) {
-		const char *s = parse_skip_spaces(string);
-		s = parse_int(s, &n);
-		if (*s == ':') {
-			*t = 60 * n; //  time has the form MM:SS ?
-			s = parse_int(s + 1, &n);
-			if (*s == ':') {
-				*t = 60 * (*t + n); // 	time has the form HH:MM:SS ?
-				s = parse_int(s + 1, &n);
-				if (*s == ':') {
-					*t = 24 * (*t + n); // 	time has the form D:HH:MM:SS ?
-					s = parse_int(s + 1, &n);
-				}
-			}
-		}
-		if (*s == '.' && isdigit((unsigned char) s[1])) {
-			s = parse_real(s, &x);
-			assert(0.0 <= x && x < 1.0);
-		}
-		*t = (*t + n + x) * 1000;
-		if (errno != EINVAL && errno != ERANGE) string = s;
-	}
-
-	return (char*) string;
-}
-
 
 /**
  * @brief Parse a command.

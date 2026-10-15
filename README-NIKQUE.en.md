@@ -17,14 +17,14 @@ After v4.5.5-nikque.15 was published, a second cross-check of the source found m
   - The recount of the positions whose win/draw/loss counts are saturated forgot the leaf. The recount now remembers its partial results, so that a position is not counted again and again (speed below).
   - `book depth` is bounded to 1–61, and the number of empties of a book file to 0–60. The search of a book without a header, the lines longer than a game (`line_push`), and the positions without a move in `book check` and the like are fixed (from upstream).
 - **Game files (base)**
-  - The last game of a game file could be lost (txt, pgn; from upstream). A line that cannot be read and a truncated file are failures.
+  - The last game of a game file could be lost (txt, pgn; from upstream). A truncated edx or Wthor file, and a read error, are failures (a line of a txt file that cannot be read is still an empty game, as before).
   - `base correct` and `base complete` write another file and then replace the game file (a stop while writing broke the file). `base save` does not write when it cannot read the existing file. The saves tell their result.
   - A game read from a file is checked (player to move, discs on the same square, at least 4 discs, moves that are squares, ended names). A damaged edx file stops where it is damaged. Wthor: ended names, the range of the moves, truncated files and failed saves (from upstream).
   - The score of a game (`game_score`) had the wrong sign for a game of an odd number of moves; `base complete` could take the wrong player from the second round of its completion loop (from upstream).
   - `base unique` compares the initial board and the player to move too, not only the moves.
 - **Input from outside**
   - FEN, the XBoard `setboard`, GGF `BO`, the FEN of PGN and the boards given to libedax refuse a board that cannot be used (fewer than 4 discs, discs on the same square, a wrong number of rows or columns). A refused board keeps the current game.
-  - The times (`1:30:00` and the like), the print of a negative time, the coordinates `P@` and `@`, the range of `mode` (0–3) and the depth in an option file are fixed (from upstream). The unused function `time_read` is removed.
+  - The times (`1:30:00` and the like), the print of a negative time, the coordinates `P@` and `@`, the range of `mode` (0–3) and the depth in an option file are fixed (from upstream). The unused functions `time_read` and `parse_time` are removed (`parse_time` had the same defect of the times).
   - The depth of the line after a pass, and the move guessed when the hash table has none (a single move, a pass) are fixed (from upstream).
   - The races between the input thread and the end of the program (Cassio, XBoard, command line), and the read again after EINTR, are fixed (from upstream).
 - **XBoard, Cassio, GGS** (from upstream)
@@ -48,7 +48,8 @@ After v4.5.5-nikque.15 was published, a second cross-check of the source found m
 
 ### What behaves differently (summary)
 
-- A game file whose last game was lost: it is read. A line that cannot be read, or a truncated file, is a failure (before, what could be read was used).
+- A game file whose last game was lost: it is read.
+- A truncated edx or Wthor file, or a read error: a failure (before, what could be read was used).
 - A board that cannot be used (FEN, setboard, libedax): refused (before, it was loaded, and the search could go wrong).
 - A damaged game file or Wthor file: not loaded.
 - `base unique`: games with another initial board or player to move are not the same.
