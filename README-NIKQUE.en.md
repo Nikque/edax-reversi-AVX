@@ -4,6 +4,78 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.16
+
+After v4.5.5-nikque.15 was published, a second cross-check of the source found more defects (most of them from upstream); they are fixed, with a few points of speed and memory. `eval.dat`, the book file format and the search results do not change (fforum-20-39 gives the same depths, scores, node counts and lines as v4.5.5-nikque.15). On **a correct book**, `book deviate` and the like, game learning, the `book fill` commands, `book fix`, the negamax and the commands that cut a book make the same book as v4.5.5-nikque.15. What changes is the inputs that failed or crashed before, and the points listed in "What behaves differently".
+
+### Fixes
+
+- **Book and hash table**
+  - The lock of the hash table is chosen by bucket (the 4 places that a position can use), not by hash code (from upstream): the same bucket could be read and written under two different locks.
+  - A link that could not be added (exhausted memory) was taken as added. Now the job is skipped (the plan of the `book fill` commands), or the leaf is kept and the failure recorded (the `book expand` commands).
+  - `book stats` counted out of its arrays for a position with a stage or a score out of range (a damaged book; from upstream). They are counted apart and shown.
+  - The recount of the positions whose win/draw/loss counts are saturated forgot the leaf. The recount now remembers its partial results, so that a position is not counted again and again (speed below).
+  - `book depth` is bounded to 1–61, and the number of empties of a book file to 0–60. The search of a book without a header, the lines longer than a game (`line_push`), and the positions without a move in `book check` and the like are fixed (from upstream).
+- **Game files (base)**
+  - The last game of a game file could be lost (txt, pgn; from upstream). A line that cannot be read and a truncated file are failures.
+  - `base correct` and `base complete` write another file and then replace the game file (a stop while writing broke the file). `base save` does not write when it cannot read the existing file. The saves tell their result.
+  - A game read from a file is checked (player to move, discs on the same square, at least 4 discs, moves that are squares, ended names). A damaged edx file stops where it is damaged. Wthor: ended names, the range of the moves, truncated files and failed saves (from upstream).
+  - The score of a game (`game_score`) had the wrong sign for a game of an odd number of moves; `base complete` could take the wrong player from the second round of its completion loop (from upstream).
+  - `base unique` compares the initial board and the player to move too, not only the moves.
+- **Input from outside**
+  - FEN, the XBoard `setboard`, GGF `BO`, the FEN of PGN and the boards given to libedax refuse a board that cannot be used (fewer than 4 discs, discs on the same square, a wrong number of rows or columns). A refused board keeps the current game.
+  - The times (`1:30:00` and the like), the print of a negative time, the coordinates `P@` and `@`, the range of `mode` (0–3) and the depth in an option file are fixed (from upstream). The unused function `time_read` is removed.
+  - The depth of the line after a pass, and the move guessed when the hash table has none (a single move, a pass) are fixed (from upstream).
+  - The races between the input thread and the end of the program (Cassio, XBoard, command line), and the read again after EINTR, are fixed (from upstream).
+- **XBoard, Cassio, GGS** (from upstream)
+  - XBoard: `force`, the end of the input, the log. Cassio: the number of moves of a line, a negative depth, the history, the free after `stop`, the input thread at the end.
+  - GGS: whole administrator names, no received text used as a format, messages received in parts, the bound of the move list, frees, connection failures.
+- **CPU-specific code** (from upstream)
+  - `flip_neon_rbit.c` (aarch64 builds with `MOVE_GENERATOR_NEON`; not the default): the masks of the reversed board and of the board were swapped, and wrong discs were flipped.
+  - The bit scans and shift ranges of 32-bit builds, the types for CPUs without lzcnt, `solve_1`, the evaluation load of the x86 assembly version, and the builds with statistics (`-DHASH_STATS` and the like) that did not compile.
+  - 16-byte loads from addresses that are not 16-byte aligned (midgame.c) use unaligned loads (same results).
+- **Tools** (from upstream; they do not affect Edax itself)
+  - eval_builder: equalize, filters, table packing, feature squares, options, file checks, memory.
+  - perft shapes, the OBF tools (temporary file, move bound, error count), histogram, opening name matching, package-release.py (no partial ZIP left).
+- **libedax**: new function `edax_book_keep_unread_file` (below).
+
+### Speed and memory (same results)
+
+- `base unique` sorts the games before comparing them (47,000 games: 4.9 s → 0.012 s).
+- `base save` writes the games without copying them.
+- The recount of saturated positions remembers its partial results (test book: 891 → 525 ms, same values).
+- The size of an allocation of the evaluation data (eval.c) is fixed.
+
+### What behaves differently (summary)
+
+- A game file whose last game was lost: it is read. A line that cannot be read, or a truncated file, is a failure (before, what could be read was used).
+- A board that cannot be used (FEN, setboard, libedax): refused (before, it was loaded, and the search could go wrong).
+- A damaged game file or Wthor file: not loaded.
+- `base unique`: games with another initial board or player to move are not the same.
+- The score of a game of an odd number of moves: right sign.
+- A `mode` out of 0–3: bounded.
+- An unusable board in the XBoard `setboard`: an error, and the current game is kept.
+- libedax: `edax_setboard_from_obj` refuses an unusable board.
+
+### libedax
+
+- **New function `edax_book_keep_unread_file`**: when the last `book load` could not read the book file (damaged or truncated), it moves the file to `<file>.damaged`; when it was read, it does nothing. It returns 1 on success, 0 when the file could not be moved. It is called before a save, so that a book that could not be read is not replaced by an empty book (edax_runner uses it). The library exports 105 functions (one more).
+
+### Not changed, and good to know
+
+- The real book (formerly called the 34 GB book) was not used, as the user requested.
+- When this text was written, the Windows builds and tests (MSVC, PGO), the macOS build and a real Android (arm64) device were not checked yet. aarch64 was checked with qemu.
+- The `MOVE_GENERATOR_NEON` defect is not in the default builds (aarch64 uses another method by default).
+- Some speed points were measured and left as they are because their effect is small: the creation of the helper threads of parallel searches (about 18,000 creations take 47 ms), and the like.
+- Running two edax_runner in the same folder, and replacing the book, the learning list and the learned log as one unit, are as before.
+
+### Checks
+
+- With the version before the fixes (v4.5.5-nikque.15), most of the defects were reproduced by small tests (the lost last game, the lock choice, the stats out of range, unusable boards, the reading of FEN, times and coordinates, truncated Wthor files, the Cassio lines, `flip_neon_rbit.c`, ...), with AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer.
+- `tests/regression.c` has new cases (hashlock, lastgame, basereplace, keepunread, statsrange, gamescore, badinput, wthortrunc, cassiolist, parsers, tools, unique). The 44 cases pass on Linux (gcc, `NDEBUG`).
+- Search: fforum-20-39 solved with 1 thread gives the same depths, scores, node counts (77,639,567) and lines as v4.5.5-nikque.15; with 4 threads, the same scores.
+- aarch64 (qemu): the default build, the build with `HAS_CPU_64`, and the build with NEON and LASTFLIP_LOWCUT give the same depths and scores as x64 on fforum-20-39 (the ARM builds have the same node counts, 77,662,358; the difference with x64 was already there). After the fix, `flip_neon_rbit.c` flips the same discs as the generic code on 200,000 random positions.
+
 ## Changes in v4.5.5-nikque.15
 
 After v4.5.5-nikque.14 was published, another reading of the source (a cross-check) found some defects; they are fixed, with a few points of speed and memory. `eval.dat`, the book file format and the search do not change. On **a correct book**, `book deviate` and the like, game learning, `book fill`, `fill2`, `leaf expand`, `book fix`, negamax and pruning make the same book as v4.5.5-nikque.14. The results change only with a book holding boards that are not unique, a damaged book, exhausted memory, and the `book import` of a large text book (see "What behaves differently" below).

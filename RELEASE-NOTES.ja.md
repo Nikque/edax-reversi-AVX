@@ -2,6 +2,10 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-nikque.16
+
+v4.5.5-nikque.15 の公開の後の 2 回目のソースの読み直し（クロスチェック）で見つかった不具合を直しました（多くは上流からのものです）：ハッシュ表のロックの選び方、棋譜のファイルの最後の棋譜を読まない、`base correct`・`base complete` の途中で止まると棋譜のファイルが壊れる、壊れた棋譜・Wthor ファイル・使えない盤面（FEN・setboard・libedax）を読み込む、手の数が奇数の棋譜の点数の符号、`book stats`・`book depth` の範囲、時間・座標・`mode` の読み取り、入力のスレッドと終了の競合、XBoard・Cassio・GGS の不具合、`MOVE_GENERATOR_NEON` を指定した aarch64 ビルドの石の返し方、32 ビット・統計用ビルド、eval_builder などの道具。`base unique`・`base save`・飽和した局面の数え直しを速くしました。libedax に関数 `edax_book_keep_unread_file` を足しました（読めなかったbookを `.damaged` として残します）。`eval.dat`・bookのファイル形式・探索の結果は変わりません。正しいbookでできるbookは v4.5.5-nikque.15 と同じです。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+
 ## v4.5.5-nikque.15
 
 v4.5.5-nikque.14 の公開の後のソースの読み直し（クロスチェック）で見つかった不具合を直しました（上流からのものを含みます）：正規形でない盤面のあるtextの `book import` の後で `book prune`・`book subtree` が止まらない、壊れたbookのファイルで異常終了する（`book load`・`book merge` が読み込まないようにしました）、評価ファイルの印の検査が片方で通る、`book import` の失敗で途中までのbookに入れ替わる、ハッシュ表の大きさを変えるとロックの配列が漏れる、メモリ不足でLinkを減らすと全部消える、libedaxで別の `eval-file` を読み直さない。Linux・macOSでもプールの使わない部分を放し、学習で使われなくなったプールの場所も放します。`book fill` 系の一覧の並べ替えとメモリを減らしました。`eval.dat`・bookのファイル形式・探索は変わりません。正しいbookでできるbookは v4.5.5-nikque.14 と同じです（大きなtextの `book import` は区画の数が変わります）。**直した後のソースは、ビルドと起動の確認だけで公開し、公開の後に試験一式を行いました（問題なし。リポジトリの試験ファイル1つを直しました）。400万局面のtextの `book import` は 9.7秒 → 7.9秒。** 詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
