@@ -22,6 +22,8 @@ The final audit of v4.5.5-nikque.8 adds `mergetwice` (a second merge does not ta
 
 `reproducible` checks `book-seed` (the random numbers of a book start from the seed; `auto` and a wrong value leave them to the clock), the check of the links of a new position before its expansion is applied, and that `book-reproducible on` gives the same book (except the save date) with 4 threads, twice, and with 1 thread (`book new 2 52`, `book deviate 2 4`). It uses 4 threads.
 
+`expandredo` searches the second of two expansions before the first, whose new position is a move of the new position of the second: when the first is applied, the second has old links, is searched again, then applied, and the book is the one of `position_expand` (the first, then the second).
+
 Additional case names are listed in `tests/regression.c`. Some cases write small `audit-*` files in the current directory. Run them from a disposable checkout if you want to keep the source directory clean.
 
 To check Cassio's input thread, including EOF immediately after a command with

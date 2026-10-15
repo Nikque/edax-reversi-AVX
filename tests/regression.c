@@ -72,6 +72,41 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   for(int k=0;k<3;++k)free(bytes[k]);options_read("book-reproducible","off");search_free(&s);
   puts("PASS reproducible: book-seed, links check, the same book with 4 threads (twice) and 1 thread");
  }
+ else if(!strcmp(t,"expandredo")){
+  /* book-reproducible: the expansion 1 is searched before the expansion 0, whose new position is a move of the new position of 1:
+     when 0 is applied, 1 has old links, is searched again, then applied; the book is the one of position_expand (0, then 1) */
+  Search s;init_search(&s,1);options_read("book-reproducible","on");
+  Board x0=late_board(40),x,c0;unsigned long long m0=board_get_moves(&x0);if(!m0)return 2;int a=first_bit(m0);board_next(&x0,a,&x);
+  unsigned long long m1=board_get_moves(&x);if(!m1)return 2;int m=first_bit(m1);board_next(&x,m,&c0);
+  Book b[2]={{0}};
+  for(int k=0;k<2;++k){b[k].search=&s;book_init(b+k);b[k].options.level=2;b[k].options.n_empties=20;
+   Position p;position_init(&p);p.board=x;p.level=2;p.leaf.move=(unsigned char)m;p.leaf.score=0;p.score.value=0;position_unique(&p);if(book_add(b+k,&p)<=0)return 2;
+   position_init(&p);p.board=x0;p.level=2;p.leaf.move=(unsigned char)a;p.leaf.score=0;p.score.value=0;position_unique(&p);if(book_add(b+k,&p)<=0)return 2;}
+  /* the reference: one after the other */
+  position_expand(book_probe(b+1,&x),b+1);position_expand(book_probe(b+1,&x0),b+1);
+  /* the same expansions, applied in their order after being searched in the other order */
+  ExpandShared sh;memset(&sh,0,sizeof sh);sh.book=b;sh.action="Expand test";sh.tmp_file="audit-expandredo.tmp";sh.t=real_clock();sh.n_slot=4;sh.slot=calloc(4,sizeof *sh.slot);for(int i=0;i<4;++i)sh.slot[i].index=-1;
+  lock_init(&sh);condition_init(&sh);
+  b[0].todo_list.item=malloc(2*sizeof *b[0].todo_list.item);b[0].todo_list.n=b[0].todo_list.size=2;b[0].todo_list.valid=true;
+  b[0].todo_list.item[0]=position_key(b,book_probe(b,&x));b[0].todo_list.item[1]=position_key(b,book_probe(b,&x0));
+  Search *search=book_search(b);ExpandSlot *e0=sh.slot,*e1=sh.slot+1;
+  for(int i=0;i<2;++i){ExpandSlot *e=sh.slot+i;e->index=i;e->skip=false;e->ready=false;if(!book_expand_take(&sh,book_position(b,b[0].todo_list.item[i]),&e->parent,&e->child))return 2;}sh.next=2;
+  int links_before=e1->child.n_link;
+  e1->r=book_expand_search(search,&e1->parent,&e1->child,&e1->leaf);e1->ready=true;Link stale_leaf=e1->leaf,stale_parent=e1->parent.leaf;book_expand_apply_ready(&sh);int waited=sh.applied==0&&sh.redo==NULL;
+  e0->r=book_expand_search(search,&e0->parent,&e0->child,&e0->leaf);e0->ready=true;book_expand_apply_ready(&sh);int redo=sh.applied==1&&sh.redo==e1&&e1->child.n_link==links_before+1;
+  sh.redo=NULL;e1->r=book_expand_search(search,&e1->parent,&e1->child,&e1->leaf);e1->ready=true;
+  printf("EXPANDREDO expansion 1 with the old links: link %d:%d, next leaf %d:%d; searched again: link %d:%d, next leaf %d:%d\n",stale_leaf.move,stale_leaf.score,stale_parent.move,stale_parent.score,e1->leaf.move,e1->leaf.score,e1->parent.leaf.move,e1->parent.leaf.score);
+  book_expand_apply_ready(&sh);int applied=sh.applied==2;
+  printf("EXPANDREDO waited_for_0=%d searched_again=%d (links %d -> %d) applied=%d positions=%d/%d\n",waited,redo,links_before,links_before+1,applied,b[0].n_nodes,b[1].n_nodes);
+  int same=b[0].n_nodes==b[1].n_nodes;const Board *boards[3]={&x0,&x,&c0};
+  for(int i=0;i<3;++i){Position *p=book_probe(b,boards[i]),*q=book_probe(b+1,boards[i]);if(!p||!q){same=0;continue;}
+   int eq=p->leaf.move==q->leaf.move&&p->leaf.score==q->leaf.score&&p->score.value==q->score.value&&p->n_link==q->n_link;
+   for(int j=0;eq&&j<p->n_link;++j){int f=0;for(int k=0;k<q->n_link;++k)f|=position_links(p)[j].move==position_links(q)[k].move&&position_links(p)[j].score==position_links(q)[k].score;eq=f;}
+   printf("EXPANDREDO position %d: leaf %d:%d / %d:%d, score %d / %d, links %d / %d, same=%d\n",i,p->leaf.move,p->leaf.score,q->leaf.move,q->leaf.score,p->score.value,q->score.value,p->n_link,q->n_link,eq);same=same&&eq;}
+  free(sh.slot);condition_free(&sh);lock_free(&sh);book_free(b);book_free(b+1);options_read("book-reproducible","off");search_free(&s);remove("audit-expandredo.tmp");
+  if(!waited||!redo||!applied||!same)return 2;
+  puts("PASS expandredo: an expansion whose links changed is searched again, and the book is the one of position_expand");
+ }
  else if(!strcmp(t,"analyze")){Search s;init_search(&s,1);Game g;game_init(&g);g.initial_board=late_board(4);printf("ANALYZE custom initial empty=%d moves=0\n",board_count_empties(&g.initial_board));fflush(stdout);game_analyze(&g,&s,4,false);search_free(&s);}
  else if(!strcmp(t,"enhance")){Search s;init_search(&s,1);Book b={0};b.search=&s;book_init(&b);b.options.level=0;b.options.n_empties=58;options.book_file="audit-enhance.dat";Board start;board_init(&start);book_add_board(&b,&start);book_enhance(&b,&start,64,64);printf("ENHANCE nodes_after=%d\n",b.n_nodes);book_clean(&b);position_negamax(book_probe(&b,&start),&b);book_clean(&b);position_enhance(book_probe(&b,&start),&b);int pending=0;Position *p;PositionArray *a;Book *bp=&b;foreach_position(p,a,bp)pending+=position_is_todo(p,bp);printf("ENHANCE pending_after_finished=%d\n",pending);book_free(&b);search_free(&s);}
  else if(!strcmp(t,"core")){core(argc>2?atoi(argv[2]):1);}
