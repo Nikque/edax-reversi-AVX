@@ -165,6 +165,12 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   f=fopen("audit-moves.obf","w");fputs("---------------------------OX------XO--------------------------- X",f);for(int i=0;i<40;++i)fputs(";f5:+1",f);fputs(";\n",f);fclose(f);
   f=fopen("audit-moves.obf","r");memset(&obf,0,sizeof obf);obf_read(&obf,f);fclose(f);ok=ok&&obf.n_moves==MAX_MOVE;obf_free(&obf);remove("audit-moves.obf");
   printf("TOOLS opening names, shapes after a pass, OBF moves ok=%d\n",ok);if(!ok)return 2;}
+ else if(!strcmp(t,"unique")){ /* v4.5.5-nikque.16: base unique sorts the games (the first ones kept, in order); games from other boards differ */
+  Base b;Game g,c;int ok;base_init(&b);
+  for(int i=0;i<300;++i){game_init(&g);text_to_game(i%3?"f5d6c3":"f5f6e6f4",&g);sprintf(g.name[0],"p%d",i%50);base_append(&b,&g);}
+  c=g;c.initial_board.player^=1ULL<<A1;base_append(&b,&c);base_unique(&b);
+  ok=b.n_games==101&&!strcmp(b.game[0].name[0],"p0")&&b.game[0].move[1]==F6&&!strcmp(b.game[1].name[0],"p1")&&b.game[1].move[1]==D6&&!board_equal(&b.game[100].initial_board,&b.game[99].initial_board);
+  printf("BASE unique: %d games kept (101 expected) ok=%d\n",b.n_games,ok);base_free(&b);if(!ok)return 2;}
  else return 1;
  return 0;
 }

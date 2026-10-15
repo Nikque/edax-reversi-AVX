@@ -735,8 +735,40 @@ bool base_append(Base *base, const Game *game)
 	return true;
 }
 
+/** A game and its place in the base, to sort the games (base_unique). */
+typedef struct {
+	const Game *game;
+	int i;
+} BaseGameRef;
+
+/** @brief Order of the games, on what game_equals() compares; the place in the base last. */
+static int base_game_compare(const void *a, const void *b)
+{
+	const BaseGameRef *ra = (const BaseGameRef*) a, *rb = (const BaseGameRef*) b;
+	const Game *g1 = ra->game, *g2 = rb->game;
+	int r;
+
+	if (g1->hash != g2->hash) return g1->hash < g2->hash ? -1 : 1;
+	if (g1->player != g2->player) return g1->player < g2->player ? -1 : 1;
+	if (g1->initial_board.player != g2->initial_board.player) return g1->initial_board.player < g2->initial_board.player ? -1 : 1;
+	if (g1->initial_board.opponent != g2->initial_board.opponent) return g1->initial_board.opponent < g2->initial_board.opponent ? -1 : 1;
+	if (g1->date.year != g2->date.year) return g1->date.year < g2->date.year ? -1 : 1;
+	if (g1->date.month != g2->date.month) return g1->date.month < g2->date.month ? -1 : 1;
+	if (g1->date.day != g2->date.day) return g1->date.day < g2->date.day ? -1 : 1;
+	if (g1->date.hour != g2->date.hour) return g1->date.hour < g2->date.hour ? -1 : 1;
+	if (g1->date.minute != g2->date.minute) return g1->date.minute < g2->date.minute ? -1 : 1;
+	if (g1->date.second != g2->date.second) return g1->date.second < g2->date.second ? -1 : 1;
+	if ((r = strcmp(g1->name[0], g2->name[0])) != 0) return r;
+	if ((r = strcmp(g1->name[1], g2->name[1])) != 0) return r;
+	if ((r = memcmp(g1->move, g2->move, sizeof g1->move)) != 0) return r;
+	return ra->i - rb->i;
+}
+
 /**
  * @brief Make games unique in the game database.
+ *
+ * The first of the same games is kept, in the order of the base. The games are sorted to find the same ones
+ * (up to v4.5.5-nikque.15 each game was compared with all the games kept before it: hours for a million games).
  *
  * @param base Game base.
  */
@@ -744,12 +776,32 @@ void base_unique(Base *base)
 {
 	int i, j, k;
 	bool found;
+	BaseGameRef *ref;
+	bool *keep;
 
-	for (i = k = 0; i < base->n_games; ++i) {
-		for (j = 0, found = false; j < k && !found; ++j)
-			found = game_equals(base->game + j, base->game + i);
-		if (!found) base->game[k++] = base->game[i];
+	ref = (BaseGameRef*) malloc((base->n_games ? base->n_games : 1) * sizeof (BaseGameRef));
+	keep = (bool*) malloc((base->n_games ? base->n_games : 1) * sizeof (bool));
+	if (ref && keep) {
+		for (i = 0; i < base->n_games; ++i) {
+			ref[i].game = base->game + i;
+			ref[i].i = i;
+		}
+		qsort(ref, base->n_games, sizeof (BaseGameRef), base_game_compare);
+		for (i = 0; i < base->n_games; ++i) {
+			keep[ref[i].i] = (i == 0 || !game_equals(ref[i - 1].game, ref[i].game));
+		}
+		for (i = k = 0; i < base->n_games; ++i) {
+			if (keep[i]) base->game[k++] = base->game[i];
+		}
+	} else { // no memory: as before
+		for (i = k = 0; i < base->n_games; ++i) {
+			for (j = 0, found = false; j < k && !found; ++j)
+				found = game_equals(base->game + j, base->game + i);
+			if (!found) base->game[k++] = base->game[i];
+		}
 	}
+	free(ref);
+	free(keep);
 
 	base->n_games = k;
 }
@@ -890,12 +942,6 @@ bool base_save(const Base *base, const char *file)
 			return false;
 		}
 	}
-	for (i = 0; i < base->n_games; ++i) {
-		if (!base_append(&old, base->game + i)) {
-			base_free(&old);
-			return false;
-		}
-	}
 
 	f = fopen(file, save == game_write ? "wb" : "w");
 	if (f == NULL) {
@@ -903,8 +949,13 @@ bool base_save(const Base *base, const char *file)
 		base_free(&old);
 		return false;
 	}
+	// the games of the file, then the new ones (up to v4.5.5-nikque.15 the new games were copied after the games
+	// of the file first: all of them were held twice)
 	for (i = 0; i < old.n_games && !ferror(f); ++i) {
 		save(old.game + i, f);
+	}
+	for (i = 0; i < base->n_games && !ferror(f); ++i) {
+		save(base->game + i, f);
 	}
 
 	ok = !ferror(f);

@@ -116,7 +116,9 @@ void game_copy(Game *dest, const Game *src)
 bool game_equals(const Game *game_1, const Game *game_2)
 {
 	int i;
-	if (game_1->hash == game_2->hash
+	// the initial board and player too: two games from other boards are not the same game (up to v4.5.5-nikque.15
+	// they were not compared)
+	if (game_1->hash == game_2->hash && game_1->player == game_2->player && board_equal(&game_1->initial_board, &game_2->initial_board)
 	 && game_1->date.year == game_2->date.year && game_1->date.month == game_2->date.month && game_1->date.day == game_2->date.day
 	 && game_1->date.hour == game_2->date.hour && game_1->date.minute == game_2->date.minute && game_1->date.second == game_2->date.second
 	 && strcmp(game_1->name[0], game_2->name[0]) == 0 && strcmp(game_1->name[1], game_2->name[1]) == 0) {

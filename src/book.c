@@ -6359,6 +6359,103 @@ bool book_get_random_move_with(Book *book, const Board *board, Move *move, const
 #endif
 
 /**
+ * Positions whose statistics were recounted during one call of book_get_game_stats().
+ *
+ * The statistics of a position are saturated (UINT_MAX) near the root of a large book: they are recounted from
+ * its links, and a position reached by several sequences of moves was recounted each time (up to
+ * v4.5.5-nikque.15: as many times as the sequences, millions near the root of a large book). Each one is
+ * recounted once now. A position being recounted counts as 0 when a damaged book leads back to it (the
+ * recursion was endless).
+ */
+typedef struct {
+	const Position *position; /**< position (NULL: free entry) */
+	bool done;                /**< false while it is being recounted */
+	GameStats stat;           /**< its statistics */
+} GameStatsMemoEntry;
+
+typedef struct {
+	GameStatsMemoEntry *entry;
+	size_t size;              /**< entries (a power of 2; 0: no memory, nothing is kept) */
+	size_t n;                 /**< used entries */
+} GameStatsMemo;
+
+static GameStatsMemoEntry* game_stats_memo_find(GameStatsMemo *memo, const Position *position, const bool add)
+{
+	size_t i;
+
+	if (memo->size == 0) return NULL;
+	if (add && 2 * (memo->n + 1) > memo->size) { // grow
+		GameStatsMemo bigger;
+		bigger.size = 2 * memo->size;
+		bigger.n = 0;
+		bigger.entry = (GameStatsMemoEntry*) calloc(bigger.size, sizeof (GameStatsMemoEntry));
+		if (bigger.entry == NULL) return NULL; // (not kept: recounted again)
+		for (i = 0; i < memo->size; ++i) {
+			if (memo->entry[i].position) *game_stats_memo_find(&bigger, memo->entry[i].position, true) = memo->entry[i];
+		}
+		free(memo->entry);
+		*memo = bigger;
+	}
+	for (i = ((size_t) position >> 4) & (memo->size - 1); memo->entry[i].position; i = (i + 1) & (memo->size - 1)) {
+		if (memo->entry[i].position == position) return memo->entry + i;
+	}
+	if (!add) return NULL;
+	++memo->n;
+	memo->entry[i].position = position;
+	return memo->entry + i;
+}
+
+static void position_get_game_stats(Book *book, Position *position, GameStats *stat, GameStatsMemo *memo)
+{
+	stat->n_wins = stat->n_losses = stat->n_draws = stat->n_lines = 0;
+
+	if (position->n_wins == UINT_MAX || position->n_losses == UINT_MAX || position->n_draws == UINT_MAX || position->n_lines == UINT_MAX) {
+		Board target;
+		Link *l;
+		GameStats child;
+		Position *next;
+		GameStatsMemoEntry *e = game_stats_memo_find(memo, position, false);
+		const int n_empties = board_count_empties(&position->board);
+
+		if (e) { // recounted before, or being recounted (a damaged book that leads back to it: 0)
+			if (e->done) *stat = e->stat;
+			return;
+		}
+		if ((e = game_stats_memo_find(memo, position, true)) != NULL) e->done = false;
+
+		// the leaf counts as position_negamax() counts it (up to v4.5.5-nikque.15 it was left out)
+		if (position->leaf.score > -SCORE_INF) {
+			++stat->n_lines;
+			if (n_empties <= 60 && LEVEL[position->level][n_empties].depth == n_empties && LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) {
+				if (position->leaf.score > 0) ++stat->n_wins;
+				else if (position->leaf.score < 0) ++stat->n_losses;
+				else ++stat->n_draws;
+			}
+		}
+		foreach_link(l, position) {
+			board_next(&position->board, l->move, &target);
+			next = book_probe(book, &target);
+			if (next == NULL) continue;
+			position_get_game_stats(book, next, &child, memo);
+			stat->n_wins += child.n_losses;
+			stat->n_draws += child.n_draws;
+			stat->n_losses += child.n_wins;
+			stat->n_lines += child.n_lines;
+		}
+		// (found again: the table may have grown during the recursion)
+		if ((e = game_stats_memo_find(memo, position, false)) != NULL) {
+			e->stat = *stat;
+			e->done = true;
+		}
+	} else {
+		stat->n_wins = position->n_wins;
+		stat->n_draws = position->n_draws;
+		stat->n_losses = position->n_losses;
+		stat->n_lines = position->n_lines;
+	}
+}
+
+/**
  * @brief Get game statistics from a position.
  *
  * @param book Opening book.
@@ -6368,6 +6465,7 @@ bool book_get_random_move_with(Book *book, const Board *board, Move *move, const
 void book_get_game_stats(Book *book, const Board *board, GameStats *stat)
 {
 	Position *position;
+	GameStatsMemo memo;
 
 	assert(book != NULL);
 	assert(board !=NULL);
@@ -6377,35 +6475,12 @@ void book_get_game_stats(Book *book, const Board *board, GameStats *stat)
 
 	position = book_probe(book, board);
 	if (position) {
-		if (position->n_wins == UINT_MAX || position->n_losses == UINT_MAX || position->n_draws == UINT_MAX || position->n_lines == UINT_MAX) {
-			Board target;
-			Link *l;
-			GameStats child;
-			const int n_empties = board_count_empties(&position->board);
-
-			// the leaf counts as position_negamax() counts it (up to v4.5.5-nikque.15 it was left out)
-			if (position->leaf.score > -SCORE_INF) {
-				++stat->n_lines;
-				if (n_empties <= 60 && LEVEL[position->level][n_empties].depth == n_empties && LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) {
-					if (position->leaf.score > 0) ++stat->n_wins;
-					else if (position->leaf.score < 0) ++stat->n_losses;
-					else ++stat->n_draws;
-				}
-			}
-			foreach_link(l, position) {
-				board_next(&position->board, l->move, &target);
-				book_get_game_stats(book, &target, &child);
-				stat->n_wins += child.n_losses;
-				stat->n_draws += child.n_draws;
-				stat->n_losses += child.n_wins;
-				stat->n_lines += child.n_lines;
-			}
-		} else {
-			stat->n_wins = position->n_wins;
-			stat->n_draws = position->n_draws;
-			stat->n_losses = position->n_losses;
-			stat->n_lines = position->n_lines;
-		}
+		memo.n = 0;
+		memo.size = 1024;
+		memo.entry = (GameStatsMemoEntry*) calloc(memo.size, sizeof (GameStatsMemoEntry));
+		if (memo.entry == NULL) memo.size = 0;
+		position_get_game_stats(book, position, stat, &memo);
+		free(memo.entry);
 	}
 }
 
