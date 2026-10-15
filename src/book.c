@@ -2216,10 +2216,10 @@ static void position_array_init(PositionArray *a)
  *
  * @param a Positions' array.
  * @param p Position to add.
- * @param epoch Current book epoch.
+ * @param book Book of the array (its epoch; the places of the pool no longer used are counted).
  * @return 1 if the position was added, 0 if it is already there, -1 if memory is exhausted.
  */
-static int position_array_add(PositionArray *a, const Position *p, const unsigned char epoch)
+static int position_array_add(PositionArray *a, const Position *p, Book *book)
 {
 	int i;
 
@@ -2234,7 +2234,10 @@ static int position_array_add(PositionArray *a, const Position *p, const unsigne
 		const int size = a->n + a->n / 2 + 1;
 		if (a->size < 0) { // the array lives in the book pool: move it to its own block
 			n = (Position*) malloc(size * sizeof (Position));
-			if (n) memcpy(n, a->positions, a->n * sizeof (Position));
+			if (n) {
+				memcpy(n, a->positions, a->n * sizeof (Position));
+				book->pool_unused += a->n; // (see book_pool_reclaim)
+			}
 		} else {
 			n = (Position*) realloc(a->positions, size * sizeof (Position));
 		}
@@ -2246,7 +2249,7 @@ static int position_array_add(PositionArray *a, const Position *p, const unsigne
 		a->size = size;
 	}
 	a->positions[a->n] = *p;
-	a->positions[a->n].state = epoch | POSITION_DONE; // a new position is 'done' until the next book_clean()
+	a->positions[a->n].state = book->epoch | POSITION_DONE; // a new position is 'done' until the next book_clean()
 	++a->n;
 	return 1;
 }
@@ -2373,7 +2376,7 @@ static int book_add(Book *book, const Position *p)
 		book->failed = true;
 		return -1;
 	}
-	r = position_array_add(book->array + i, p, book->epoch);
+	r = position_array_add(book->array + i, p, book);
 	if (r > 0) {
 		++book->n_nodes;
 		++book->stats.n_nodes;
@@ -2396,6 +2399,7 @@ static int book_add(Book *book, const Position *p)
  */
 static void book_remove_at(Book *book, PositionArray *a, const int i)
 {
+	if (a->size < 0) ++book->pool_unused; // (see book_pool_reclaim)
 	position_free(a->positions + i);
 	memmove(a->positions + i, a->positions + i + 1, (size_t) (a->n - i - 1) * sizeof (Position));
 	--a->n;
@@ -2456,6 +2460,16 @@ static int todo_item_cmp(const void *a, const void *b)
 {
 	const unsigned long long x = *(const unsigned long long*) a, y = *(const unsigned long long*) b;
 	return (x > y) - (x < y);
+}
+
+/** @brief Sort places (see position_key) in the order of the book, unless they already are (book_pick_todo sorts them). */
+static void todo_sort(unsigned long long *item, const long long n)
+{
+	long long i;
+	for (i = 1; i < n; ++i) if (item[i - 1] > item[i]) {
+		qsort(item, (size_t) n, sizeof *item, todo_item_cmp);
+		return;
+	}
 }
 /**
  * @brief Set all positions as undone.
@@ -2524,6 +2538,8 @@ void book_init(Book *book)
 	book->todo_list.n = book->todo_list.size = 0;
 	book->todo_list.valid = false;
 	book->pool = NULL;
+	book->pool_size = 0;
+	book->pool_unused = 0;
 	book->visit = NULL;
 	book->visit_first = NULL;
 	random_seed(&book->random, real_clock());
@@ -2587,6 +2603,8 @@ static void book_grow_buckets(Book *book, const long long n_positions)
 	free(book->array);
 	free(book->pool);
 	book->pool = NULL;
+	book->pool_size = 0;
+	book->pool_unused = 0;
 	book->array = array;
 	book->n = n;
 	book->todo_list.valid = false; // positions moved
@@ -2607,6 +2625,8 @@ void book_free(Book *book)
 	free(book->array);
 	free(book->pool);
 	book->pool = NULL;
+	book->pool_size = 0;
+	book->pool_unused = 0;
 	free(book->todo_list.item);
 	book->todo_list.item = NULL;
 	book->todo_list.n = book->todo_list.size = 0;
@@ -2680,6 +2700,8 @@ static void book_set_unloaded(Book *book)
 	book->array = NULL;
 	book->n = book->n_nodes = 0;
 	book->pool = NULL;
+	book->pool_size = 0;
+	book->pool_unused = 0;
 	book->todo_list.item = NULL;
 	book->todo_list.n = book->todo_list.size = 0;
 	book->todo_list.valid = false;
@@ -2801,6 +2823,42 @@ static bool book_set_aside(const char *file, const char *ext, const char *reason
 }
 
 /**
+ * @brief Release the end of the pool: it holds n positions from its start (the rest is no longer used).
+ *
+ * The block is made smaller in place with MSVC; elsewhere realloc() may move it, and the buckets
+ * of the pool then point to the same places of the new block.
+ *
+ * @param book opening book.
+ * @param n Number of positions kept at the start of the pool.
+ */
+static void book_pool_shrink(Book *book, const long long n)
+{
+	if (n == 0) {
+		free(book->pool);
+		book->pool = NULL;
+		book->pool_size = 0;
+		book->pool_unused = 0;
+	} else if (n < book->pool_size) {
+#if defined(_MSC_VER)
+		if (_expand(book->pool, (size_t) n * sizeof (Position)) != NULL) book->pool_size = n;
+#else
+		const uintptr_t old = (uintptr_t) book->pool;
+		Position *pool = (Position*) realloc(book->pool, (size_t) n * sizeof (Position));
+		if (pool != NULL) {
+			if ((uintptr_t) pool != old) {
+				PositionArray *a;
+				for (a = book->array; a < book->array + book->n; ++a) {
+					if (a->size < 0 && a->n > 0) a->positions = pool + ((uintptr_t) a->positions - old) / sizeof (Position);
+				}
+			}
+			book->pool = pool;
+			book->pool_size = n;
+		}
+#endif
+	}
+}
+
+/**
  * @brief Load the opening book.
  *
  * @param book Opening book.
@@ -2882,6 +2940,7 @@ bool book_load(Book *book, const char *file)
 		// (32-bit builds: the size of the pool must fit a size_t, or a smaller block would be allocated)
 		pool = (expected > 0 && (unsigned long long) expected * sizeof (Position) <= SIZE_MAX) ? (Position*) malloc((size_t) expected * sizeof (Position)) : NULL;
 		loaded.pool = pool;
+		loaded.pool_size = pool ? expected : 0;
 		pooling = (pool != NULL);
 		for (i = 0; i < expected; ++i) {
 			if (!position_read(&p, &stream)) {
@@ -2905,6 +2964,7 @@ bool book_load(Book *book, const char *file)
 						}
 						free(pool);
 						loaded.pool = pool = NULL;
+						loaded.pool_size = 0;
 						used = 0;
 					}
 				}
@@ -2930,11 +2990,9 @@ bool book_load(Book *book, const char *file)
 			}
 		}
 
-		if (pool && used < expected) { // release the unused part of the pool (in place only)
-			if (used == 0) { free(pool); loaded.pool = pool = NULL; }
-#ifdef _MSC_VER
-			else _expand(pool, (size_t) used * sizeof (Position));
-#endif
+		if (pool && used < expected) { // release the unused part of the pool
+			book_pool_shrink(&loaded, used);
+			pool = loaded.pool;
 		}
 		if (ferror(f) || !book_stream_at_end(&stream) || loaded.n_nodes != expected) {
 			error("Invalid opening book size or position count in %s\n", file);
@@ -3318,9 +3376,27 @@ typedef struct BookTask {
 	long long n_changed;       /**< positions changed by the task (book_remove_links_range) */
 	bool oom;
 	void (*run)(struct BookTask*);
-	volatile long long done;     /**< positions scanned so far (progress display only) */
-	volatile bool finished;      /**< the task is over (progress display only) */
+	long long done;     /**< positions scanned so far (progress display only; see book_task_add_done) */
+	long long finished; /**< 1 when the task is over (progress display only; see book_task_finish) */
 } BookTask;
+
+// the progress of a task is written by its thread and read by the thread that prints it: atomic accesses
+#if defined(_MSC_VER)
+// (_InterlockedCompareExchange64 only: the other 64-bit intrinsics do not exist in 32-bit x86 builds)
+static inline void book_task_add_done(BookTask *task, const long long n)
+{
+	long long old;
+	do old = task->done; while (_InterlockedCompareExchange64(&task->done, old + n, old) != old);
+}
+#define book_task_done(task) _InterlockedCompareExchange64(&(task)->done, 0, 0)
+#define book_task_finish(task) _InterlockedCompareExchange64(&(task)->finished, 1, 0)
+#define book_task_is_finished(task) (_InterlockedCompareExchange64(&(task)->finished, 0, 0) != 0)
+#else
+#define book_task_add_done(task, n) __atomic_add_fetch(&(task)->done, (long long) (n), __ATOMIC_RELAXED)
+#define book_task_done(task) __atomic_load_n(&(task)->done, __ATOMIC_RELAXED)
+#define book_task_finish(task) __atomic_store_n(&(task)->finished, 1, __ATOMIC_RELEASE)
+#define book_task_is_finished(task) (__atomic_load_n(&(task)->finished, __ATOMIC_ACQUIRE) != 0)
+#endif
 
 static void book_task_push(BookTask *task, const unsigned long long item)
 {
@@ -3337,7 +3413,7 @@ static void* book_task_main(void *v)
 {
 	BookTask *task = (BookTask*) v;
 	task->run(task);
-	task->finished = true;
+	book_task_finish(task);
 	return NULL;
 }
 
@@ -3372,7 +3448,7 @@ static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task
 		task[i].item = NULL; task[i].n = task[i].size = 0; task[i].oom = false;
 		task[i].n_changed = 0;
 		task[i].run = run;
-		task[i].done = 0; task[i].finished = false;
+		task[i].done = 0; task[i].finished = 0;
 	}
 	if (progress && book_verbose) {
 		Thread thread[MAX_THREADS];
@@ -3389,7 +3465,7 @@ static int book_parallel_with(Book *book, void (*run)(BookTask*), BookTask *task
 			long long done = 0;
 			relax(++n_wait <= 20 ? 1 : 50); // the scan of a small book is over at once
 			finished = true;
-			for (i = 0; i < n; ++i) { done += task[i].done; if (!task[i].finished) finished = false; }
+			for (i = 0; i < n; ++i) { done += book_task_done(task + i); if (!book_task_is_finished(task + i)) finished = false; }
 			if (!finished && book_progress_due(&next)) bprint("%s...%lld/%u positions checked\r", progress, done, book->n_nodes);
 		}
 		for (i = 0; i < n; ++i) if (created[i]) thread_join(thread[i]);
@@ -3607,7 +3683,7 @@ static void book_link_find(BookTask *task)
 			}
 			if (!found && p->leaf.move == NOMOVE) book_task_push(task, TASK_ITEM(b, k, TASK_NO_LINK));
 		}
-		task->done += a->n;
+		book_task_add_done(task, a->n);
 	}
 }
 
@@ -3644,7 +3720,7 @@ static void book_link_find_missing(BookTask *task)
 			}
 			if (!found && p->leaf.move == NOMOVE) book_task_push(task, TASK_ITEM(b, k, TASK_NO_LINK));
 		}
-		task->done += a->n;
+		book_task_add_done(task, a->n);
 	}
 }
 #else // test builds: the lookup of v4.5.5-nikque.9, one child after the other
@@ -3684,7 +3760,7 @@ static void book_link_find(BookTask *task)
 			}
 			if (!found && p->leaf.move == NOMOVE) book_task_push(task, TASK_ITEM(b, k, TASK_NO_LINK));
 		}
-		task->done += a->n;
+		book_task_add_done(task, a->n);
 	}
 }
 
@@ -3719,7 +3795,7 @@ static void book_link_find_missing(BookTask *task)
 			}
 			if (!found && p->leaf.move == NOMOVE) book_task_push(task, TASK_ITEM(b, k, TASK_NO_LINK));
 		}
-		task->done += a->n;
+		book_task_add_done(task, a->n);
 	}
 }
 #endif
@@ -3938,7 +4014,7 @@ static void book_fix_find(BookTask *task)
 			if (!position_check(a->positions + k, false)) book_task_push(task, TASK_ITEM(b, k, 0));
 			else if (position_has_missing_link(a->positions + k, task->book)) book_task_push(task, TASK_ITEM(b, k, 1));
 		}
-		task->done += a->n;
+		book_task_add_done(task, a->n);
 	}
 }
 
@@ -4028,7 +4104,7 @@ bool book_merge_file(Book *dest, const char *file)
 					const unsigned long long b = board_get_hash_code(&p.board) & (dest->n - 1);
 					PositionArray *a = dest->array + b;
 					position_merge(&merged, &p);
-					if (dest->n_nodes == UINT_MAX || position_array_add(a, &merged, dest->epoch) <= 0) { position_free(&p); error("cannot add a position to the book\n"); goto merge_end; }
+					if (dest->n_nodes == UINT_MAX || position_array_add(a, &merged, dest) <= 0) { position_free(&p); error("cannot add a position to the book\n"); goto merge_end; }
 					++dest->n_nodes; ++dest->stats.n_nodes; ++n_added;
 				} else if (!position_is_done(q, dest)) { // a position of the destination: remember the source leaf (see book_link_parallel)
 					// (a board of the file that is not the unique one has its leaf in another orientation: no hint)
@@ -4883,7 +4959,7 @@ static void book_expand(Book *book, const char *action, const char *tmp_file)
 
 	// The todo positions are visited in bucket order: either from the list recorded
 	// while marking them, or by scanning the whole book.
-	if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+	if (book->todo_list.valid) todo_sort(book->todo_list.item, book->todo_list.n);
 
 	if (book->todo_list.valid && book->todo_list.n > 1 && book_expand_task_count(book, book->todo_list.n) > 1) {
 		if (book_expand_concurrent(book, action, tmp_file)) return;
@@ -5665,7 +5741,7 @@ void book_leaf_recalculate(Book *book, Board *board, const int kind, const int x
 			bprint("%s %d %d:\n", name, x, y);
 			book_clean(book);
 			book_select_deviate_total(book, root, x, y, true);
-			if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+			if (book->todo_list.valid) todo_sort(book->todo_list.item, book->todo_list.n);
 			bprint("%s %lld todo\n", name, book->stats.n_todo);
 			if (book->todo_list.valid) book_leaf_recalc_search(book, name, file, &stats);
 		} else {
@@ -5676,7 +5752,7 @@ void book_leaf_recalculate(Book *book, Board *board, const int kind, const int x
 			bprint("%s %d %d:\n", name, x, y);
 			book_clean(book);
 			book_select_deviate(book, root, x, 0, score - y, score + y);
-			if (book->todo_list.valid) qsort(book->todo_list.item, book->todo_list.n, sizeof *book->todo_list.item, todo_item_cmp);
+			if (book->todo_list.valid) todo_sort(book->todo_list.item, book->todo_list.n);
 			else listed = false; // (the leaves of this walk are not searched: told below)
 			bprint("%s %lld todo\n", name, book->stats.n_todo);
 			n_first = book->todo_list.valid ? book->todo_list.n : 0;
@@ -5743,7 +5819,7 @@ void book_leaf_recalculate(Book *book, Board *board, const int kind, const int x
  */
 static void book_pool_compact(Book *book)
 {
-#if defined(_MSC_VER) && !defined(BOOK_TEST_NO_POOL_COMPACT)
+#if !defined(BOOK_TEST_NO_POOL_COMPACT)
 	PositionArray *a;
 	Position *end = book->pool;
 	long long in_pool = 0;
@@ -5760,15 +5836,25 @@ static void book_pool_compact(Book *book)
 			a->positions = NULL; a->size = 0;
 		}
 	}
-	if (in_pool == 0) {
-		free(book->pool);
-		book->pool = NULL;
-	} else {
-		_expand(book->pool, (size_t) in_pool * sizeof (Position));
-	}
+	book_pool_shrink(book, in_pool);
+	book->pool_unused = 0;
 #else
 	(void) book;
 #endif
+}
+
+/**
+ * @brief Give back the memory of the pool that the book no longer uses, when it is a large part of the pool.
+ *
+ * A bucket of the pool to which a position is added moves to its own block, and its place in the pool
+ * is no longer used (as the places of the positions removed). Called when a command that changes the
+ * book is over (no position is pointed to then): the kept positions keep their bucket and their index.
+ *
+ * @param book opening book.
+ */
+void book_pool_reclaim(Book *book)
+{
+	if (book->pool != NULL && book->pool_unused > book->pool_size / 4) book_pool_compact(book);
 }
 
 /** Remove the links to missing positions in a range of buckets (see book_remove_missing_links). */
@@ -7568,7 +7654,7 @@ static void book_pick_scan_task(BookTask *task)
 		for (k = 0; k < a->n; ++k) {
 			if (position_picked(a->positions + k, book, &scan_pick)) book_task_push(task, TASK_ITEM(b, k, 0));
 		}
-		task->done += a->n;
+		book_task_add_done(task, a->n);
 	}
 }
 
@@ -7593,10 +7679,17 @@ static unsigned long long* book_pick_scan(Book *book, const char *name, const Bo
 	n_tasks = book_parallel(book, book_pick_scan_task, task, name);
 	*n = 0;
 	for (i = 0; i < n_tasks; ++i) { *n += task[i].n; oom = oom || task[i].oom; }
-	keys = oom ? NULL : (unsigned long long*) malloc((*n + 1) * sizeof *keys);
+	// the list of the first task grows to hold all the places: the lists of the other tasks are released one after the other
+	keys = oom ? NULL : (unsigned long long*) realloc(task[0].item, (size_t) (*n + 1) * sizeof *keys);
 	if (keys) {
-		*n = 0;
-		for (i = 0; i < n_tasks; ++i) for (j = 0; j < task[i].n; ++j) keys[(*n)++] = TASK_KEY(task[i].item[j]);
+		task[0].item = NULL; // (now the list returned)
+		for (j = 0; j < task[0].n; ++j) keys[j] = TASK_KEY(keys[j]);
+		*n = task[0].n;
+		for (i = 1; i < n_tasks; ++i) {
+			for (j = 0; j < task[i].n; ++j) keys[(*n)++] = TASK_KEY(task[i].item[j]);
+			free(task[i].item);
+			task[i].item = NULL;
+		}
 	}
 	book_tasks_free(task, n_tasks);
 	return keys;
@@ -7605,9 +7698,9 @@ static unsigned long long* book_pick_scan(Book *book, const char *name, const Bo
 /** a thread that tells which positions marked by a walk a command looks for */
 typedef struct PickFilter {
 	Book *book;
-	const unsigned long long *key;
-	char *keep;
+	unsigned long long *key;
 	long long first, last;
+	long long n_kept;   /**< positions kept, moved to key[first .. first + n_kept) */
 	const BookPick *pick;
 } PickFilter;
 
@@ -7616,7 +7709,16 @@ static void* pick_filter_run(void *v)
 	PickFilter *f = (PickFilter*) v;
 	long long i;
 
-	for (i = f->first; i < f->last; ++i) f->keep[i] = position_picked(book_position(f->book, f->key[i]), f->book, f->pick);
+	long long w = f->first;
+
+	// the positions of the range are kept in place, in the same order; the marks of the others are cleared
+	// (position_picked reads no mark: the threads do not change what the other threads look at)
+	for (i = f->first; i < f->last; ++i) {
+		Position *p = book_position(f->book, f->key[i]);
+		if (position_picked(p, f->book, f->pick)) f->key[w++] = f->key[i];
+		else position_clear_todo(p);
+	}
+	f->n_kept = w - f->first;
 	return NULL;
 }
 
@@ -7636,33 +7738,37 @@ static void* pick_filter_run(void *v)
 static unsigned long long* book_pick_todo(Book *book, const BookPick *pick, long long *n, bool *owned)
 {
 	unsigned long long *keys = NULL;
-	long long i;
 
 	*n = 0;
 	*owned = false;
 	if (book->todo_list.valid) {
 		const long long n_todo = book->todo_list.n;
 		PickFilter f[MAX_THREADS];
-		char *keep = (char*) calloc(n_todo + 1, 1);
 		int m = book_n_task(), k;
 
-		if (keep == NULL) return NULL;
 		if (m > MAX_THREADS) m = MAX_THREADS;
 		if (m < 1 || n_todo < 4096) m = 1;
-		qsort(book->todo_list.item, n_todo, sizeof *book->todo_list.item, todo_item_cmp);
 		for (k = 0; k < m; ++k) {
-			f[k].book = book; f[k].key = book->todo_list.item; f[k].keep = keep;
+			f[k].book = book; f[k].key = book->todo_list.item; f[k].n_kept = 0;
 			f[k].first = n_todo * k / m; f[k].last = n_todo * (k + 1) / m;
 			f[k].pick = pick;
 		}
 		book_run_workers(pick_filter_run, f, sizeof *f, m);
 		keys = book->todo_list.item;
-		for (i = 0; i < n_todo; ++i) {
-			if (keep[i]) keys[(*n)++] = keys[i];
-			else position_clear_todo(book_position(book, keys[i]));
+		for (k = 0; k < m; ++k) { // the kept positions of the ranges, one after the other
+			if (f[k].first != *n) memmove(keys + *n, keys + f[k].first, (size_t) f[k].n_kept * sizeof *keys);
+			*n += f[k].n_kept;
 		}
+		// in the order of the book (sorted after the filter: only the positions kept)
+		qsort(keys, (size_t) *n, sizeof *keys, todo_item_cmp);
 		book->todo_list.n = *n;
-		free(keep);
+		if (*n < book->todo_list.size / 4) { // most positions were left out: the memory of the list is given back while the positions are searched
+			unsigned long long *item = (unsigned long long*) realloc(keys, (size_t) (*n + 1) * sizeof *keys);
+			if (item) {
+				book->todo_list.item = keys = item;
+				book->todo_list.size = *n + 1;
+			}
+		}
 	} else { // (no list: the whole book is scanned for the marks)
 		PositionArray *a;
 		Position *p;

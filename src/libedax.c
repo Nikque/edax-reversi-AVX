@@ -1311,6 +1311,7 @@ static Book* lib_book_begin(void)
  */
 static void lib_book_end(Book *book)
 {
+	book_pool_reclaim(book); // (no position is pointed to between two calls)
 	book->options.verbosity = book->search->options.verbosity;
 	book->search->options.verbosity = options.verbosity;
 	lib_book_change_set(false);
