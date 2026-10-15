@@ -213,6 +213,13 @@ ifeq ($(COMP),clang)
 			CFLAGS += -fomit-frame-pointer
 		endif
 	endif
+	# macOS (release-binaries workflow): x64-modern is the Intel build, for any x86-64 CPU (the compiler's default:
+	# no AVX2, so that every Intel Mac runs it); arm64 is the Apple silicon build (the compiler targets the Apple
+	# CPUs). Up to v4.5.5-nikque.15 these names were not defined here: they were built with the same flags.
+	ifeq ($(ARCH),x64-modern)
+		CFLAGS += -m64
+	endif
+	# (arm64: no flag to add)
 
 	ifeq ($(OS),osx)
 		CFLAGS += -mmacosx-version-min=10.4 -mdynamic-no-pic
@@ -245,7 +252,9 @@ ifeq ($(OS),osx)
 	LIBS += -lpthread
 endif
 
-ifneq (,$(findstring x64,$(ARCH))$(findstring x32,$(ARCH)))
+# 64-bit CPUs (up to v4.5.5-nikque.15 only the names with x64 or x32: not x86-64-*, armv8, arm64, arm-sve256;
+# the Windows builds define it in NMakefile)
+ifneq (,$(findstring x64,$(ARCH))$(findstring x32,$(ARCH))$(findstring x86-64,$(ARCH))$(findstring armv8,$(ARCH))$(findstring arm64,$(ARCH))$(findstring arm-sve,$(ARCH)))
 	CFLAGS += -DHAS_CPU_64
 endif
 

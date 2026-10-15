@@ -487,7 +487,8 @@ static bool game_is_sound(Game *game)
 	if (game->initial_board.player & game->initial_board.opponent) return false;
 	if (bit_count(game->initial_board.player | game->initial_board.opponent) < 4) return false;
 	for (i = 0; i < 60; ++i) {
-		if (game->move[i] != NOMOVE && (game->move[i] < A1 || game->move[i] > H8)) return false;
+		const int x = (unsigned char) game->move[i]; // (char is unsigned on arm: a negative move is above H8 here)
+		if (x != NOMOVE && x > H8) return false;
 	}
 	return true;
 }
