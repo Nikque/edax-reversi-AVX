@@ -441,16 +441,26 @@ static void settings_parse_line(char *line, const char *file, int n_line)
  */
 void options_parse(const char *file)
 {
+	// an option file may read another one ("option-file"): a file that reads itself, or a loop of files, is
+	// stopped (up to v4.5.5-nikque.15 the stack and the open files were exhausted)
+	static int depth = 0;
 	char *line;
-	FILE *f = fopen(file, "r");
+	FILE *f;
 
+	if (depth >= 16) {
+		warn("%s: too many option files read from one another\n", file);
+		return;
+	}
+	f = fopen(file, "r");
 	if (f != NULL) {
 
 		int n_line = 0;
+		++depth;
 		while ((line = string_read_line(f)) != NULL) {
 			settings_parse_line(line, file, ++n_line);
 			free(line);
 		}
+		--depth;
 
 		fclose(f);
 	}
@@ -519,6 +529,7 @@ void options_bound(void)
 	if (options.book_store_tasks != 0) BOUND(options.book_store_tasks, 1, max_threads, "book-store-tasks");
 	BOUND(options.book_depth, 0, 60, "book-depth");	// 0 = auto
 	BOUND(options.verbosity, 0, 4, "verbosity");
+	BOUND(options.mode, 0, 3, "mode"); // (an index of the names of the modes: up to v4.5.5-nikque.15 not bounded)
 	BOUND(options.noise, 0, 60, "noise");
 	BOUND(options.width, 3, 250, "width");
 	BOUND(options.level, 0, 60, "level");

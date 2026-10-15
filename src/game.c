@@ -731,11 +731,11 @@ static const char* parse_tag(const char *string, char *tag, char *value)
 		tag[1] = *s++;
 		tag[2] = *value = '\0';
 	} else {
-		n = 3; while (*s && *s != '[' && n--) *tag++ = toupper(*s++);
+		n = 3; while (*s && *s != '[' && n--) *tag++ = toupper((unsigned char) *s++);
 		*tag = '\0';
 		if (*s == '[') {
 			++s;
-			n = 255; while (*s && *s != ']' && n--) *value++ = tolower(*s++);
+			n = 255; while (*s && *s != ']' && n--) *value++ = tolower((unsigned char) *s++);
 			if (*s == ']') ++s;
 			else s = string;
 		} else s = string;
@@ -1136,7 +1136,7 @@ bool game_import_pgn_checked(Game *game, FILE *f)
 			switch (state) {
 				case STATE_BEGIN_INFO:
 					state = STATE_BEGIN_VALUE;
-					for (--j; j >= 0 && isspace(info_tag[j]); --j);
+					for (--j; j >= 0 && isspace((unsigned char) info_tag[j]); --j);
 					info_tag[j + 1] = '\0';
 					j = 0;
 					string_to_lowercase(info_tag);

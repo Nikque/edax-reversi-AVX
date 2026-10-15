@@ -90,6 +90,7 @@ void usage(void)
 int main(int argc, char **argv)
 {
 	UI *ui;
+	bool ui_freed = true;
 	int i, r, level = 0, size = 8;
 	char config_file[FILENAME_MAX + 1];
 	char *problem_file = NULL;
@@ -180,8 +181,9 @@ int main(int argc, char **argv)
 		ui->init(ui);
 		ui_event_init(ui);
 		ui->loop(ui);
+		ui_event_close(ui); // (before the play is freed: see ui_read_input)
 		if (ui->free) ui->free(ui);
-		ui_event_free(ui);
+		ui_freed = ui_event_free(ui);
 	}
 
 	// display statistics
@@ -191,7 +193,7 @@ int main(int argc, char **argv)
 	// free;
 	eval_close();
 	options_free();
-	mm_free(ui);
+	if (ui_freed) mm_free(ui); // (else the input thread still uses it: it ends with the process)
 
 	return 0;
 }

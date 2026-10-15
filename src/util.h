@@ -28,7 +28,6 @@ extern long long (*time_clock)(void);
 long long real_clock(void);
 long long cpu_clock(void);
 void time_print(long long, bool, FILE*);
-long long time_read(FILE*);
 void time_stamp(FILE*);
 void relax(int);
 

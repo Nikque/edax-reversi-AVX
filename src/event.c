@@ -35,6 +35,7 @@ void event_init(Event *event)
 	condition_init(event);
 
 	event->loop = true;
+	event->reading = event->closing = false;
 }
 
 /**

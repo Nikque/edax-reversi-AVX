@@ -151,6 +151,12 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   for(int i=0;i<3;++i){b[i]=late_board(20+i);is_position_new(e,b+i);}
   ok=e->last_position.n==3&&board_equal(e->last_position.board,b+2)&&board_equal(e->last_position.board+1,b+1)&&board_equal(e->last_position.board+2,b);
   ok=ok&&!is_position_new(e,b);printf("CASSIO position list of 3 ok=%d\n",ok);engine_free(e->search);free(e);if(!ok)return 2;}
+ else if(!strcmp(t,"parsers")){ /* v4.5.5-nikque.16: D:HH:MM:SS times, "P@" alone, option files that read themselves, mode */
+  int ok=string_to_time("0:1:0:0")==3600000&&string_to_time("1:0:0:0")==86400000&&string_to_time("1:00:00")==3600000&&string_to_time("1:30")==90000&&string_to_time("2:03.5")==123500;
+  char *p=malloc(3);strcpy(p,"P@");ok=ok&&string_to_coordinate(p)==NOMOVE;free(p);p=malloc(2);strcpy(p,"@");ok=ok&&string_to_coordinate(p)==NOMOVE;free(p);
+  ok=ok&&string_to_coordinate("P@d3")==D3&&string_to_coordinate("@@@@")==PASS;
+  FILE *f=fopen("audit-loop.ini","w");fputs("option-file audit-loop.ini\nmode 9\n",f);fclose(f);options_parse("audit-loop.ini");options_bound();ok=ok&&options.mode==3;remove("audit-loop.ini");
+  printf("PARSERS times, coordinates, option-file loop, mode ok=%d\n",ok);if(!ok)return 2;}
  else return 1;
  return 0;
 }

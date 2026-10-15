@@ -105,7 +105,7 @@ int board_set(Board *board, const char *s)
 
 	board->player = board->opponent = 0;
 	for (i = A1; (i <= H8) && (*s != '\0'); ++s) {
-		switch (tolower(*s)) {
+		switch (tolower((unsigned char) *s)) {
 		case 'b':
 		case 'x':
 		case '*':
@@ -127,7 +127,7 @@ int board_set(Board *board, const char *s)
 	board_check(board);
 
 	for (; *s != '\0'; ++s) {
-		switch (tolower(*s)) {
+		switch (tolower((unsigned char) *s)) {
 		case 'b':
 		case 'x':
 		case '*':

@@ -413,6 +413,7 @@ void ui_loop_edax(UI *ui)
 			// mode
 			} else if (strcmp(cmd, "m") == 0 || strcmp(cmd, "mode") == 0) {
 				ui->mode = string_to_int(param, 3);
+				BOUND(ui->mode, 0, 3, "mode");
 
 			// analyze a game
 			} else if (strcmp(cmd, "a") == 0 || strcmp(cmd, "analyze") == 0 || strcmp(cmd, "analyse") == 0) {

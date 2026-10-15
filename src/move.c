@@ -90,8 +90,8 @@ char* move_to_string(const int x, const int player, char *s)
 	}
 
 	if (player == BLACK) {
-		s[0] = toupper(s[0]);
-		s[1] = toupper(s[1]);
+		s[0] = toupper((unsigned char) s[0]);
+		s[1] = toupper((unsigned char) s[1]);
 	}
 	s[2] = '\0';
 

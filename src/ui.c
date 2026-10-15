@@ -96,10 +96,24 @@ static void ui_read_input(UI *ui)
 
 	buffer = string_read_line(stdin);
 
+	// the play and the event are only used under the lock of the event, while the user interface goes on: when it
+	// ends, it may free them (up to v4.5.5-nikque.15 a line read then could use them once freed)
+	lock(event);
+	if (event->closing) {
+		event->loop = false;
+		unlock(event);
+		free(buffer);
+		return;
+	}
 	if (buffer == NULL) {
 		if (ferror(stdin)) {
-			if (errno == EINTR) clearerr(stdin);
-			else fatal_error("stdin is broken\n");
+			if (errno == EINTR) { // interrupted: read again (up to v4.5.5-nikque.15 the input ended without "eof")
+				clearerr(stdin);
+				unlock(event);
+				return;
+			}
+			unlock(event);
+			fatal_error("stdin is broken\n");
 		} else if (feof(stdin)) {
 			buffer = string_duplicate("eof");
 		}
@@ -131,11 +145,10 @@ static void ui_read_input(UI *ui)
 		}
 	}
 	if (buffer) {
-		lock(event);
-			event_add_message(event, buffer);
-			condition_signal(event);
-		unlock(event);
+		event_add_message(event, buffer);
+		condition_signal(event);
 	}
+	unlock(event);
 }
 
 
@@ -153,6 +166,9 @@ static void* ui_read_input_loop(void *v)
 	}
 
 	info("<exit ui_read_input>\n");
+	lock(&ui->event);
+	ui->event.reading = false;
+	unlock(&ui->event);
 
 	return NULL;
 }
@@ -227,18 +243,43 @@ bool ui_event_exist(UI *ui)
 void ui_event_init(UI *ui)
 {
 	event_init(&ui->event);
+	ui->event.reading = true;
 	
 	thread_create(&ui->event.thread, ui_read_input_loop, ui);
 	thread_detach(ui->event.thread);
 }
 
 /**
+ * @brief Tell the input thread that the user interface ends: what it reads then is not used.
+ *
+ * Called before the user interface frees its play.
+ *
+ * @param ui User interface.
+ */
+void ui_event_close(UI *ui)
+{
+	lock(&ui->event);
+	ui->event.closing = true;
+	unlock(&ui->event);
+}
+
+/**
  * @brief Free events.
  *
- * Allocate event resources & launch user-input event thread.
- *
+ * @param ui User interface.
+ * @return true if the events were freed (false: the input thread still runs, and uses them).
  */
-void ui_event_free(UI *ui)
+bool ui_event_free(UI *ui)
 {
+	bool reading;
+
+	lock(&ui->event);
+	ui->event.closing = true;
+	reading = ui->event.reading;
+	unlock(&ui->event);
+	// the input thread still waits for a line: it uses the event (in the user interface) when it gets one, so
+	// they are left to the end of the process
+	if (reading) return false;
 	event_free(&ui->event);
+	return true;
 }
