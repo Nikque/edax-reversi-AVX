@@ -4,7 +4,7 @@
 
 ## v4.5.5-nikque.16
 
-Android is omitted after its CI build failed with undeclared IPPROTO_TCP in ggs.c. Engine source is unchanged; the validation report preserves the log and reproduction. Linux, macOS and Windows ARM64 CI jobs succeeded.
+Update: Android was added after an authorized one-line header correction. All seven CI jobs pass. See the [additional validation and corresponding source](manual/ja/android-nikque16.md). Initial failure logs are retained.
 
 Fixes of defects found by a second cross-check of the source after v4.5.5-nikque.15 was published (most of them from upstream): the choice of the hash table locks; the last game of a game file could be lost; a stop during `base correct` or `base complete` broke the game file; damaged game files, Wthor files and unusable boards (FEN, setboard, libedax) were loaded; the sign of the score of a game of an odd number of moves; the ranges of `book stats` and `book depth`; the reading of times, coordinates and `mode`; races between the input thread and the end; defects of XBoard, Cassio and GGS; the flips of aarch64 builds with `MOVE_GENERATOR_NEON`; 32-bit and statistics builds; eval_builder and other tools. `base unique`, `base save` and the recount of saturated positions are faster. libedax has a new function, `edax_book_keep_unread_file` (it keeps a book that could not be read as `.damaged`). `eval.dat`, the book file format and the search results do not change. Strict byte equality and the observed multithreaded variation bounds did not pass in all conditions; the validation report records these differences. See the [English README](README-NIKQUE.en.md) and the [Japanese README](README-NIKQUE.ja.md).
 

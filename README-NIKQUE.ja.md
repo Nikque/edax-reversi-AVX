@@ -6,7 +6,7 @@
 
 ## v4.5.5-nikque.16 の変更点
 
-**今回の配布にAndroidは含みません。** CIでggs.cのIPPROTO_TCP未定義により失敗しました。原ログと再現コマンドは[比較報告](manual/ja/validation-nikque16.md)。旧Androidファイルは代用せず、ZIPは`-without-android.zip`です。作成には`python package-release-without-android.py 出力.zip`を使います。
+**Androidを追加公開しました。** 初回CIのヘッダー不足を1行修正し、全7ジョブが成功しました。完全版ZIPとAndroid用ZIPを追加しています。[追加検証・対応ソース](manual/ja/android-nikque16.md)を参照してください。初回の比較報告と失敗ログは履歴として残します。
 
 v4.5.5-nikque.15 の公開後の2回目のクロスチェックで見つかった不具合と、下記の追加不具合を修正しました。`eval.dat`とbookのファイル形式は変えていません。Windows PGO v4版のfforum-20-39は32・8スレッド各版2回で、20問すべての深さ・評価値が一致しました。bookの保存日時によるバイト差、1スレッドのS3の揺れ、多数スレッドで旧版2回の差を超えた差もあり、全項目合格とはしていません。詳しくは[比較試験報告](manual/ja/validation-nikque16.md)に、失敗・出力差・測定条件を含めて記録しています。
 
@@ -96,7 +96,7 @@ bookは1スレッド全14条件で厳密なバイト一致は失敗（S3以外�
 ### 直していないもの・知っておくこと
 
 - 実book（従来の呼称34GB）での確認は、利用者の指定で行っていません。
-- Windows PGO5種とDLL3種は再作成・確認済み。Linux・macOS・Windows ARM64のCIビルドも成功。AndroidはIPPROTO_TCP未定義でビルド失敗のため今回の配布から除外し、ソースは直していません。Android・Windows ARM64の実機確認はしていません。
+- Windows PGO5種とDLL3種は確認済み。追加のヘッダー修正後、Android・Linux・macOS・Windows ARM64のCIも成功しました。AndroidとWindows ARM64の実機確認はしていません。
 - `MOVE_GENERATOR_NEON` の誤りは、配布版の既定の構成（aarch64 は別の方式）では使われていません。
 - 速さの点で、次のものは測った結果、効きが小さいので直していません：同時に探索するときの手伝いのスレッドを作る回数（約 1 万 8 千回で 47 ミリ秒）など。
 - libedax の関数は、これまでどおり 1 つのスレッドから順に呼びます。1 つのbookのファイルに書くプロセスは 1 つにしてください（下の「ほかのプログラムから使うには」に書き足しました）。edax_runner は 5.3.0+nikque.10 から、同じフォルダーで 2 つ目を起動すると止まります。

@@ -4,7 +4,7 @@
 
 ## v4.5.5-nikque.16
 
-Androidはggs.cのIPPROTO_TCP未定義でCIビルドに失敗したため同梱しません。エンジンソースは修正せず、原ログと再現手順を比較報告に記録しました。Linux・macOS・Windows ARM64のCIは成功しました。
+追記：利用者の追加許可によりAndroidのヘッダー不足を1行修正し、全7CIジョブが成功しました。完全版とAndroid用ZIPを追加公開しました。[追加検証と対応ソース](manual/ja/android-nikque16.md)。初回失敗ログは保持しています。
 
 v4.5.5-nikque.15 の公開の後の 2 回目のソースの読み直し（クロスチェック）で見つかった不具合を直しました（多くは上流からのものです）：ハッシュ表のロックの選び方、棋譜のファイルの最後の棋譜を読まない、`base correct`・`base complete` の途中で止まると棋譜のファイルが壊れる、壊れた棋譜・Wthor ファイル・使えない盤面（FEN・setboard・libedax）を読み込む、手の数が奇数の棋譜の点数の符号、`book stats`・`book depth` の範囲、時間・座標・`mode` の読み取り、入力のスレッドと終了の競合、XBoard・Cassio・GGS の不具合、`MOVE_GENERATOR_NEON` を指定した aarch64 ビルドの石の返し方、32 ビット・統計用ビルド、eval_builder などの道具。`base unique`・`base save`・飽和した局面の数え直しを速くしました。libedax に関数 `edax_book_keep_unread_file` を足しました（読めなかったbookを `.damaged` として残します）。`eval.dat`・bookのファイル形式・探索の結果は変わりません。bookの厳密なバイト一致と多数スレッドの揺れの条件は未達の項目があり、比較報告に差を記録しています。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
