@@ -215,6 +215,7 @@ New functions: `edax_book_fill2(depth)`, `edax_book_fill_limited(depth, move los
 
 ### Not changed, and good to know
 
+- A cross-check (another reading of the source) found some doubts in parts that come from earlier versions (to be examined and fixed in the next version; none of them is in what this version changed, and none was reproduced yet). In particular, with **a book file written by another program, or damaged** (`book load`, `book import`), `book fix` may no longer find some positions, and a position with too many moves may corrupt the memory. Work on a copy of such a book.
 - Without a range, `book fill`, `fill2` and `leaf expand` negamax the book from the initial position after each round (as `book fix` and `book play` do). On a book without the initial position (cut by `book subtree`, for example), the scores are not followed back: use a range (`book fill2 2 5 5`, ...) from the position the book was cut from.
 - The n of `book fill n` means **exactly n moves later** (as before). Gaps nearer than n moves are not filled. A gap of a single missing position is filled with n = 2. `book fill2 1` and a distance of 1 with a range (`book fill 1 5 5`, ...) do nothing, as they add no position ("nothing to fill"). Without a number, `book fill2` uses 2 (`book fill` still uses 1).
 - After `book fill` and `fill2`, there can be more positions whose leaf score is greater than the best link score (the links are added and the leaves searched again; 927 → 1,639 positions on the test book). `book leaf expand` expands them. To fill the gaps and to remove the leaves better than the links, run `fill2`, then `leaf expand`.
@@ -222,7 +223,7 @@ New functions: `edax_book_fill2(depth)`, `edax_book_fill_limited(depth, move los
 
 ### Checks
 
-**The complete test set** (the set of v4.5.5-nikque.13, on the final source, against builds of the source of v4.5.5-nikque.13 with the same options)
+**The complete test set** (the set of v4.5.5-nikque.13, on the source before the last fixes, `9666634`, against builds of the source of v4.5.5-nikque.13 with the same options)
 
 - **One-thread search**: the 69 positions give the same depth, score, node count and principal variation as before (Windows test builds: 64 bits and two 32-bit builds; Linux, 4 builds). Distribution executables: the same node counts for the 5 Windows and 4 Linux executables. Repeated searches with 8 and 32 threads (Windows 6,000 + 2,000 positions, Linux): 0 wrong results.
 - **Book regression** (every book command, 1 and 8 threads, with a book of 6.49 million positions): the only differences with v4.5.5-nikque.13 are the step of `book fill` and the steps after it (in suite A the negamax, fix, correct, export, import, subtree, deviate and store after `book fill 2` start from the book that `fill` made; in suite G, `fill` and the `fix` after it). **Suite A without `book fill` (A2) gives the same files as v4.5.5-nikque.13, with 1 and 8 threads.** Between the distribution executables, the same steps only differ.
