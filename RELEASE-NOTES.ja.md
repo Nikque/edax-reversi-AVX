@@ -2,6 +2,13 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-eval2.3（v4.5.5-nikque.14 の変更を取り込み）
+
+v4.5.5-eval2.2 に、v4.5.5-nikque.14 の変更（`book fill2`・`book leaf expand`、`book fill` の範囲の指定と速くする変更、`book leaf recalculate` への名前の変更、libedaxの関数の追加）を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。この系列だけの新しい変更はありません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+
+- 探索の結果は v4.5.5-eval2.2 と同じです（1スレッドの `-solve` 39局面で、配布版の深さ・評価値・ノード数・読み筋が一致）。API試験204項目・失敗0。この系列だけの試験一式は行っていません。
+- 測っていないもの：この版の速さと強さ。
+
 ## v4.5.5-eval2.2（v4.5.5-nikque.10〜13 の変更を取り込み）
 
 v4.5.5-eval2.1 に、v4.5.5-nikque.10〜13 の変更を全部取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（`eval.dat` は同じファイル）。この系列だけの新しい変更はありません。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
@@ -53,6 +60,9 @@ v4.5.5-eval2.1 に、v4.5.5-nikque.10〜13 の変更を全部取り込みまし�
 学習データ：Edax 自身の自己対局（level 8、約84万局）の探索の値、このforkで学習したbookの局面と値、[Egaroucid](https://www.egaroucid.nyanyan.dev/) のサイトで公開されている学習データ。Egaroucid については、公開されているデータを学習に使っただけで、パターンや学習ずみの重みは使っていません。学習データは配布物に入っていません。
 
 確認：上流の `eval.dat` で、Windows 5種・Linux 4種の1スレッドの結果とノード数、bookの回帰試験（1スレッド、84ファイル）が v4.5.5-nikque.9 と一致。新しい `eval.dat` で、Windows 5種・Linux 4種のノード数が互いに一致、完全読みの評価値は上流の `eval.dat` と全問同じ、API試験191項目に合格（Windows 3種・Linux 3種）。 macOS版・Android版・Windows ARM64版は動作を確認していません（Android版・Windows ARM64版はビルドだけ）。
+## v4.5.5-nikque.14（予定。まだ公開していません）
+
+bookの欠けた所を埋める命令 `book fill2` と、Linkより良いLeafを広げる命令 `book leaf expand` を足しました。`book fill`・`fill2`・`leaf expand` は、`book fill 2 5 5` のように `book deviate3` と同じ範囲を指定できます。`book fill` は `book deviate` と同じように複数スレッドで速くしました（できるbookが変わります。`book fill 1` は同じです）。この3つの命令は、どの周も初めに欠けたLink（手の先の局面がbookにあるのに、Linkになっていない手）を張ります（`fill`・`fill2` はすべての手、`leaf expand` はLeafの手だけ）。`book leaf-recalculate` の名前は `book leaf recalculate` になりました（ハイフンの付いた名前は使えません）。libedaxに5つの関数を足しました。`eval.dat`・bookのファイル形式・探索は変わりません。`book deviate` 系・棋譜の学習・`book fix`・negamax・切り詰めでできるbookは、v4.5.5-nikque.13 と同じです。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
 ## v4.5.5-nikque.13
 

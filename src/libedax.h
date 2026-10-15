@@ -280,6 +280,11 @@ LIBEDAX_API void edax_book_leaf_recalculate(int, int);
 LIBEDAX_API void edax_book_leaf_recalculate2(int, int);
 LIBEDAX_API void edax_book_leaf_recalculate3(int, int);
 LIBEDAX_API void edax_book_leaf_recalculate4(int, int);
+LIBEDAX_API void edax_book_fill2(int);                          /* book fill2 <depth> */
+LIBEDAX_API void edax_book_fill_limited(int, int, int);         /* book fill <depth> <move loss> <total loss> */
+LIBEDAX_API void edax_book_fill2_limited(int, int, int);        /* book fill2 <depth> <move loss> <total loss> */
+LIBEDAX_API void edax_book_leaf_expand(void);                   /* book leaf expand */
+LIBEDAX_API void edax_book_leaf_expand_limited(int, int);       /* book leaf expand <move loss> <total loss> */
 LIBEDAX_API int libedax_cpu_level(void);
 
 /*

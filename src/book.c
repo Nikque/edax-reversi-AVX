@@ -1788,7 +1788,7 @@ static bool position_has_missing_link(const Position *position, const Book *book
 }
 
 /*
- * book leaf-recalculate: the walks of book deviate / deviate2 are used to select the leaves to
+ * book leaf recalculate: the walks of book deviate / deviate2 are used to select the leaves to
  * search again, instead of the positions to expand.
  * - LEAF_RECALC_SELECTED: the positions that the walk would expand (leaf inside the limits),
  * - LEAF_RECALC_WALKED: every position that the walk goes through, and the positions just under
@@ -1798,6 +1798,9 @@ static bool position_has_missing_link(const Position *position, const Book *book
 enum { LEAF_RECALC_OFF = 0, LEAF_RECALC_SELECTED, LEAF_RECALC_WALKED };
 static int leaf_recalc_mode = LEAF_RECALC_OFF;
 
+/** book fill with loss limits: the deviate2/3 walk selects every position it walks, not only those whose leaf it would expand */
+static bool deviate_walk_all = false;
+
 /** @return true if the level of the position solves it exactly. */
 static bool position_is_solved(const Position *p)
 {
@@ -1806,7 +1809,7 @@ static bool position_is_solved(const Position *p)
 }
 
 /**
- * @return true if the leaf of the position can be searched again by book leaf-recalculate:
+ * @return true if the leaf of the position can be searched again by book leaf recalculate:
  * a move that is not a link yet, or the pass of a position without move whose next position is not in
  * the book (its score comes from a search too; up to v4.5.5-nikque.12 such a leaf was never searched again).
  * The end of the game has no leaf move, and its score does not depend on eval.dat.
@@ -1863,7 +1866,7 @@ static void position_deviate(Position *position, Book *book, const int player_de
 		}
 
 		// expand the best remaining move
-		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
 			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
 			 || (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper))) {
 				book_mark_todo(book, position); book->stats.n_todo++;
@@ -1935,6 +1938,14 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 		}
 	}
 
+	if (deviate_walk_all) { // (book fill with loss limits: every position of the walk)
+		if (!position_is_todo(position, book)) {
+			book_mark_todo(book, position);
+			book->stats.n_todo++;
+		}
+		return;
+	}
+
 	// A solved leaf already has an exact score. Keep following existing links,
 	// since descendants may have been searched at a lower level.
 	const int n_empties = board_count_empties(&position->board);
@@ -1942,7 +1953,7 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 		&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) return;
 
 	move_error = position->score.value - position->leaf.score;
-	if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+	if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
 		if (leaf_recalc_wanted(position) && !position_is_todo(position, book) && (leaf_recalc_mode == LEAF_RECALC_WALKED
 		 || (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss))) {
 			book_mark_todo(book, position);
@@ -4635,7 +4646,7 @@ static int book_expand_task_count(const Book *book, const long long n_todo)
 
 /**
  * @brief Size of the hash tables of the searches that the book functions run at the same time
- * (book deviate, book enhance, book correct, book leaf-recalculate: book-expand-tasks).
+ * (book deviate, book enhance, book correct, book leaf recalculate: book-expand-tasks).
  *
  * The size that hash-table-size gives to a search with these threads. A round of book-expand-tasks =
  * auto that gives one thread to each search has twice as many searches as a round that gives them two
@@ -4978,12 +4989,17 @@ void book_play(Book *book)
 }
 
 /**
- * @brief Fill a book.
+ * @brief Fill a book as up to v4.5.5-nikque.13: book fill 1 (no position is added: the positions one move
+ * after the positions of the book get their missing links), and every book fill <n> in the test builds
+ * BOOK_TEST_FILL_OLD, to compare.
+ *
+ * One thread; the positions added in a round are filled from in the same round; the position
+ * filled from gets no link to the positions added from it.
  *
  * @param book opening book.
  * @param depth Distance to fill between two positions.
  */
-void book_fill(Book *book, const int depth)
+static void book_fill_old(Book *book, const int depth)
 {
 	PositionArray *a;
 	Position *p;
@@ -5149,11 +5165,16 @@ static void* loss_worker_run(void *v)
 			}
 		}
 
+		if (deviate_walk_all) { // (book fill with loss limits: every position of the walk)
+			deviate_worker_todo(w, position);
+			continue;
+		}
+
 		if (w->mode == 2 && LEVEL[position->level][n_empties].depth == n_empties
 			&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) continue;
 
 		move_error = position->score.value - position->leaf.score;
-		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
 			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
 			 || (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss))) deviate_worker_todo(w, position);
 		} else
@@ -5184,7 +5205,7 @@ static bool book_deviate_total_by_loss(Book *book, Position *root, const int mod
 	}
 
 	if (ok && deviate_total_walkable(book, root) && deviate_total_relax(book, root, 0)) ok = position_list_push(level + 0, root);
-	else if (ok && leaf_recalc_bottom(book, root)) { // (book leaf-recalculate4 from a position just under the depth of the book: its leaf, as position_deviate_total)
+	else if (ok && leaf_recalc_bottom(book, root)) { // (book leaf recalculate4 from a position just under the depth of the book: its leaf, as position_deviate_total)
 		deviate_worker_todo(&lw[0].w, root);
 		if (lw[0].w.oom) ok = false;
 	}
@@ -5268,7 +5289,7 @@ static void* depth_worker_run(void *v)
 				if (child && atomic_load_uchar(book_visit(book, child)) != child_mark && !position_list_push(&lw->same, child)) w->oom = true;
 			}
 		}
-		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf-recalculate: the leaf is searched again)
+		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
 			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
 			 || (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper))) deviate_worker_todo(w, position);
 		} else
@@ -5468,7 +5489,7 @@ void book_deviate3(Book *book, Board *board, const int move_loss, const int tota
 }
 
 /*
- * book leaf-recalculate: search again the leaves that a walk of book deviate / deviate2 selects
+ * book leaf recalculate: search again the leaves that a walk of book deviate / deviate2 selects
  * (after eval.dat was changed, for instance). No position is added, removed or moved.
  */
 
@@ -5478,7 +5499,7 @@ typedef struct LeafRecalcStats {
 	int max_up, max_down;
 } LeafRecalcStats;
 
-/** state shared by the threads of book leaf-recalculate */
+/** state shared by the threads of book leaf recalculate */
 typedef struct LeafRecalcShared {
 	Book *book;
 	Lock lock;                  /**< guards the book, the counters and the output */
@@ -5605,7 +5626,7 @@ static void book_leaf_recalc_search(Book *book, const char *name, const char *tm
 }
 
 /**
- * @brief Search again the leaves that book deviate or book deviate2 reaches (book leaf-recalculate, 2, 3, 4).
+ * @brief Search again the leaves that book deviate or book deviate2 reaches (book leaf recalculate, 2, 3, 4).
  *
  * A round walks once (the commands do not loop as book deviate does, unless the setting below asks for it):
  * - kind 1: as book deviate, the leaves of the positions that it would expand,
@@ -5629,7 +5650,7 @@ static void book_leaf_recalc_search(Book *book, const char *name, const char *tm
  */
 void book_leaf_recalculate(Book *book, Board *board, const int kind, const int x, const int y)
 {
-	static const char *const names[] = {"Book leaf-recalculate", "Book leaf-recalculate2", "Book leaf-recalculate3", "Book leaf-recalculate4"};
+	static const char *const names[] = {"Book leaf recalculate", "Book leaf recalculate2", "Book leaf recalculate3", "Book leaf recalculate4"};
 	static const char *const exts[] = {".leaf", ".leaf2", ".leaf3", ".leaf4"};
 	Position *root = book_probe(book, board);
 	const char *name;
@@ -6316,6 +6337,7 @@ typedef struct BookPlan {
 	struct PlanWorker *worker;     /**< threads doing the searches (book_plan_search) */
 	int n_worker, n_threads;       /**< workers started, threads that they share */
 	int n_continued;               /**< searches stopped and continued with more threads (only counted in the test builds) */
+	int max_workers;               /**< searches at the same time at most (book fill: book-expand-tasks); 0: one for each thread */
 } BookPlan;
 
 /** a thread doing planned searches */
@@ -6688,6 +6710,7 @@ void book_plan_search(Book *book)
 #endif
 	plan->n_threads = book_store_thread_count();
 	n = MIN(plan->n_threads, plan->n_job);
+	if (plan->max_workers > 0) n = MIN(n, plan->max_workers);
 	n_tasks = MIN(plan->n_threads / n, MAX_THREADS - 1);
 #ifdef BOOK_TEST_ONE_THREAD
 	n_tasks = 1;
@@ -7180,3 +7203,816 @@ void book_feed_hash(const Book *book, Board *board, Search *search)
 {
 	board_feed_hash(board, book, search, true);
 }
+
+/*
+ * book fill and book fill2, without or with loss limits; book leaf expand.
+ *
+ * book fill <n> looks at every move of every position: the positions of a line of <n> moves that ends
+ * in the book are added. book fill2 <n> only follows the leaf of a position: the position after the leaf
+ * move is added when a position <n> - 1 moves further is in the book (with the positions between
+ * them). The positions added in a round are filled from in the next round. With a loss limit for one
+ * move and a cumulative loss limit (as book deviate3), the positions filled from are those of the walk
+ * of book deviate3 from the current position: all of them (book fill), or those whose leaf book
+ * deviate3 would expand (book fill2). The leaves of the solved positions are followed too.
+ *
+ * When positions are added from a position, the position gets its links to them at once, and when
+ * its leaf became a link it is searched again for a new leaf, as when book deviate expands a leaf.
+ * Every round first links the positions with a move that leads to a position of the book but is not a
+ * link (book_link_moves), so that the commands end with no such move (book fix links them too, but does
+ * not fill nor expand). Up to v4.5.5-nikque.13, book fill linked them too: every position next to a
+ * position filled from got its missing links (book_add_board).
+ *
+ * As book deviate, the positions to fill from are found by several threads (the walk of book
+ * deviate3, or a scan of the book by bucket ranges), and only those from which a position would be
+ * added are kept. With book-expand-tasks other than 1 (as book deviate), the searches of a batch of these
+ * positions are planned and done at the same time (as book store: see book_plan_begin), then the
+ * positions are added one after the other, in the same order as without a plan, with the results of the
+ * planned searches. Up to v4.5.5-nikque.13, book fill used one thread, filled at once from the positions
+ * added in the same round, and did not link the position filled from (BOOK_TEST_FILL_OLD: that way).
+ * book fill 1 adds no position and keeps that way: the positions one move after the positions of the
+ * book get their missing links. book fill2 1 and the limited commands with a depth of 1 only tell that
+ * there is nothing to fill.
+ *
+ * book leaf expand: a position whose leaf (its best move that is not a link yet) has a better score than
+ * all its links has its best move out of the book. book leaf expand expands these leaves as book deviate
+ * expands a leaf (book_expand, with book-expand-tasks): the position after the leaf move is added and
+ * searched, and the position is searched again for its next leaf. This is done again until no such leaf
+ * is left (the next leaf may be better than the links again). Without limits: every position of the book
+ * that is not under its depth. With a per-move and a cumulative loss limit: the positions of the walk of
+ * book deviate3 from the current position (the leaves of the solved positions too). Every round first
+ * links the leaves that lead to a position of the book (the leaves only: the other moves are linked by
+ * book fix).
+ *
+ * The positions of every command are found without any copy of the book: by several threads that scan
+ * the book by bucket ranges (book_pick_scan), or by the walk of book deviate3, whose marks are then kept
+ * for the positions looked for only (book_pick_todo). They are kept by their place in the book
+ * (bucket and index, see position_key), as the todo list of book deviate.
+ */
+
+/** planned searches for each thread in a batch of book fill / fill2 */
+#ifndef BOOK_FILL_PLAN_SEARCHES
+#define BOOK_FILL_PLAN_SEARCHES 64
+#endif
+
+static bool board_fill_probe(const Board*, const Book*, const int, const bool);
+
+/**
+ * @brief The next board of a line that board_fill_probe() follows.
+ *
+ * @param next Board after the move.
+ * @param book Opening book.
+ * @param depth Moves left before the move.
+ * @param missing A position of the line before this board is not in the book.
+ * @return true if a position would be added.
+ */
+static bool board_fill_probe_next(const Board *next, const Book *book, const int depth, const bool missing)
+{
+	if (depth > 1 && book_probe(book, next) == NULL) { // (a position of the line, not in the book)
+		if (board_count_empties(next) < book->options.n_empties - 1) return false; // (book_add_board() would not add it)
+		return board_fill_probe(next, book, depth - 1, true);
+	}
+	return board_fill_probe(next, book, depth - 1, missing);
+}
+
+/**
+ * @brief Tell, without changing the book, if board_fill() would add a position from a board:
+ * a line of <depth> moves ends in the book and goes through positions not in the book, that can be added.
+ *
+ * @param board Board.
+ * @param book Opening book.
+ * @param depth Moves left.
+ * @param missing A position of the line before this board is not in the book.
+ * @return true if a position would be added.
+ */
+static bool board_fill_probe(const Board *board, const Book *book, const int depth, const bool missing)
+{
+	unsigned long long moves;
+	Board next;
+	int x;
+
+	if (depth == 0) return missing && book_probe(book, board) != NULL;
+	moves = board_get_moves(board);
+	if (moves) {
+		foreach_bit(x, moves) {
+			board_next(board, x, &next);
+			if (board_fill_probe_next(&next, book, depth, missing)) return true;
+		}
+	} else if (can_move(board->opponent, board->player)) {
+		next.player = board->opponent;
+		next.opponent = board->player;
+		return board_fill_probe_next(&next, book, depth, missing);
+	}
+	return false;
+}
+
+/** @return the board after the leaf move of a position. */
+static Board position_leaf_board(const Position *p)
+{
+	Board next;
+
+	if (p->leaf.move == PASS) {
+		next.player = p->board.opponent;
+		next.opponent = p->board.player;
+	} else {
+		board_next(&p->board, p->leaf.move, &next);
+	}
+	return next;
+}
+
+/** @return true if the leaf of a position is better than every link of it (and the position can be expanded). */
+static bool position_leaf_better(const Position *p, const Book *book)
+{
+	const Link *l;
+	int best = -SCORE_INF;
+
+	if (p->n_link == 0 || p->leaf.move == NOMOVE) return false;
+	if (board_count_empties(&p->board) < book->options.n_empties || board_is_game_over(&p->board)) return false;
+	for (l = position_links(p); l < position_links(p) + p->n_link; ++l) if (l->score > best) best = l->score;
+	return p->leaf.score > best;
+}
+
+/**
+ * @return true if a move of a position that is not a link leads to a position of the book (position_link()
+ * would link it): the moves looked at as by book_link_find_missing (book merge).
+ */
+static bool position_has_unlinked_child(const Position *p, const Book *book)
+{
+	unsigned long long moves = board_get_moves(&p->board);
+	Board next;
+	int x;
+#ifndef BOOK_TEST_LINK_NO_PREFETCH
+	ChildProbe c;
+	int i;
+
+	c.n = 0;
+	if (moves) {
+		foreach_bit(x, moves) {
+			if (!position_has_link(p, x)) {
+				board_next(&p->board, x, &next);
+				child_probe_add(&c, book, &next, x);
+			}
+		}
+	} else if (can_move(p->board.opponent, p->board.player) && !position_has_link(p, PASS)) {
+		next.player = p->board.opponent;
+		next.opponent = p->board.player;
+		child_probe_add(&c, book, &next, PASS);
+	}
+	child_probe_fetch(&c);
+	for (i = 0; i < c.n; ++i) if (position_array_probe(c.array[i], c.unique + i)) return true;
+#else // test builds: one child after the other
+	if (moves) {
+		foreach_bit(x, moves) {
+			if (!position_has_link(p, x)) {
+				board_next(&p->board, x, &next);
+				if (book_probe(book, &next)) return true;
+			}
+		}
+	} else if (can_move(p->board.opponent, p->board.player) && !position_has_link(p, PASS)) {
+		next.player = p->board.opponent;
+		next.opponent = p->board.player;
+		return book_probe(book, &next) != NULL;
+	}
+#endif
+	return false;
+}
+
+/** the positions that a command looks for */
+typedef struct BookPick {
+	int depth;          /**< book fill / fill2: distance to fill (2 at least); 0: a position to link (see all_moves) */
+	bool leaf_only;     /**< book fill2: only through the leaf */
+	bool leaf_better;   /**< book leaf expand: a leaf better than every link */
+	bool all_moves;     /**< with a depth of 0: every move that leads to a position of the book but is not a link (book fill, fill2); else the leaf only (book leaf expand) */
+} BookPick;
+
+/**
+ * @brief Tell, without changing the book, if a position is one that a command looks for.
+ *
+ * @param p Position of the book.
+ * @param book Opening book.
+ * @param pick What is looked for: a position from which a fill (depth 2 at least) would add a position;
+ * with a depth of 0, a position with a move that leads to a position of the book but is not a link (any move,
+ * or the leaf only: to link it, and search its leaf again if the leaf becomes a link); or a position whose
+ * leaf is better than every link (book leaf expand).
+ * @return true if it is.
+ */
+static bool position_picked(const Position *p, const Book *book, const BookPick *pick)
+{
+	Board next;
+
+	if (pick->leaf_better) return position_leaf_better(p, book);
+	if (pick->depth == 0) {
+		if (pick->all_moves) return position_has_unlinked_child(p, book);
+		if (p->leaf.move == NOMOVE) return false;
+		next = position_leaf_board(p);
+		return book_probe(book, &next) != NULL;
+	}
+	if (pick->depth < 2 || board_count_empties(&p->board) < book->options.n_empties) return false;
+	if (!pick->leaf_only) return board_fill_probe(&p->board, book, pick->depth, false);
+	if (p->leaf.move == NOMOVE) return false;
+	next = position_leaf_board(p);
+	return board_fill_probe_next(&next, book, pick->depth, false);
+}
+
+/**
+ * @brief Fill a book from one of its positions.
+ *
+ * The positions are only appended to their bucket while a book is filled: the place of a position
+ * (bucket and index, see position_key) stays valid, as for the todo list of book deviate.
+ *
+ * @param book Opening book.
+ * @param key Place of the position (see position_key).
+ * @param depth Distance to fill; 0: only link the position (a move leads to a position of the book).
+ * @param leaf_only Only through the leaf of the position (book fill2), else every move.
+ * @return true if positions were added.
+ */
+static bool position_fill(Book *book, const unsigned long long key, const int depth, const bool leaf_only)
+{
+	const long long n_nodes = book->stats.n_nodes;
+	Position *p = book_position(book, key);
+	Board board;
+	Link *l;
+	bool filled;
+	int x;
+
+	if (depth == 0) { // (the step that links: a move leads to a position of the book)
+		filled = true;
+	} else if (leaf_only) {
+		if (p->leaf.move == NOMOVE) return false;
+		board = position_leaf_board(p);
+		filled = board_fill(&board, book, depth - 1);
+		if (filled) book_add_board(book, &board);
+	} else {
+		board = p->board; // board_fill() changes its board, and adding positions may move p
+		filled = board_fill(&board, book, depth);
+	}
+	// a line reaches the book: the position gets its links, even when the positions of the line were
+	// added just before from another position (the same position reached by another line)
+	if (!filled) return false;
+
+	p = book_position(book, key); // (the positions of its bucket may have moved to another block)
+	x = p->leaf.move;
+	position_link(p, book);
+	if (x != NOMOVE) foreach_link(l, p) {
+		if (l->move == x) { // the leaf is a link now: search the next leaf (its score is the score of the link, as in position_expand)
+			p->leaf.score = l->score;
+			position_search(p, book);
+			break;
+		}
+	}
+	return book->stats.n_nodes != n_nodes;
+}
+
+/**
+ * @brief board_fill() as it will run when the boards already planned are added: plan the searches
+ * of the boards that book_add_board() will get (see book_plan_board).
+ */
+static bool board_fill_plan(Board *board, Book *book, int depth)
+{
+	if (depth > 0) {
+		MoveList movelist;
+		Move *m;
+		bool filled = false;
+
+		movelist_get_moves(&movelist, board);
+		if (movelist.n_moves == 0 && can_move(board->opponent, board->player)) {
+			board_pass(board);
+			if (board_fill_plan(board, book, depth - 1)) {
+				book_plan_board(book, board);
+				filled = true;
+			}
+			board_pass(board);
+		} else {
+			foreach_move(m, movelist) {
+				board_update(board, m);
+				if (board_fill_plan(board, book, depth - 1)) {
+					book_plan_board(book, board);
+					filled = true;
+				}
+				board_restore(board, m);
+			}
+		}
+		return filled;
+	}
+	return plan_has_board(book_plan, book, board);
+}
+
+/** @brief position_fill() as it will run when the boards already planned are added: plan its searches. */
+static void position_fill_plan(Book *book, const unsigned long long key, const int depth, const bool leaf_only)
+{
+	const Position *p = book_position(book, key);
+	Board board;
+
+	if (depth > 0) { // (with a depth of 0, nothing is added: the position is linked only)
+		if (leaf_only) {
+			if (p->leaf.move == NOMOVE) return;
+			board = position_leaf_board(p);
+			if (board_fill_plan(&board, book, depth - 1)) book_plan_board(book, &board);
+		} else {
+			board = p->board;
+			board_fill_plan(&board, book, depth);
+		}
+	}
+	book_plan_board(book, &p->board); // its new links, and the search of a new leaf if its leaf became a link
+}
+
+/**
+ * @brief Fill a book from a list of its positions, in this order.
+ *
+ * @param book Opening book.
+ * @param name Name of the command.
+ * @param file File of the timed saves.
+ * @param keys Places of the positions (see position_key).
+ * @param n Number of positions.
+ * @param depth Distance to fill; 0: link the positions only.
+ * @param leaf_only Only through the leaves (book fill2).
+ */
+static void book_fill_keys(Book *book, const char *name, const char *file, const unsigned long long *keys, const long long n, const int depth, const bool leaf_only)
+{
+	// book-expand-tasks (as book deviate): 1 = one search after the other; n = n searches at the same time;
+	// auto = a search for each thread (the threads of the searches that end first go to the others)
+	const bool planned = (n > 1 && options.n_task > 1 && options.book_expand_tasks != 1 && !book_one_search_at_a_time());
+	const int max_jobs = BOOK_FILL_PLAN_SEARCHES * book_store_thread_count();
+	const long long max_positions = 16LL * max_jobs; // (the step that links: most positions need no search, but each one is planned)
+	long long i = 0, j, end;
+	long long t = real_clock();
+
+	while (i < n && !book->failed) {
+		end = n;
+		if (planned && book_plan_begin(book)) {
+			book_plan->max_workers = MAX(0, options.book_expand_tasks);
+			for (j = i; j < n; ++j) {
+				position_fill_plan(book, keys[j], depth, leaf_only);
+				if (book_plan->failed || book_plan->n_job >= max_jobs || j + 1 - i >= max_positions) { ++j; break; }
+			}
+			end = j;
+			book_plan_search(book);
+		}
+		for (j = i; j < end && !book->failed; ++j) {
+			position_fill(book, keys[j], depth, leaf_only);
+			if ((j & 1023) == 1023) {
+				bprint("%s...%lld/%lld: %lld positions, %lld links\r", name, j + 1, n, book->stats.n_nodes, book->stats.n_links);
+				if (book_save_interval_elapsed(t)) { // timed progress save
+					book_save_progress(book, file);
+					t = real_clock();
+				}
+			}
+		}
+		book_plan_end(book);
+		i = end;
+		bprint("%s...%lld/%lld: %lld positions, %lld links\r", name, i, n, book->stats.n_nodes, book->stats.n_links);
+		if (book_save_interval_elapsed(t)) { // timed progress save
+			book_save_progress(book, file);
+			t = real_clock();
+		}
+	}
+	bprint("%s...%lld/%lld: %lld positions, %lld links\n", name, i, n, book->stats.n_nodes, book->stats.n_links);
+}
+
+/** what the scan of the book looks for (book_pick_scan: one scan at a time) */
+static BookPick scan_pick;
+
+static void book_pick_scan_task(BookTask *task)
+{
+	Book *book = task->book;
+	int b, k;
+
+	for (b = task->first; b < task->last; ++b) {
+		const PositionArray *a = book->array + b;
+		for (k = 0; k < a->n; ++k) {
+			if (position_picked(a->positions + k, book, &scan_pick)) book_task_push(task, TASK_ITEM(b, k, 0));
+		}
+		task->done += a->n;
+	}
+}
+
+/**
+ * @brief The places of all the positions of the book that a command looks for, found by several threads (by bucket ranges).
+ *
+ * @param book Opening book.
+ * @param name Name of the command (progress).
+ * @param pick What is looked for (see position_picked).
+ * @param n Number of positions (out).
+ * @return the places, in the order of the book (to free), or NULL if the memory is exhausted.
+ */
+static unsigned long long* book_pick_scan(Book *book, const char *name, const BookPick *pick, long long *n)
+{
+	BookTask task[MAX_THREADS];
+	unsigned long long *keys;
+	long long j;
+	int i, n_tasks;
+	bool oom = false;
+
+	scan_pick = *pick;
+	n_tasks = book_parallel(book, book_pick_scan_task, task, name);
+	*n = 0;
+	for (i = 0; i < n_tasks; ++i) { *n += task[i].n; oom = oom || task[i].oom; }
+	keys = oom ? NULL : (unsigned long long*) malloc((*n + 1) * sizeof *keys);
+	if (keys) {
+		*n = 0;
+		for (i = 0; i < n_tasks; ++i) for (j = 0; j < task[i].n; ++j) keys[(*n)++] = TASK_KEY(task[i].item[j]);
+	}
+	book_tasks_free(task, n_tasks);
+	return keys;
+}
+
+/** a thread that tells which positions marked by a walk a command looks for */
+typedef struct PickFilter {
+	Book *book;
+	const unsigned long long *key;
+	char *keep;
+	long long first, last;
+	const BookPick *pick;
+} PickFilter;
+
+static void* pick_filter_run(void *v)
+{
+	PickFilter *f = (PickFilter*) v;
+	long long i;
+
+	for (i = f->first; i < f->last; ++i) f->keep[i] = position_picked(book_position(f->book, f->key[i]), f->book, f->pick);
+	return NULL;
+}
+
+/**
+ * @brief Keep the positions marked by a walk (todo) that a command looks for, in the order of the book.
+ *
+ * The todo list of the walk is kept for these positions only, in place: it is the list returned (no copy).
+ * Without a todo list (memory exhausted during the walk), the book is scanned for the marks into a new list.
+ * The marks of the other positions are cleared (book_expand reads them when there is no list).
+ *
+ * @param book Opening book.
+ * @param pick What is looked for (see position_picked).
+ * @param n Number of positions (out).
+ * @param owned Set to true if the list returned is a new one, to free (out).
+ * @return the places (see position_key), or NULL if the memory is exhausted.
+ */
+static unsigned long long* book_pick_todo(Book *book, const BookPick *pick, long long *n, bool *owned)
+{
+	unsigned long long *keys = NULL;
+	long long i;
+
+	*n = 0;
+	*owned = false;
+	if (book->todo_list.valid) {
+		const long long n_todo = book->todo_list.n;
+		PickFilter f[MAX_THREADS];
+		char *keep = (char*) calloc(n_todo + 1, 1);
+		int m = book_n_task(), k;
+
+		if (keep == NULL) return NULL;
+		if (m > MAX_THREADS) m = MAX_THREADS;
+		if (m < 1 || n_todo < 4096) m = 1;
+		qsort(book->todo_list.item, n_todo, sizeof *book->todo_list.item, todo_item_cmp);
+		for (k = 0; k < m; ++k) {
+			f[k].book = book; f[k].key = book->todo_list.item; f[k].keep = keep;
+			f[k].first = n_todo * k / m; f[k].last = n_todo * (k + 1) / m;
+			f[k].pick = pick;
+		}
+		book_run_workers(pick_filter_run, f, sizeof *f, m);
+		keys = book->todo_list.item;
+		for (i = 0; i < n_todo; ++i) {
+			if (keep[i]) keys[(*n)++] = keys[i];
+			else position_clear_todo(book_position(book, keys[i]));
+		}
+		book->todo_list.n = *n;
+		free(keep);
+	} else { // (no list: the whole book is scanned for the marks)
+		PositionArray *a;
+		Position *p;
+		foreach_position(p, a, book) if (position_is_todo(p, book)) {
+			if (position_picked(p, book, pick)) ++*n;
+			else position_clear_todo(p);
+		}
+		keys = (unsigned long long*) malloc((*n + 1) * sizeof *keys);
+		if (keys) {
+			*n = 0;
+			*owned = true;
+			foreach_position(p, a, book) if (position_is_todo(p, book)) keys[(*n)++] = position_key(book, p);
+		}
+	}
+	book->stats.n_todo = *n;
+	return keys;
+}
+
+/**
+ * @brief Link the positions with a move that leads to a position of the book but is not a link, and search
+ * their leaf again if it became a link (the first step of every round of book fill, fill2 and leaf expand).
+ *
+ * Such a move leads to a position that the book holds but the position does not link: the position added
+ * by another position (the same position reached by another line), by book deviate as by these commands.
+ * book fix links them too, but searching a leaf again may make it better than every link: the commands
+ * that fill or expand do it themselves, so that they end with neither kind of leaf. book fill and fill2 link
+ * every such move (as up to v4.5.5-nikque.13, book fill linked every position next to the positions it
+ * filled from); book leaf expand links the leaves only. The searches are done as those of book fill
+ * (book-expand-tasks).
+ *
+ * @param book Opening book.
+ * @param name Name of the command.
+ * @param file File of the timed saves.
+ * @param root Position to start the walk from (with limits).
+ * @param limited With loss limits: the positions of the walk of book deviate3 only; else the whole book.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ * @param all_moves Every move (book fill, fill2), else the leaf only (book leaf expand).
+ * @return the number of positions linked (0: nothing was done).
+ */
+static long long book_link_moves(Book *book, const char *name, const char *file, Position *root, const bool limited, const int move_loss, const int total_loss, const bool all_moves)
+{
+	const BookPick link_pick = {0, false, false, all_moves};
+	unsigned long long *keys;
+	long long n = 0;
+	bool owned = true;
+	char label[64];
+
+#ifdef BOOK_TEST_NO_LINK_LEAVES
+	(void) book; (void) name; (void) file; (void) root; (void) limited; (void) move_loss; (void) total_loss; (void) all_moves;
+	(void) link_pick; (void) keys; (void) n; (void) owned; (void) label;
+	return 0; // test builds: this step is skipped, to time the other step of the commands alone
+#endif
+	if (limited) {
+		book_clean(book);
+		deviate_walk_all = true;
+		book_select_deviate_total(book, root, move_loss, total_loss, false);
+		deviate_walk_all = false;
+		keys = book_pick_todo(book, &link_pick, &n, &owned);
+	} else {
+		keys = book_pick_scan(book, name, &link_pick, &n);
+	}
+	if (keys == NULL) {
+		error("cannot allocate the list of the positions to link\n");
+		return 0;
+	}
+	if (n) {
+		snprintf(label, sizeof label, "%s (links)", name);
+		if (all_moves) bprint("%s: %lld positions have a move to a position of the book that is not a link\n", label, n);
+		else bprint("%s: %lld leaves lead to a position of the book\n", label, n);
+		book->stats.n_nodes = book->stats.n_links = 0;
+		book_fill_keys(book, label, file, keys, n, 0, false);
+	}
+	if (owned) free(keys);
+	return n;
+}
+
+/**
+ * @brief Fill a book from all its positions (book fill / fill2 without limits).
+ *
+ * @param book opening book.
+ * @param depth Distance to fill.
+ * @param leaf_only Only through the leaves (book fill2).
+ */
+static void book_fill_all(Book *book, const int depth, const bool leaf_only)
+{
+	const char *name = leaf_only ? "Book fill2" : "Book fill";
+	const BookPick pick = {depth, leaf_only, false, false};
+	unsigned long long *keys;
+	long long n_diffs = 0, n, n_linked;
+	int rounds_since_save = 0;
+	char file[FILENAME_MAX + 1];
+
+	if (depth < 2) { // (no position is between a position and the next one)
+		bprint("%s %d: nothing to fill (a distance of 2 at least is needed)\n", name, depth);
+		return;
+	}
+	file_add_ext(options.book_file, leaf_only ? ".fill2" : ".fill", file);
+	do {
+		n_linked = book_link_moves(book, name, file, NULL, false, 0, 0, true); // (the moves that lead to a position of the book)
+		book->stats.n_nodes = book->stats.n_links = 0;
+		keys = book_pick_scan(book, name, &pick, &n);
+		if (keys == NULL) {
+			error("cannot allocate the list of the positions to fill from\n");
+			break;
+		}
+		bprint("%s %d: %lld positions to fill from\n", name, depth, n);
+		book_fill_keys(book, name, file, keys, n, depth, leaf_only);
+		free(keys);
+		n_diffs = n_linked + book->stats.n_nodes + book->stats.n_links;
+		if (n_diffs) book_negamax(book);
+		book_deviate_save_progress(book, file, n_diffs, &rounds_since_save); // (as book deviate: book-deviate-save-rounds)
+	} while (n_diffs && !book->failed); // stop if a position cannot be added
+	book_store_release(); // (the searches done at the same time)
+	bprint("%s %d... finished\n", name, depth);
+}
+
+/**
+ * @brief Fill a book (book fill <n> without limits).
+ *
+ * @param book opening book.
+ * @param depth Distance to fill between two positions.
+ */
+void book_fill(Book *book, const int depth)
+{
+#ifdef BOOK_TEST_FILL_OLD
+	book_fill_old(book, depth); // test builds: as up to v4.5.5-nikque.13, to compare
+#else
+	if (depth < 2) book_fill_old(book, depth); // (book fill 1 adds no position: the links only, as before)
+	else book_fill_all(book, depth, false);
+#endif
+}
+
+/**
+ * @brief Fill a book from the leaves of all its positions (book fill2 <n> without limits).
+ *
+ * @param book opening book.
+ * @param depth Distance to fill.
+ */
+void book_fill2(Book *book, const int depth)
+{
+	book_fill_all(book, depth, true);
+}
+
+/**
+ * @brief Fill a book from the positions of a deviate3 walk (book fill / fill2 with loss limits).
+ *
+ * @param book opening book.
+ * @param board Position to start from.
+ * @param depth Distance to fill.
+ * @param leaf_only book fill2: from the leaves that book deviate3 would expand. book fill: from every move of the positions of the walk.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ */
+void book_fill_walk(Book *book, Board *board, const int depth, const bool leaf_only, const int move_loss, const int total_loss)
+{
+	const char *name = leaf_only ? "Book fill2" : "Book fill";
+	const BookPick pick = {depth, leaf_only, false, false};
+	Position *root = book_probe(book, board);
+	unsigned long long *keys;
+	long long n_diffs, n, n_selected, n_linked;
+	int rounds_since_save = 0;
+	bool owned;
+	char file[FILENAME_MAX + 1];
+
+	if (root == NULL) return;
+	if (depth < 2) { // (no position is between a position and the next one)
+		bprint("%s %d %d %d: nothing to fill (a distance of 2 at least is needed)\n", name, depth, move_loss, total_loss);
+		return;
+	}
+	file_add_ext(options.book_file, leaf_only ? ".fill2" : ".fill", file);
+	book_clean(book);
+	book_negamax_position(root, book);
+
+	do {
+		bprint("%s %d %d %d:\n", name, depth, move_loss, total_loss);
+		n_linked = book_link_moves(book, name, file, root, true, move_loss, total_loss, true); // (the moves that lead to a position of the book)
+		if (n_linked) { // (the scores that the walk follows)
+			root = book_probe(book, board);
+			book_clean(book);
+			book_negamax_position(root, book);
+		}
+		book_clean(book);
+		deviate_walk_all = !leaf_only;
+		book_select_deviate_total(book, root, move_loss, total_loss, false);
+		deviate_walk_all = false;
+		n_selected = book->stats.n_todo;
+		keys = book_pick_todo(book, &pick, &n, &owned);
+		if (keys == NULL) {
+			error("cannot allocate the list of the positions to fill from\n");
+			break;
+		}
+		bprint("%s %lld positions selected, %lld to fill from\n", name, n_selected, n);
+
+		book->stats.n_nodes = book->stats.n_links = 0;
+		book_fill_keys(book, name, file, keys, n, depth, leaf_only);
+		if (owned) free(keys);
+		n_diffs = n_linked + book->stats.n_nodes + book->stats.n_links;
+
+		root = book_probe(book, board);
+		book_clean(book); // (the todo list is empty again)
+		book_negamax_position(root, book);
+		book_deviate_save_progress(book, file, n_diffs, &rounds_since_save); // (as book deviate: book-deviate-save-rounds)
+	} while (n_diffs && !book->failed); // stop if a position cannot be added
+	book_store_release(); // (the searches done at the same time)
+	bprint("%s %d %d %d...finished\n", name, depth, move_loss, total_loss);
+}
+
+/**
+ * @brief Expand the leaves better than every link of their position (book leaf expand).
+ *
+ * @param book opening book.
+ * @param board Position to start from (with limits).
+ * @param limited With loss limits: only in the walk of book deviate3.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ */
+void book_leaf_expand(Book *book, Board *board, const bool limited, const int move_loss, const int total_loss)
+{
+	static const BookPick leaf_pick = {0, false, true, false};
+	const char *name = "Book leaf expand";
+	Position *root = NULL;
+	unsigned long long *keys;
+	long long n_diffs, n_linked, n, i;
+	int rounds_since_save = 0;
+	bool owned, listed;
+	char file[FILENAME_MAX + 1];
+
+	file_add_ext(options.book_file, ".lexp", file);
+	if (limited) {
+		root = book_probe(book, board);
+		if (root == NULL) return;
+		book_clean(book);
+		book_negamax_position(root, book);
+	}
+
+	do {
+		if (limited) bprint("%s %d %d:\n", name, move_loss, total_loss);
+		else bprint("%s:\n", name);
+		// the leaves that lead to a position of the book are linked first: their positions are searched again,
+		// and a new leaf better than every link is expanded below
+		n_linked = book_link_moves(book, name, file, root, limited, move_loss, total_loss, false);
+		if (n_linked && limited) { // (the scores that the walk follows)
+			root = book_probe(book, board);
+			book_clean(book);
+			book_negamax_position(root, book);
+		}
+		book_clean(book);
+		if (limited) { // the walk marks every position with such a leaf (the loss of the leaf is 0): keep these marks only
+			book_select_deviate_total(book, root, move_loss, total_loss, false);
+			keys = book_pick_todo(book, &leaf_pick, &n, &owned);
+			listed = (keys != NULL);
+			if (listed && owned) free(keys); // (book_expand reads the todo list, or the marks)
+		} else { // the positions with such a leaf are marked (and listed) as book deviate marks them
+			keys = book_pick_scan(book, name, &leaf_pick, &n);
+			listed = (keys != NULL);
+			if (listed) {
+				for (i = 0; i < n; ++i) book_mark_todo(book, book_position(book, keys[i]));
+				book->stats.n_todo = n;
+				free(keys);
+			}
+		}
+		if (!listed) {
+			error("cannot allocate the list of the positions to expand\n");
+			break;
+		}
+		bprint("%s %lld todo\n", name, book->stats.n_todo);
+
+		book_expand(book, name, file);
+		n_diffs = n_linked + book->stats.n_nodes + book->stats.n_links;
+
+		if (limited) {
+			root = book_probe(book, board);
+			book_clean(book);
+			book_negamax_position(root, book);
+		} else if (n_diffs) {
+			book_negamax(book);
+		}
+		book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
+	} while (n_diffs && !book->failed); // stop if a position cannot be added
+	if (limited) bprint("%s %d %d...finished\n", name, move_loss, total_loss);
+	else bprint("%s...finished\n", name);
+	search_pool_release(&expand_pool);
+	book_store_release(); // (the searches of the leaves linked, done at the same time)
+}
+
+#ifdef BOOK_TEST_PICK_COUNT
+/**
+ * @brief Test builds (book pick-count <x> <y>): count the positions that the first round of book fill 2,
+ * book fill2 2 and book leaf expand would start from, and the positions that they would link (any move for
+ * book fill and fill2, the leaf only for book leaf expand), in the whole
+ * book and in the walk of book deviate3 x y from the current position, with the time each selection takes.
+ * Nothing is added nor searched (the book is negamaxed from the current position, as the commands do).
+ */
+void book_test_pick_count(Book *book, Board *board, const int move_loss, const int total_loss)
+{
+	static const BookPick picks[5] = {{0, false, false, false}, {2, true, false, false}, {2, false, false, false}, {0, false, true, false}, {0, false, false, true}};
+	static const char *const names[5] = {"leaves to link (leaf expand)", "fill2 2: positions to fill from", "fill 2: positions to fill from", "leaf expand: leaves better than every link", "positions to link (fill, fill2)"};
+	static const bool walk_all[5] = {true, false, true, false, true};
+	unsigned long long *keys;
+	long long n, n_marked, t;
+	Position *root;
+	bool owned;
+	int i;
+
+	static const int whole_order[5] = {3, 0, 4, 1, 2}, walk_order[5] = {0, 4, 3, 1, 2}; // (the quick counts first: a run stopped early keeps them)
+	int j;
+
+	root = book_probe(book, board);
+	if (root == NULL) return;
+	t = real_clock();
+	keys = book_pick_scan(book, names[3], &picks[3], &n);
+	bprint("pick-count, whole book, %s: %lld (%.1f s)\n", names[3], n, (real_clock() - t) / 1000.0);
+	free(keys);
+	t = real_clock();
+	book_clean(book);
+	book_negamax_position(root, book);
+	bprint("pick-count, negamax: %.1f s\n", (real_clock() - t) / 1000.0);
+	for (j = 0; j < 5; ++j) { // the walk of book deviate3 x y
+		i = walk_order[j];
+		t = real_clock();
+		book_clean(book);
+		deviate_walk_all = walk_all[i];
+		book_select_deviate_total(book, root, move_loss, total_loss, false);
+		deviate_walk_all = false;
+		n_marked = book->stats.n_todo;
+		keys = book_pick_todo(book, &picks[i], &n, &owned);
+		bprint("pick-count, walk of deviate3 %d %d, %s: %lld of %lld marked (%.1f s)\n", move_loss, total_loss, names[i], n, n_marked, (real_clock() - t) / 1000.0);
+		if (owned) free(keys);
+	}
+	book_clean(book);
+	for (j = 1; j < 5; ++j) { // the whole book (the scan of book fill 2 is long)
+		i = whole_order[j];
+		t = real_clock();
+		keys = book_pick_scan(book, names[i], &picks[i], &n);
+		bprint("pick-count, whole book, %s: %lld (%.1f s)\n", names[i], n, (real_clock() - t) / 1000.0);
+		free(keys);
+	}
+}
+#endif

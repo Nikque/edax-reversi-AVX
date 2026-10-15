@@ -107,7 +107,7 @@ wEdax-x86-64.exe -l 12 -n 4 -book-file data/my.dat
 | `book-merge-auto-save` | `on` | `on` | `book merge` が成功するたびに、`<book のファイル名>.mrg` に保存する。[8 章](08-book-maintenance.md) |
 | `hash-table-size` | `auto` | 21 | 探索用のハッシュ表の大きさ。`auto` は、スレッドの数から決める。[5 章](05-search.md) |
 | `book-expand-tasks` | `auto` | 1 | book を自動で広げるコマンドが、同時に広げる局面の数。[7 章](07-book-learning.md)・[9 章](09-large-books.md) |
-| `book-leaf-recalculate-rounds` | `1` | 1 | `book leaf-recalculate` 系を繰り返す回数の上限。[8 章](08-book-maintenance.md) |
+| `book-leaf-recalculate-rounds` | `1` | 1 | `book leaf recalculate` 系を繰り返す回数の上限。[8 章](08-book-maintenance.md) |
 | `book-store-tasks` | `auto` | `auto` | 棋譜から book を育てるコマンドが、同時に学習する棋譜の数。[7 章](07-book-learning.md)・[9 章](09-large-books.md) |
 | `probcut-model` | `standard` | `standard` | 探索の枝刈りの方式。`refit` は実験用（探索の結果が変わります。配布物の README の v4.5.5-nikque.5 の節を読んでから使ってください） |
 

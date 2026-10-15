@@ -221,9 +221,10 @@ The commands that grow or maintain the book save their progress and their result
 | `.gam` | `book add` |
 | `.dev`, `.dev2`, `.dev3` | `book deviate`, `book deviate2`, `book deviate3` |
 | `.enh` | `book enhance` |
-| `.fill` | `book fill` |
+| `.fill`, `.fill2` | `book fill`, `book fill2` |
 | `.play` | `book play` |
-| `.leaf`, `.leaf2`, `.leaf3`, `.leaf4` | `book leaf-recalculate`, `2`, `3`, `4` |
+| `.leaf`, `.leaf2`, `.leaf3`, `.leaf4` | `book leaf recalculate`, `2`, `3`, `4` |
+| `.lexp` | `book leaf expand` |
 | `.mrg` | `book merge` (not written with the setting `book-merge-auto-save = off`) |
 | `.err` | `book correct` |
 | `.dep` | `book deepen` |

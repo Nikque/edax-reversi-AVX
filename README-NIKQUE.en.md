@@ -4,7 +4,16 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.2).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.13) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.3).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.14) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+
+## Changes in v4.5.5-eval2.3
+
+v4.5.5-eval2.2 now holds **the changes of v4.5.5-nikque.14** (the new commands `book fill2` and `book leaf expand`, the range of `book fill` and its speed-up, the new name `book leaf recalculate`, the new libedax functions: "Changes in v4.5.5-nikque.14" below). The evaluation function and `eval.dat` are those of v4.5.5-eval2.1 (the same file, SHA-256 `1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172`), and this series has no new change of its own.
+
+- The source differs from v4.5.5-nikque.14 by the same four files as v4.5.5-eval2.2 (`src/const.h`, `src/eval.c`, `src/eval.h`, `src/midgame.c`).
+- **The search results are those of v4.5.5-eval2.2**: with the `eval.dat` of this series, one-thread `-solve` (39 positions) gives the same depth, score, node count and principal variation as the distribution program of v4.5.5-eval2.2 (the 3 distribution executables of this version, 2,192,396 and 78,733,223 nodes). With the upstream `eval.dat`, the 4 Linux distribution executables give the results and node counts of v4.5.5-nikque.9 and later. libedax API tests: 204 checks, 0 failures (3 distribution DLLs, 3 Linux libraries). No complete test set and no book regression were run for this series alone (the source differs only by the 4 files above; the book code is that of v4.5.5-nikque.14).
+- **`book leaf-recalculate` is now `book leaf recalculate`** (a change of v4.5.5-nikque.14). Where the chapter of v4.5.5-eval2.2 below says `book leaf-recalculate`, write `book leaf recalculate` with this version.
+- **Not measured**: the speed and the strength of this version, and the time of the new commands with the `eval.dat` of this series.
 
 ## Changes in v4.5.5-eval2.2
 
@@ -150,6 +159,73 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+## Changes in v4.5.5-nikque.14 (planned, not published yet)
+
+New commands fill the gaps of a book and expand the leaves that are better than every link; both take the same range as `book deviate3`. `book fill` is faster (the book it makes changes), and `book leaf-recalculate` is renamed `book leaf recalculate`. The evaluation data `eval.dat`, the book file format and the search do not change. The books made by `book deviate`, `deviate2`, `deviate3`, by learning games, by `book fix`, the negamax and the commands that cut a book are the same as with v4.5.5-nikque.13.
+
+### New command: book fill2 (filling the gaps after the leaves)
+
+`book fill2 n` (n is 2 without a number) adds, like `book fill n`, the positions between a position of the book and a position of the book n moves later, but its first move is **only the leaf move** (the best move that is not a link yet). It fills the places (n = 2) where the position after the leaf is not in the book while the next one is. Such places appear when the same position is added from another line.
+
+### New option: a range for book fill and fill2 (book fill 2 5 5)
+
+With two more numbers, `book fill n X Y` and `book fill2 n X Y` only work in the range that `book deviate3 X Y` walks from the position on the board (X is the largest loss of one move and Y the largest total loss, as with `deviate2` and `deviate3`). `book fill` fills from every position of the walk, `book fill2` from the positions whose leaf `deviate3 X Y` would expand. The leaves of the solved positions are included (as with `deviate3`). Without the numbers, the whole book is used, as before.
+
+### New command: book leaf expand (expanding the leaves better than every link)
+
+`book leaf expand` expands, as `book deviate` does, the leaf of the positions **whose leaf score is greater than the score of each of their links** (the best move is still out of the book). An expansion can make the next leaf better than the links again, so it repeats until there is no such position. Positions without a link are not used. `book leaf expand X Y` only works in the range that `book deviate3 X Y` walks.
+
+Learning with Egaroucid goes wrong when a leaf score is greater than the best link score; this command fixes such positions on the side of the book.
+
+### Adding the missing links (book fill, fill2, leaf expand)
+
+Some positions have a **move that leads to a position already in the book, but that move is not a link**. They appear when the same position is added from another line, also with `book deviate` (which does not link the book again). The move can be the leaf move. On a test book of 56,000 positions made by `book deviate 2 8` of nikque.13: 609 positions (366 of them by their leaf move); on a real book of 672 million positions: 215,723 positions (132,753 by their leaf move), 201,536 of them (125,909 by their leaf move) in the range of `deviate3 5 5` (only counted). `book fix` links them, but the leaf searched again can be better than the links again.
+
+Every round of `book fill` and `fill2` first adds **every** missing link of these positions; `book leaf expand` adds the **leaf moves only** (`book fix` adds the others). A position whose leaf move became a link searches its leaf again. With a range, only in the range. The rounds go on until there is nothing left to link, fill or expand, so no such position is left in the range at the end (after `book fill` and `fill2`, no missing link is left in the range). Up to v4.5.5-nikque.13, `book fill` also added the missing links of the positions around the positions it filled from. A position from which positions are added is linked at once as well (when its leaf was the added move, the leaf is searched again to find the next one, as after an expansion of `book deviate`).
+
+### Faster book fill (the book it makes changes)
+
+The former `book fill` walked all the positions of the book with one thread and searched each added position one after the other. The new `book fill`, `fill2` and `leaf expand` use the same speed-ups as `book deviate`:
+
+- The positions to fill or expand from are found by several threads (the walk of `deviate3` with a range, the book read by bucket ranges without one). The book is not copied; only the places where positions are actually added are kept, each as its place in the book (8 bytes).
+- The searches are planned by batches and done at the same time, as with `book store`. How many run at the same time follows **`book-expand-tasks`**, as with `book deviate` (`1`: one after the other; `auto`: one thread per search, the threads that are done move to the remaining searches). The expansion of `book leaf expand` is the one of `book deviate`.
+- The progress is saved after the rounds given by `book-deviate-save-rounds`, as with `book deviate` (the former `book fill` saved after every round).
+
+Searches done at the same time can make a slightly different book than searches done one after the other (as with `book store`: each search of a batch starts from empty hash tables).
+
+`book fill` also works differently: an added position is a starting point of the next round (it was of the same round). A position from which positions are added is linked at once. **`book fill 1` (the default, without a number) adds no position and is unchanged** (it adds the missing links to the positions one move after the positions of the book; it makes the same book, checked).
+
+### book leaf-recalculate is renamed book leaf recalculate
+
+`book leaf-recalculate`, `leaf-recalculate2`, `3`, `4` are now `book leaf recalculate`, `leaf recalculate2`, `3`, `4` (the digit is written right after the word, as in `book leaf recalculate4 5 5`). **The names with a hyphen no longer work** ("Unknown book command"). The progress and result lines show the new name too (`Book leaf recalculate4 5 5...`). `book leaf expand` is two words as well. The setting `book-leaf-recalculate-rounds` keeps its name.
+
+### libedax
+
+New functions: `edax_book_fill2(depth)`, `edax_book_fill_limited(depth, move loss, total loss)`, `edax_book_fill2_limited(depth, move loss, total loss)`, `edax_book_leaf_expand()`, `edax_book_leaf_expand_limited(move loss, total loss)`. `edax_book_fill` runs the new `book fill`.
+
+### What behaves differently
+
+| Case | Up to v4.5.5-nikque.13 | v4.5.5-nikque.14 |
+|---|---|---|
+| `book fill n` (n of 2 or more) | One thread, one search after the other. An added position is a starting point of the same round. The position filled from is not linked. Saved after every round | Several threads find the positions; the searches run at the same time as `book-expand-tasks` says. An added position is used in the next round. The position filled from is linked, and its leaf searched again when it was that move. Each round first adds the missing links (every move). Saved as `book-deviate-save-rounds` says. **The book it makes changes** |
+| `book fill 1` (`book fill`) | Adds the missing links one move after the positions of the book | Same |
+| `book fill n X Y`, `book fill2`, `book leaf expand` | None | New commands and option |
+| `book leaf-recalculate`, `leaf-recalculate2`, `3`, `4` | This name; the lines show `Book leaf-recalculate4 ...` | `book leaf recalculate`, `leaf recalculate2`, `3`, `4`; the names with a hyphen no longer work; the lines show `Book leaf recalculate4 ...` |
+| A word that is not a number after `book fill` (`book fill abc`) | Same as `book fill` (distance 1) | Same (the range numbers are only words that start with a digit) |
+
+### Not changed, and good to know
+
+- The n of `book fill n` means **exactly n moves later** (as before). Gaps nearer than n moves are not filled. A gap of a single missing position is filled with n = 2. `book fill2 1` and a distance of 1 with a range (`book fill 1 5 5`, ...) do nothing, as they add no position ("nothing to fill"). Without a number, `book fill2` uses 2 (`book fill` still uses 1).
+- After `book fill` and `fill2`, there can be more positions whose leaf score is greater than the best link score (the links are added and the leaves searched again; 927 → 1,639 positions on the test book). `book leaf expand` expands them. To fill the gaps and to remove the leaves better than the links, run `fill2`, then `leaf expand`.
+- Time on a real book (672 million positions, level 18, 32 threads, `book-expand-tasks = auto`; **each command ran a few minutes and was stopped: the figures are the speed of these runs and estimates from the numbers of positions, no command was run to the end**): the linking step does about 3,500 positions a minute, for 125,909 positions in the range of `deviate3 5 5` (about 36 minutes) and 132,753 in the whole book. The next steps: `book leaf expand 5 5` about 2,900 positions a minute for 47,839 positions, `book fill2 2 5 5` about 2,240 a minute for 450,528, `book leaf expand` (whole book) about 3,800 a minute for 4,042,280. The estimates for the first round, with the linking step: `book leaf expand 5 5` about 55 minutes, `book fill2 2 5 5` about 4 hours, `book leaf expand` (whole book) about 18 hours, `book fill2 2` (whole book, 12,737,859 positions) about 4 days. `book fill 2 5 5` has 20,151,780 positions to fill from, and `book fill 2` (whole book) needs more than 21 minutes a round only to find them. The next rounds have fewer positions, but together they take longer than the first round.
+
+### Checks
+
+- On small books (level 4: 56,000 positions, and two books of 3,000 positions with passes and game ends), the new commands made the same book with 1 and 8 threads. After each command, a tool written apart from Edax counted none of these left in the range: gaps after the leaves, gaps after any move (`book fill`), leaves that lead to a position of the book without a link, leaves better than every link (`book leaf expand`).
+- `book fill 1` made the same book as v4.5.5-nikque.13 (two books). A test build (`BOOK_TEST_FILL_OLD`) runs `book fill n` with the code of v4.5.5-nikque.13 (same book on three books, checked).
+- Speed (level 12, 83,000 positions, 32 threads, almost nothing else running, two runs each): `book fill 2` 6.74 and 6.64 s against 94.8 and 93.2 s with v4.5.5-nikque.13 (about 14 times faster). `book fill2 2` 3.03 and 3.09 s at the same time (`auto`) against 39.6 and 40.1 s one after the other (`book-expand-tasks 1`); `book leaf expand` 1.67 and 1.64 s against 14.8 and 14.6 s.
+- libedax tests (with the new functions): 204 checks, 0 failures. GCC warnings (program and library): 0.
+- ThreadSanitizer (WSL, gcc 11, 8 threads, level 4, `book-expand-tasks 4`): the 24 cases of the new commands (2 books × 6 commands × 2 builds; one is a test build whose walks and filters use threads from 2 positions on) all ended normally. The reports in book.c are only of the harmless kinds known before (the "needs saving" flag of the negamax, the progress display). The only report with a new function in it is about the count of positions read, used by the progress display.
 
 ## Changes in v4.5.5-nikque.13
 
@@ -1405,7 +1481,7 @@ Each line of these files is `name = value`; `#` starts a comment (see "Easier co
 | `hash-table-size` | `auto` | Size of the search hash tables (below). |
 | `book-expand-tasks` | `auto` | Number of book positions expanded at the same time by the learning commands (below). |
 | `book-store-tasks` | `auto` | Number of games learned at the same time by `book store`, `book add` and `book learn` (and by edax_runner) (below). |
-| `book-leaf-recalculate-rounds` | `1` | Largest number of rounds of `book leaf-recalculate` (and `2`, `3`, `4`) (below). |
+| `book-leaf-recalculate-rounds` | `1` | Largest number of rounds of `book leaf recalculate` (and `2`, `3`, `4`) (below). |
 | `probcut-model` | `standard` | Error model of the search pruning (ProbCut); `refit` is experimental (see v4.5.5-nikque.5 above). |
 
 Other useful settings: `book-file` and `eval-file` (paths). A level given with `-l` on the command line (or `level` at the prompt) caps the search in timed games.
@@ -1467,7 +1543,7 @@ With `book-store-tasks = auto` (the bundled value, and the default without `conf
 
 ### book-leaf-recalculate-rounds
 
-With `book-leaf-recalculate-rounds = 1` (the bundled value, and the default without `config.ini`), `book leaf-recalculate` (and `2`, `3`, `4`) walks once. With n of 2 or more, it repeats "walk, search the leaves again, negamax" up to n times and stops after a round that changed no leaf. The scores that a round changes move the range that the command walks, so several rounds are needed to give a new score to every leaf of the range (see "Changes in v4.5.5-nikque.13" above).
+With `book-leaf-recalculate-rounds = 1` (the bundled value, and the default without `config.ini`), `book leaf recalculate` (and `2`, `3`, `4`) walks once. With n of 2 or more, it repeats "walk, search the leaves again, negamax" up to n times and stops after a round that changed no leaf. The scores that a round changes move the range that the command walks, so several rounds are needed to give a new score to every leaf of the range (see "Changes in v4.5.5-nikque.13" above).
 
 ### book-store-auto-save
 

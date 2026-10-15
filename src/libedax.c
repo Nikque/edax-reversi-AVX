@@ -2026,7 +2026,7 @@ LIBEDAX_API void edax_book_deviate3(int move_loss, int total_loss)
 	lib_book_end(book);
 }
 
-/** book leaf-recalculate commands (the caller checked g_ui) */
+/** book leaf recalculate commands (the caller checked g_ui) */
 static void lib_book_leaf_recalculate(const int kind, int x, int y)
 {
 	Book *book = lib_book_begin_change();
@@ -2044,7 +2044,7 @@ static void lib_book_leaf_recalculate(const int kind, int x, int y)
 }
 
 /**
- * @brief book leaf-recalculate command: search again the leaves that book deviate would expand (one pass).
+ * @brief book leaf recalculate command: search again the leaves that book deviate would expand (one pass).
  * @param relative_error relative error.
  * @param absolute_error absolute error.
  */
@@ -2055,7 +2055,7 @@ LIBEDAX_API void edax_book_leaf_recalculate(int relative_error, int absolute_err
 }
 
 /**
- * @brief book leaf-recalculate2 command: search again the leaves that book deviate2 would expand (one pass).
+ * @brief book leaf recalculate2 command: search again the leaves that book deviate2 would expand (one pass).
  * @param move_loss per-move loss limit.
  * @param total_loss cumulative loss limit for both players.
  */
@@ -2066,7 +2066,7 @@ LIBEDAX_API void edax_book_leaf_recalculate2(int move_loss, int total_loss)
 }
 
 /**
- * @brief book leaf-recalculate3 command: search again the leaves of all the positions that book deviate walks.
+ * @brief book leaf recalculate3 command: search again the leaves of all the positions that book deviate walks.
  * @param relative_error relative error.
  * @param absolute_error absolute error.
  */
@@ -2077,7 +2077,7 @@ LIBEDAX_API void edax_book_leaf_recalculate3(int relative_error, int absolute_er
 }
 
 /**
- * @brief book leaf-recalculate4 command: search again the leaves of all the positions that book deviate2 walks.
+ * @brief book leaf recalculate4 command: search again the leaves of all the positions that book deviate2 walks.
  * @param move_loss per-move loss limit.
  * @param total_loss cumulative loss limit for both players.
  */
@@ -2106,21 +2106,101 @@ LIBEDAX_API void edax_book_enhance(int midgame_error, int endcut_error)
 	lib_book_end(book);
 }
 
+/** book fill and book fill2 commands, adding positions by filling holes in the book (the caller checked g_ui) */
+static void lib_book_fill(int fill_depth, const bool leaf_only, const bool limited, int move_loss, int total_loss)
+{
+	Book *book = lib_book_begin_change();
+
+	BOUND(fill_depth, 1, 61, "fill depth");
+	if (limited) {
+		BOUND(move_loss, 0, 129, "per-move loss");
+		BOUND(total_loss, 0, 7740, "cumulative loss");
+		book_fill_walk(book, &g_ui->play->board, fill_depth, leaf_only, move_loss, total_loss);
+	} else if (leaf_only) {
+		book_fill2(book, fill_depth);
+	} else {
+		book_fill(book, fill_depth);
+	}
+
+	lib_book_end(book);
+}
+
 /**
  * @brief book fill command.
  * @param fill_depth fill depth.
  */
 LIBEDAX_API void edax_book_fill(int fill_depth)
 {
-	Book *book;
 	if (g_ui == NULL) return;
-	book = lib_book_begin_change();
+	lib_book_fill(fill_depth, false, false, 0, 0);
+}
 
-	// add position by filling hole in the book
-	BOUND(fill_depth, 1, 61, "fill depth");
-	book_fill(book, fill_depth);
+/**
+ * @brief book fill2 command: fill through the leaves of all the positions.
+ * @param fill_depth fill depth.
+ */
+LIBEDAX_API void edax_book_fill2(int fill_depth)
+{
+	if (g_ui == NULL) return;
+	lib_book_fill(fill_depth, true, false, 0, 0);
+}
+
+/**
+ * @brief book fill <depth> <move loss> <total loss> command: fill from the positions of the walk of book deviate3.
+ * @param fill_depth fill depth.
+ * @param move_loss per-move loss limit.
+ * @param total_loss cumulative loss limit for both players.
+ */
+LIBEDAX_API void edax_book_fill_limited(int fill_depth, int move_loss, int total_loss)
+{
+	if (g_ui == NULL) return;
+	lib_book_fill(fill_depth, false, true, move_loss, total_loss);
+}
+
+/**
+ * @brief book fill2 <depth> <move loss> <total loss> command: fill through the leaves that book deviate3 would expand.
+ * @param fill_depth fill depth.
+ * @param move_loss per-move loss limit.
+ * @param total_loss cumulative loss limit for both players.
+ */
+LIBEDAX_API void edax_book_fill2_limited(int fill_depth, int move_loss, int total_loss)
+{
+	if (g_ui == NULL) return;
+	lib_book_fill(fill_depth, true, true, move_loss, total_loss);
+}
+
+/** book leaf expand commands (the caller checked g_ui) */
+static void lib_book_leaf_expand(const bool limited, int move_loss, int total_loss)
+{
+	Book *book = lib_book_begin_change();
+
+	if (limited) {
+		BOUND(move_loss, 0, 129, "per-move loss");
+		BOUND(total_loss, 0, 7740, "cumulative loss");
+	}
+	book_leaf_expand(book, &g_ui->play->board, limited, move_loss, total_loss);
 
 	lib_book_end(book);
+}
+
+/**
+ * @brief book leaf expand command: expand the leaves better than every link of their position, in the whole book.
+ */
+LIBEDAX_API void edax_book_leaf_expand(void)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_expand(false, 0, 0);
+}
+
+/**
+ * @brief book leaf expand <move loss> <total loss> command: the same, in the walk of book deviate3 only.
+ * @param move_loss per-move loss limit.
+ * @param total_loss cumulative loss limit for both players.
+ */
+LIBEDAX_API void edax_book_leaf_expand_limited(int move_loss, int total_loss)
+{
+	if (g_ui == NULL) return;
+	lib_book_leaf_expand(true, move_loss, total_loss);
 }
 
 /**

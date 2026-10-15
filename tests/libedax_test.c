@@ -549,6 +549,23 @@ int main(int argc, char **argv)
 			}
 		}
 	}
+	{
+		// book fill2, book fill / fill2 with loss limits, book leaf expand: positions may be added, none is removed
+		void (*fill2)(int) = (void (*)(int)) optional(dll, "edax_book_fill2");
+		void (*fill_limited)(int, int, int) = (void (*)(int, int, int)) optional(dll, "edax_book_fill_limited");
+		void (*fill2_limited)(int, int, int) = (void (*)(int, int, int)) optional(dll, "edax_book_fill2_limited");
+		void (*leaf_expand)(void) = (void (*)(void)) optional(dll, "edax_book_leaf_expand");
+		Deviate leaf_expand_limited = (Deviate) optional(dll, "edax_book_leaf_expand_limited");
+		if (!original) CHECK(fill2 && fill_limited && fill2_limited && leaf_expand && leaf_expand_limited);
+		edax_book_info(&info);
+		n = info.n_nodes;
+		if (fill2) { fill2(2); edax_book_info(&info); CHECK(info.n_nodes >= n); n = info.n_nodes; }
+		if (fill_limited) { fill_limited(2, 2, 4); edax_book_info(&info); CHECK(info.n_nodes >= n); n = info.n_nodes; }
+		if (fill2_limited) { fill2_limited(2, 2, 4); edax_book_info(&info); CHECK(info.n_nodes >= n); n = info.n_nodes; }
+		if (leaf_expand_limited) { leaf_expand_limited(2, 4); edax_book_info(&info); CHECK(info.n_nodes >= n); n = info.n_nodes; }
+		if (leaf_expand) { leaf_expand(); edax_book_info(&info); CHECK(info.n_nodes >= n); }
+		printf("after fill2, fill and fill2 2 2 4, leaf expand 2 4 and leaf expand: %d positions\n", info.n_nodes);
+	}
 	edax_book_enhance(4, 4);
 	edax_book_fill(1);
 	edax_book_fix();

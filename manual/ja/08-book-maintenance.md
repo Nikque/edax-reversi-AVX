@@ -16,7 +16,7 @@
 | book を浅くする・ある定石の先だけ残す | `book depth`＋`book subtree` | 8.4 |
 | 悪い手ばかりの変化を捨てる | `book prune` | 8.4 |
 | 文字のファイルに書き出す・読み戻す | `book export`・`book import` | 8.5 |
-| `eval.dat` を替えた後などに、Leaf の評価値を計算し直す | `book leaf-recalculate` 系 | 8.6 |
+| `eval.dat` を替えた後などに、Leaf の評価値を計算し直す | `book leaf recalculate` 系 | 8.6 |
 | 完全読みの局面の値を確かめ直す | `book correct` | 8.7 |
 | book から棋譜や問題を取り出す | `book extract`・`book problem` | 8.8 |
 
@@ -32,7 +32,7 @@ Sorting book...done>
 
 初期局面から Link をたどって、全部の局面の評価値を、下の局面の値から計算し直します。その後、各局面の手を良い順に並べ替えます。
 
-- book を変えるコマンドは、自分で negamax を行うので、ふつうは自分で打つ必要はありません。打つのは、途中経過のファイル（とくに `book leaf-recalculate` の途中の保存）を読み込んだ後などです。
+- book を変えるコマンドは、自分で negamax を行うので、ふつうは自分で打つ必要はありません。打つのは、途中経過のファイル（とくに `book leaf recalculate` の途中の保存）を読み込んだ後などです。
 - 初期局面から Link でたどれない局面（どの局面からも Link が張られていない、はぐれた局面）は、計算し直されません。
 
 ### book fix
@@ -187,16 +187,16 @@ Positions: 1269 (moves = 1296 links + 1265 leaves);
 - **v4.5.5-nikque.12 までの版で取り込むと**、深さは、それより 1 つ大きくなります（深さ 12 まで育った book なら `Depth: 13`）。これらの版は、新しい版が書き出したファイルの最後の行を読めないので、`WARNING: wrong board: % depth 12` と `WARNING: 1 lines of … hold no position: skipped` を表示して、その行を飛ばします（局面は、全部読まれます）。
 - 大きな book では、文字のファイルは book のファイルよりずっと大きくなります（上の小さい book で、99KB に対して 170KB）。ふだんの保存には `book save` を使ってください。
 
-## 8.6 Leaf の評価値を計算し直す：book leaf-recalculate
+## 8.6 Leaf の評価値を計算し直す：book leaf recalculate
 
-book の中の Leaf の評価値は、その Leaf を作ったときの探索の値です。`eval.dat` を別のものに替えると、新しく足す局面は新しい評価関数の値になりますが、**前からある Leaf は古い値のまま**です。`book leaf-recalculate` の仲間は、Leaf を探索し直して、今の評価関数の値に置き換えます。局面は足しません。
+book の中の Leaf の評価値は、その Leaf を作ったときの探索の値です。`eval.dat` を別のものに替えると、新しく足す局面は新しい評価関数の値になりますが、**前からある Leaf は古い値のまま**です。`book leaf recalculate` の仲間は、Leaf を探索し直して、今の評価関数の値に置き換えます。局面は足しません。
 
 | コマンド | たどる範囲 | 計算し直す Leaf |
 |---|---|---|
-| `book leaf-recalculate X Y` | `book deviate X Y` と同じ | `book deviate X Y` が「広げる」と選ぶ Leaf |
-| `book leaf-recalculate2 X Y` | `book deviate2 X Y` と同じ | `book deviate2 X Y` が「広げる」と選ぶ Leaf |
-| `book leaf-recalculate3 X Y` | `book deviate X Y` と同じ | たどった局面の全部の Leaf |
-| `book leaf-recalculate4 X Y` | `book deviate2 X Y` と同じ | たどった局面の全部の Leaf |
+| `book leaf recalculate X Y` | `book deviate X Y` と同じ | `book deviate X Y` が「広げる」と選ぶ Leaf |
+| `book leaf recalculate2 X Y` | `book deviate2 X Y` と同じ | `book deviate2 X Y` が「広げる」と選ぶ Leaf |
+| `book leaf recalculate3 X Y` | `book deviate X Y` と同じ | たどった局面の全部の Leaf |
+| `book leaf recalculate4 X Y` | `book deviate2 X Y` と同じ | たどった局面の全部の Leaf |
 
 - X・Y の意味と、今の盤から始めることは、対応する `book deviate`・`book deviate2` と同じです（[7.3](07-book-learning.md)）。
 - **完全読みの局面の Leaf は、計算し直しません**（評価関数によらず同じ値だからです）。Leaf のない局面（全部の手が Link）も対象外です。
@@ -207,11 +207,11 @@ book の中の Leaf の評価値は、その Leaf を作ったときの探索の
 表示の例（小さい book）：
 
 ```
->book leaf-recalculate4 2 4
-Book leaf-recalculate4 2 4:
-Book leaf-recalculate4 123 todo
-Book leaf-recalculate4...
-Book leaf-recalculate4 2 4...finished: 123 leaves, 0 scores changed (0 up, 0 down, largest +0 / -0), 0 moves changed
+>book leaf recalculate4 2 4
+Book leaf recalculate4 2 4:
+Book leaf recalculate4 123 todo
+Book leaf recalculate4...
+Book leaf recalculate4 2 4...finished: 123 leaves, 0 scores changed (0 up, 0 down, largest +0 / -0), 0 moves changed
 ```
 
 最後の行は、計算し直した Leaf の数、評価値が変わった数（上がった数・下がった数・いちばん大きな変化）、手が変わった数です。
@@ -222,7 +222,7 @@ Book leaf-recalculate4 2 4...finished: 123 leaves, 0 scores changed (0 up, 0 dow
 
 設定 `book-leaf-recalculate-rounds = n`（v4.5.5-nikque.13 から）にすると、「たどる → 計算し直す → negamax」を最大 n 回繰り返し、**Leaf が 1 つも変わらなかった回で終わります**。既定は 1 です。
 
-- 配布物の README の例（649 万局面の book、`book leaf-recalculate4 1 1`）：1 回ずつ繰り返すと、対象は 4,066 → 780 → 247 → 485 → 386、評価値が変わった数は 1,419 → 411 → 42 → 46 → 0。`book-leaf-recalculate-rounds = 10` にすると、5 回で終わりました。
+- 配布物の README の例（649 万局面の book、`book leaf recalculate4 1 1`）：1 回ずつ繰り返すと、対象は 4,066 → 780 → 247 → 485 → 386、評価値が変わった数は 1,419 → 411 → 42 → 46 → 0。`book-leaf-recalculate-rounds = 10` にすると、5 回で終わりました。
 - 複数スレッドの探索は実行ごとに値が少し変わるので、「変わらなかった回」が来ないことがあります。そのときは n 回で終わります。
 - **`eval.dat` を替えていなくても、計算し直すと値が変わる Leaf があります**（作ったときの探索と、後から単独で行う探索では、条件が少し違うため）。くわしい数字は、README の v4.5.5-nikque.12・13 の節にあります。
 
@@ -230,10 +230,10 @@ Book leaf-recalculate4 2 4...finished: 123 leaves, 0 scores changed (0 up, 0 dow
 
 1. book のファイルの写しを取る。
 2. 新しい `eval.dat` で Edax を起動する（`-eval-file` か、ファイルの置き換え）。
-3. `init` の後、`book leaf-recalculate4 X Y`（X・Y は、ふだん `book deviate2` に使っている数）を打つ。
+3. `init` の後、`book leaf recalculate4 X Y`（X・Y は、ふだん `book deviate2` に使っている数）を打つ。
 4. 終わったら `book info`・`book show` で確かめ、`book save` で保存する。
 
-時間は、Leaf の数に比例します。README の実測（6 億 6,162 万局面の book、level 18、32 スレッド）では、`book leaf-recalculate2 5 5` の対象が 275 万件で、探索の速さは 1 分に約 2,350 件でした（全部を行った時間は測られていません）。
+時間は、Leaf の数に比例します。README の実測（6 億 6,162 万局面の book、level 18、32 スレッド）では、`book leaf recalculate2 5 5` の対象が 275 万件で、探索の速さは 1 分に約 2,350 件でした（全部を行った時間は測られていません）。
 
 ## 8.7 そのほかの保守
 
@@ -299,7 +299,7 @@ book の中から、空きが 52 で、最善の手が 1 つに決まってい�
 | `book subtree` | 今の盤の局面から先だけを残す |
 | `book prune` | 片方が最善を打つ変化だけを残す |
 | `book export ファイル`・`book import ファイル` | 文字のファイルに書き出す・読み戻す |
-| `book leaf-recalculate`（`2`・`3`・`4`）`X Y` | Leaf の評価値を計算し直す |
+| `book leaf recalculate`（`2`・`3`・`4`）`X Y` | Leaf の評価値を計算し直す |
 | `book correct` | 完全読みの局面を確かめ直す |
 | `book deepen` | （使わない） |
 | `book extract ファイル` | 最善の手順を棋譜のファイルに書き出す |
