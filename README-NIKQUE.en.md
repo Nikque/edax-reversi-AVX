@@ -6,13 +6,34 @@ This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5c
 
 ## Changes in v4.5.5-nikque.16
 
-After v4.5.5-nikque.15 was published, a second cross-check of the source found more defects (most of them from upstream); they are fixed, with a few points of speed and memory. `eval.dat`, the book file format and the search results do not change (fforum-20-39 gives the same depths, scores, node counts and lines as v4.5.5-nikque.15). On **a correct book**, `book deviate` and the like, game learning, the `book fill` commands, `book fix`, the negamax and the commands that cut a book make the same book as v4.5.5-nikque.15. What changes is the inputs that failed or crashed before, and the points listed in "What behaves differently".
+A second source cross-check and the additional checks below found defects after v4.5.5-nikque.15. `eval.dat` and the book format are unchanged. On Windows PGO v4, all 20 fforum-20-39 depths and scores match at 32 and 8 threads, twice per version. Strict book byte equality did not pass because of save dates and S3 variation; 11 multithreaded conditions exceeded the difference observed between two old runs. These limits are reported, rather than calling every check a pass. See the [Japanese validation report](manual/ja/validation-nikque16.md).
 
 ### Additional Windows and Linux fixes (2026-10-16)
 
 - Cassio: EOF after a final command without a newline ended the input thread without notifying the engine thread, which kept waiting. EOF is now queued after that final command. Seven input conditions pass on Windows and Linux, including Linux with ThreadSanitizer.
 - MSVC 19.44, 32-bit AVX2 with `/O2 /GL`: the generated code reused a CRC hash result as part of the board in a later legal-move calculation, producing wrong scores and stack overflow. The hash function is kept out of line only for this configuration. After the fix, 96 exact positions match an independent solver, and all 20 fforum-20-39 depths, scores, node counts and lines match the working 64-bit build (77,639,567 nodes in total).
-- All 42 existing regression cases pass in the updated normal Windows build. Rebuilding the PGO distribution binaries, comparing multithreaded results and measuring speed on an idle PC are still pending.
+- The 42 normal-build regression cases pass. All five Windows PGO executables pass the 20-position depth/score comparison and seven Cassio EOF cases each. The three DLLs pass 204 checks each. The timed v4 executable is unchanged, checked by SHA-256.
+
+### Windows PGO comparison with v15 (2026-10-16)
+
+Ryzen 9 9950X, 32 threads, 192 GiB, Windows 11 Pro build 26300, VS2022 17.14.42. Each case has warm-ups, then ABBAABBA (four per version). A is v15; B source is `19e99cb1c16ade6f4e1a4c6b9c10f82cd219c09e`. Ratios are means of four paired B/A times; ± is sample SD. Times cover the whole process, including startup and I/O.
+
+| 条件 / Case | A平均 / mean s | B平均 / mean s | B/A ± SD |
+|---|---|---|---|
+| Endgame, 1 thread | 1.005078 | 1.011058 | 1.0060 ± 0.0039 |
+| Endgame, 32 threads | 0.427658 | 0.429263 | 1.0042 ± 0.0258 |
+| Midgame, level 18 | 0.973384 | 0.976649 | 1.0034 ± 0.0166 |
+| Midgame, level 21 | 4.046103 | 4.089137 | 1.0106 ± 0.0326 |
+| Learn games, n=1 | 119.052166 | 119.752446 | 1.0059 ± 0.0064 |
+| Learn games, n=8 | 20.200064 | 20.333607 | 1.0067 ± 0.0137 |
+| book fill 2 | 6.831650 | 6.748804 | 0.9881 ± 0.0165 |
+| book fill2 2 | 3.109296 | 3.137015 | 1.0090 ± 0.0117 |
+| book leaf expand | 1.683624 | 1.719111 | 1.0210 ± 0.0158 |
+| base unique | 1.439397 | 0.146957 | 0.1021 ± 0.0031 |
+
+Leaf expand was initially 2.10% slower; the additional ABBA gave 1.0094±0.0009 (0.94% slower). No other initial case exceeded 2%. Other CPU load recorded during runs was 0.34–7.42%; these are not guaranteed fully idle measurements. Peak working sets and all individual times are in the report.
+
+The 51,106-game base has no final newline: A outputs 51,105 games, B 51,106; B's extra game is the last input line. The approximately 9.8-fold improvement is for the CLI process, not a new measurement of the previous 0.012-second function-only figure. The 29 GB book was not used. See the report for byte mismatches, multithreaded variation and procedure incidents.
 
 ### Fixes
 
@@ -71,7 +92,7 @@ After v4.5.5-nikque.15 was published, a second cross-check of the source found m
 ### Not changed, and good to know
 
 - The real book (formerly called the 34 GB book) was not used, as the user requested.
-- The updated Windows PGO distribution builds, the macOS build and a real Android (arm64) device are not checked yet. aarch64 was checked with qemu before these additional fixes.
+- All five Windows PGO executables and three DLLs have been rebuilt and checked. Linux, macOS, Android and Windows ARM64 will be rebuilt in CI. Android and Windows ARM64 have not been checked on physical devices.
 - The `MOVE_GENERATOR_NEON` defect is not in the default builds (aarch64 uses another method by default).
 - Some speed points were measured and left as they are because their effect is small: the creation of the helper threads of parallel searches (about 18,000 creations take 47 ms), and the like.
 - The functions of libedax are still called from one thread, one after the other; let one process write a book file (added to "To use it from another program" below). Since 5.3.0+nikque.10, a second edax_runner started in the same folder stops.

@@ -4,9 +4,9 @@
 
 ## v4.5.5-nikque.16
 
-v4.5.5-nikque.15 の公開の後の 2 回目のソースの読み直し（クロスチェック）で見つかった不具合を直しました（多くは上流からのものです）：ハッシュ表のロックの選び方、棋譜のファイルの最後の棋譜を読まない、`base correct`・`base complete` の途中で止まると棋譜のファイルが壊れる、壊れた棋譜・Wthor ファイル・使えない盤面（FEN・setboard・libedax）を読み込む、手の数が奇数の棋譜の点数の符号、`book stats`・`book depth` の範囲、時間・座標・`mode` の読み取り、入力のスレッドと終了の競合、XBoard・Cassio・GGS の不具合、`MOVE_GENERATOR_NEON` を指定した aarch64 ビルドの石の返し方、32 ビット・統計用ビルド、eval_builder などの道具。`base unique`・`base save`・飽和した局面の数え直しを速くしました。libedax に関数 `edax_book_keep_unread_file` を足しました（読めなかったbookを `.damaged` として残します）。`eval.dat`・bookのファイル形式・探索の結果は変わりません。正しいbookでできるbookは v4.5.5-nikque.15 と同じです。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+v4.5.5-nikque.15 の公開の後の 2 回目のソースの読み直し（クロスチェック）で見つかった不具合を直しました（多くは上流からのものです）：ハッシュ表のロックの選び方、棋譜のファイルの最後の棋譜を読まない、`base correct`・`base complete` の途中で止まると棋譜のファイルが壊れる、壊れた棋譜・Wthor ファイル・使えない盤面（FEN・setboard・libedax）を読み込む、手の数が奇数の棋譜の点数の符号、`book stats`・`book depth` の範囲、時間・座標・`mode` の読み取り、入力のスレッドと終了の競合、XBoard・Cassio・GGS の不具合、`MOVE_GENERATOR_NEON` を指定した aarch64 ビルドの石の返し方、32 ビット・統計用ビルド、eval_builder などの道具。`base unique`・`base save`・飽和した局面の数え直しを速くしました。libedax に関数 `edax_book_keep_unread_file` を足しました（読めなかったbookを `.damaged` として残します）。`eval.dat`・bookのファイル形式・探索の結果は変わりません。bookの厳密なバイト一致と多数スレッドの揺れの条件は未達の項目があり、比較報告に差を記録しています。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
-追加修正（2026-10-16）：Cassioで改行なしの最終行の後にEOFになると終了しない不具合を直しました。MSVC 19.44の32ビットAVX2構成では、CRCハッシュをインライン化した生成コードにより評価値の誤り・スタックオーバーフローが再現したため、この構成だけインライン化を止めました。通常ビルドの回帰試験と再現試験は通過しました。追加修正後のPGOビルドと速度比較は未実施です。
+追加修正（2026-10-16）：Cassioで改行なしの最終行の後にEOFになると終了しない不具合を直しました。MSVC 19.44の32ビットAVX2構成では、CRCハッシュをインライン化した生成コードにより評価値の誤り・スタックオーバーフローが再現したため、この構成だけインライン化を止めました。通常ビルドの回帰試験と再現試験は通過しました。Windows PGO5種・DLL3種を再作成して検証し、速度比較を完了しました。base uniqueはCLI全体で約9.8倍速。leaf expandの初回2.10%の遅れは追加ABBAで0.94%でした。[比較報告](manual/ja/validation-nikque16.md)には不一致・保存失敗・手順の訂正も記載しています。
 
 ## v4.5.5-nikque.15
 
