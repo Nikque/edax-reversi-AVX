@@ -495,6 +495,16 @@ static bool book_stream_flush(BookStream *s)
 	return ok;
 }
 
+/** @return true if the moves and the level read from a book file can be those of a position. */
+static bool position_read_is_sound(const int n_link, const Link *links, const Link *leaf, const int level)
+{
+	int i;
+
+	if (level > 60 || n_link + (leaf->move != NOMOVE) > MAX_MOVE) return false;
+	for (i = 0; i < n_link; ++i) if (links[i].move > PASS) return false;
+	return leaf->move <= NOMOVE;
+}
+
 /**
  * @brief Read a position.
  *
@@ -528,6 +538,10 @@ static bool position_read(Position *position, BookStream *s)
 
 	if (!book_stream_read(s, links, sizeof (Link) * h[38])) return false;
 	if (!book_stream_read(s, &position->leaf, sizeof (Link))) return false;
+	// a damaged file (or one of another tool): more moves than a position has, a level above 60 (an index of
+	// LEVEL[][]), a move that is no square: the book is not loaded (the lists of moves and the tables would be
+	// read or written out of bounds)
+	if (!position_read_is_sound(h[38], links, &position->leaf, position->level)) return false;
 
 	position->n_link = 0;
 	if (!position_set_links(position, links, h[38])) {
@@ -2387,7 +2401,7 @@ static int book_add(Book *book, const Position *p)
 }
 
 /**
- * @brief Remove a position from the book, by its place.
+ * @brief Take a position out of the book, by its place (its links are not released: see book_remove_at).
  *
  * The position is removed from the array that holds it, whatever its hash code tells: a position whose
  * board was changed by book fix (made unique) may be in another bucket than its board's, and searching
@@ -2397,14 +2411,20 @@ static int book_add(Book *book, const Position *p)
  * @param a Array that holds the position.
  * @param i Index of the position in the array.
  */
-static void book_remove_at(Book *book, PositionArray *a, const int i)
+static void book_detach_at(Book *book, PositionArray *a, const int i)
 {
 	if (a->size < 0) ++book->pool_unused; // (see book_pool_reclaim)
-	position_free(a->positions + i);
 	memmove(a->positions + i, a->positions + i + 1, (size_t) (a->n - i - 1) * sizeof (Position));
 	--a->n;
 	--book->n_nodes;
 	--book->stats.n_nodes;
+}
+
+/** @brief Remove a position from the book, by its place (see book_detach_at). */
+static void book_remove_at(Book *book, PositionArray *a, const int i)
+{
+	position_free(a->positions + i);
+	book_detach_at(book, a, i);
 }
 
 /** @return the place of a position in the book: bucket << 32 | index in the bucket. */
@@ -2944,7 +2964,7 @@ bool book_load(Book *book, const char *file)
 		pooling = (pool != NULL);
 		for (i = 0; i < expected; ++i) {
 			if (!position_read(&p, &stream)) {
-				error("Truncated opening book %s at position %u/%u\n", file, i, expected);
+				error("Truncated or damaged opening book %s at position %u/%u\n", file, i, expected);
 				goto book_load_failed;
 			}
 			if (pooling) {
@@ -3068,14 +3088,20 @@ bool book_import(Book *book, const char *file)
 		// a line that holds no position is skipped (the first ones are explained), not the rest of the file
 		while ((r = position_import(&position, f, n_wrong < 10, &depth)) >= 0) {
 			if (r == 0) { ++n_wrong; continue; }
-			book_add(book, &position);
+			position_unique(&position); // (a board written in another orientation: in the bucket of its unique board, where it is looked for)
+			if (book_add(book, &position) < 0) break; // (memory exhausted: book->failed)
+			// more buckets as the book grows (each search scans a bucket): as many as book_load() makes
+			// (once at each step: if the memory is exhausted, the buckets are kept)
+			if ((long long) book->n_nodes == (long long) book->n * 16 + 1) book_grow_buckets(book, 2LL * book->n_nodes);
 			if (book->n_nodes % BOOK_INFO_RESOLUTION == 0) bprint("importing book from %s... %u positions\r", file, book->n_nodes);
 		}
 		bprint("importing book from %s... %u positions", file, book->n_nodes);
 		if (n_wrong) warn("%lld lines of %s hold no position: skipped\n", n_wrong, file);
-		if (book->n_nodes == 0) {
+		if (book->n_nodes == 0 || book->failed || ferror(f)) { // a part of the file only is not imported: the current book is kept
 			bprint("\n");
-			error("no position found in \"%s\"\n", file);
+			if (book->failed) error("not enough memory to import \"%s\"\n", file);
+			else if (ferror(f)) error("cannot read \"%s\"\n", file);
+			else error("no position found in \"%s\"\n", file);
 			fclose(f);
 			book_free(book);
 			memset(book, 0, sizeof *book);
@@ -4095,7 +4121,7 @@ bool book_merge_file(Book *dest, const char *file)
 		for (i = 0; i < expected; ++i) {
 			if ((i & 0xffff) == 0 && i && book_progress_due(&next)) bprint("%s book %s...%u/%u positions\r", pass ? "Merging" : "Checking", file, i, expected);
 			if (!position_read(&p, &stream)) {
-				error("Truncated opening book %s at position %u/%u\n", file, i, expected);
+				error("Truncated or damaged opening book %s at position %u/%u\n", file, i, expected);
 				goto merge_end;
 			}
 			if (pass) {
@@ -4262,6 +4288,66 @@ static void book_fix_one_by_one(Book *book, int b, int k, int *n_fix, int *n_mis
 	if (progress) clear_line();
 }
 
+/** Find the positions whose board is not the unique one (see book_fix_unique_boards). */
+static void book_fix_unique_find(BookTask *task)
+{
+	Book *book = task->book;
+	Board unique;
+	int b, k;
+
+	for (b = task->first; b < task->last; ++b) {
+		const PositionArray *a = book->array + b;
+		for (k = 0; k < a->n; ++k) {
+			board_unique(&a->positions[k].board, &unique);
+			if (!board_equal(&unique, &a->positions[k].board)) book_task_push(task, TASK_ITEM(b, k, 0));
+		}
+		book_task_add_done(task, a->n);
+	}
+}
+
+/**
+ * @brief Turn the positions whose board is not the unique one (a book file of another tool) to their unique
+ * board, and move them to the bucket of that board, where they are looked for.
+ *
+ * Their links and leaf turn with the board (they are not searched again). When the book already holds the
+ * unique board, the position that was there is kept and the one moved is left out; of two positions moved to
+ * the same board, the first in the order of the book is kept.
+ *
+ * @param book opening book.
+ * @param n_fix Number of fixed positions (updated).
+ */
+static void book_fix_unique_boards(Book *book, int *n_fix)
+{
+	BookTask task[MAX_THREADS];
+	const int n_tasks = book_parallel(book, book_fix_unique_find, task, NULL);
+	Position *moved = NULL;
+	long long n = 0, j;
+	int i;
+	bool oom = false;
+
+	for (i = 0; i < n_tasks; ++i) { n += task[i].n; oom = oom || task[i].oom; }
+	if (n > 0 && !oom) moved = (Position*) malloc((size_t) n * sizeof *moved);
+	if (moved != NULL) {
+		long long m = n;
+		// taken out from the end, so that the places of the positions still to take do not change
+		for (i = n_tasks - 1; i >= 0; --i) for (j = task[i].n - 1; j >= 0; --j) {
+			const unsigned long long item = task[i].item[j];
+			PositionArray *a = book->array + TASK_BUCKET(item);
+			moved[--m] = a->positions[TASK_INDEX(item)];
+			book_detach_at(book, a, TASK_INDEX(item));
+		}
+		for (j = 0; j < n; ++j) {
+			position_unique(moved + j);
+			if (book_probe(book, &moved[j].board) != NULL || book_add(book, moved + j) <= 0) position_free(moved + j);
+			++*n_fix;
+		}
+		free(moved);
+	} else if (n > 0) {
+		warn("not enough memory to move the positions whose board is not unique\n");
+	}
+	book_tasks_free(task, n_tasks);
+}
+
 /**
  * @brief Fix a book.
  *
@@ -4280,6 +4366,7 @@ void book_fix(Book *book)
 	int n_fix = 0, n_missing = 0;
 
 	bprint("Fixing book...\r");
+	book_fix_unique_boards(book, &n_fix); // (first: the other positions may link to them)
 	if (book_n_task() > 1) {
 		BookTask task[MAX_THREADS];
 		const int n = book_parallel(book, book_fix_find, task, "Fixing book");
