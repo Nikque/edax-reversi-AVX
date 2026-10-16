@@ -4,6 +4,56 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.17
+
+Two new settings make a book the same from a run to the next. **The default behaviour is unchanged**: without them, books are made as with v4.5.5-nikque.16, at the same speed and with the same memory. `eval.dat`, the book file format and the search are unchanged.
+
+### Why a book changed from a run to the next
+
+In the comparison of v4.5.5-nikque.16, the same commands with several threads gave slightly different books from a run to the next (also with the old version). Two causes were confirmed; both were already in the old version:
+
+- **The random choice among book moves of equal score (even with `book-randomness = 0`) is seeded from the clock.** `book learn` learns other games from a run to the next.
+- **When positions are expanded at the same time (`book-expand-tasks` 2 or more, `auto` included), the links of a new position are the ones of the book at that moment, with the results that other threads put into it first.** Which ones come first depends on the order in which the searches end, so the input of the searches itself changes from a run to the next. The order of the records of the saved file follows the order of the insertions too.
+
+### New settings
+
+| Setting | Values | Default | Behaviour |
+|---|---|---|---|
+| `book-seed` | 0 to 2^64 - 1, `auto` | `auto` (the clock) | Seed of the random numbers of the book. With a number, `book learn` learns the same games from a run to the next |
+| `book-reproducible` | `on` / `off` | `off` | `on`: every search of the book commands has one thread, and the results of the positions expanded at the same time are put into the book in the order they were chosen. Before that, an expansion whose new position got other links since it was searched is searched again |
+
+- With `book-reproducible = on`, `book deviate`, `deviate2`, `deviate3`, `enhance` and `fill` (the commands tested) give the book of `n-tasks 1`, whatever the number of threads (except the 8 bytes of the save date).
+- `book store`, `add` and `learn` with several threads give the same book from a run to the next, but not the book of `n-tasks 1` (games played in a group at the same time and games played one by one are different behaviours). In the previous behaviour with `n-tasks 1`, `book store` reuses the hash table of the search of the game just played; with `on` it does not.
+- The searches of the moves of games (`play`, `go`) and the searches with a time limit are not changed.
+- For `book learn`, give `book-seed` a number too.
+- See the [user manual, 7.6](manual/en/07-book-learning.md).
+
+### Speed and memory (`book-reproducible = on`, measured)
+
+32 threads on a quiet computer, against v4.5.5-nikque.16, four runs each in alternating order.
+
+| Case | Time (nikque.16 = 1) | Peak memory |
+|---|---|---|
+| `book leaf expand` (level 12) | 0.84 | 1,558 → 2,423 MiB |
+| `book fill2 2` (level 12) | 0.94 | 694 → 745 MiB |
+| `book deviate` family (level 21) | 1.20 | 1,124 → 2,043 MiB |
+| Learning 30 games at level 18 (8 threads) | 1.19 | 278 → 331 MiB |
+
+Each one-thread search has the hash table of a one-thread run (21 bits, 57 MB, with `hash-table-size = auto`), so more memory is used. With the default (`off`), the time and peak memory of the four cases are the same as with v4.5.5-nikque.16 (the `book deviate` family, measured again 16 times each: ratio 1.0000).
+
+### What changes (summary)
+
+- Without the new settings, books are made as with v4.5.5-nikque.16.
+- `book learn` with several games at the same time (`book-store-tasks` 2 or more): the random choice of book moves is seeded for each game instead of each thread. The seed still comes from the clock, so the choices are as random as before.
+- Manual 7.6 said that positions expanded at the same time do not see each other; they see the ones already put into the book. Corrected.
+
+### Checks
+
+- The 14 book suites of the previous comparison (`book deviate` family, `enhance`, `fill`, `fix`, `correct`, `merge`, `add`, `store`, `learn`, level 18 learning, ...) were run twice each with `book-reproducible = on` and 32 threads, on one logical CPU and on 32 cores: every file is the same except the save date (S1, with `go`, included). Ten suites (the expansion commands among them) also give the books of v4.5.5-nikque.16 with `n-tasks 1`.
+- With the default settings and `n-tasks 1`, 13 of the suites give the books of v4.5.5-nikque.16 (S3 uses random choices); S3 with `book-seed 1` gives the books that v4.5.5-nikque.15 and 16 gave with a fixed seed during the investigation.
+- `tests/regression.c` has two new cases: `reproducible` (`book-seed`, the check of the links, the same book with 4 threads twice and 1 thread) and `expandredo` (an expansion whose links changed is searched again, and the book is the one of the one-by-one expansion). They pass on Windows (MSVC) and Linux (gcc 11.4). ThreadSanitizer reports nothing from the changed code (the older report about `need_saving` in the parallel negamax remains).
+- See the [Japanese validation report](manual/ja/validation-nikque17.md). The real 29 GB book was not used. Android and Windows ARM64 were not run on devices.
+
 ## Changes in v4.5.5-nikque.16
 
 **Android has now been added.** A one-line header correction fixed the initial build failure; all seven CI jobs pass. The full and Android ZIPs are available. See the [additional validation and corresponding source](manual/ja/android-nikque16.md). Initial logs and the original comparison remain as history.

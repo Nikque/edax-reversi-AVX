@@ -4,6 +4,56 @@
 
 この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
 
+## v4.5.5-nikque.17 の変更点
+
+bookを毎回同じに作るための設定を2つ足しました。**既定の動作は変わりません**（設定を書かなければ、v4.5.5-nikque.16 と同じbookの作り方・速さ・メモリです）。`eval.dat`・bookのファイル形式・探索は変えていません。
+
+### なぜbookが毎回変わったのか
+
+v4.5.5-nikque.16 の比較試験で、同じ命令でも、複数スレッドでは実行するたびにbookが少し変わりました（旧版どうしでも）。原因を調べて、次の2つを確かめました（旧版からある動作です）。
+
+- **bookの同じ評価値の手から選ぶ乱数の種が、時計から取られる**（`book-randomness = 0` でも）。`book learn` は実行するたびに別の対局を学習します。
+- **同時に広げる（`book-expand-tasks` 2以上、`auto` を含む）とき、新しい局面のLinkは、その時点でほかのスレッドが先にbookへ入れた結果を見て決まる。** どれが先に入るかは探索の終わる順で決まるので、探索の入力そのものが実行ごとに変わります。保存のレコードの並び順も、入れた順で変わります。
+
+### 新しい設定
+
+| 設定 | 値 | 既定 | 動作 |
+|---|---|---|---|
+| `book-seed` | 0〜2^64−1、`auto` | `auto`（時計） | bookの乱数の種。数を指定すると、`book learn` が毎回同じ対局を学習する |
+| `book-reproducible` | `on`／`off` | `off` | `on`：bookの命令の探索をすべて1スレッドにし、同時に広げた結果を、選んだ順にbookへ入れる。入れる前に、新しい局面のLinkが探索したときから変わっていれば、それだけ探索し直す |
+
+- `book-reproducible = on` のとき、`book deviate`・`deviate2`・`deviate3`・`enhance`・`fill`（試験した命令）は、スレッドの数によらず、`n-tasks 1` で作るのと同じbookになります（保存日時の8バイトを除く）。
+- `book store`・`add`・`learn` を複数スレッドで行うときは、毎回同じにはなりますが、`n-tasks 1` とは同じになりません（棋譜を同時に打つ組と1局ずつでは別の仕様のため）。`book store` は、`n-tasks 1` の旧来の動作では直前の対局の探索のハッシュ表を引き継ぎますが、`on` では引き継ぎません。
+- 対局の手を探す探索（`play`・`go`）と、時間を決めた探索には効きません。
+- `book learn` で毎回同じにするには、`book-seed` に数を指定してください。
+- 詳しくは[ユーザーマニュアル 7.6](manual/ja/07-book-learning.md)。
+
+### 速さとメモリ（`book-reproducible = on`、実測）
+
+静かな状態の32スレッドで、v4.5.5-nikque.16 と比べました（交互に4回ずつ）。
+
+| 条件 | 時間（nikque.16 = 1） | 最大メモリ |
+|---|---|---|
+| `book leaf expand`（level 12） | 0.84 | 1,558 → 2,423 MiB |
+| `book fill2 2`（level 12） | 0.94 | 694 → 745 MiB |
+| `book deviate` 系（level 21） | 1.20 | 1,124 → 2,043 MiB |
+| 棋譜30本のlevel18学習（8スレッド） | 1.19 | 278 → 331 MiB |
+
+1スレッドの探索がそれぞれ、1スレッドで動かすときの大きさのハッシュ表（`hash-table-size = auto` で21bit、57MB）を持つので、メモリが増えます。既定（`off`）では、4条件とも時間と最大メモリが v4.5.5-nikque.16 と同じでした（`book deviate` 系は16回ずつの測り直しで比 1.0000）。
+
+### 動作が変わるところ（まとめ）
+
+- 設定を書かなければ、bookの作り方は v4.5.5-nikque.16 と同じです。
+- 複数の棋譜を同時に打つ `book learn`（`book-store-tasks` 2以上）：bookの手を選ぶ乱数の種を、打つスレッドごとではなく棋譜ごとに付けます。種は時計からなので、選ばれ方のでたらめさは変わりません。
+- マニュアル 7.6 の「同時に広げている局面どうしは互いを見ない」は正しくなかったので、「先にbookに入ったものだけを見る」に直しました。
+
+### 確認
+
+- 元の比較試験の14 suite（`book deviate` 系、`enhance`、`fill`、`fix`、`correct`、`merge`、`add`、`store`、`learn`、level18学習など）を `book-reproducible = on`、32スレッドで2回ずつ行い、1論理CPUと32コアの両方で、すべてのファイルが保存日時以外一致しました（S1の `go` を含む）。展開系など10 suiteは、v4.5.5-nikque.16 の `n-tasks 1` で作ったbookとも一致しました。
+- 既定の動作は、乱数を使うS3を除く13 suiteで、`n-tasks 1` のとき v4.5.5-nikque.16 と同じbookでした。S3も `book-seed 1` で、原因調査のときに種を固定した v4.5.5-nikque.15・16 のbookと一致しました。
+- `tests/regression.c` に `reproducible`（`book-seed`、Linkの確かめ直し、4スレッド2回と1スレッドで同じbook）と `expandredo`（Linkが変わった展開を探索し直し、1つずつ広げたのと同じbookになる）を足しました。Windows（MSVC）とLinux（gcc 11.4）で通ります。ThreadSanitizerでは、今回変えた所からの報告はありません（以前からある並列negamaxの `need_saving` の報告は残ります）。
+- 詳しくは[検証の報告](manual/ja/validation-nikque17.md)。実book（29GB）は使っていません。Android・Windows ARM64の実機での確認はしていません。
+
 ## v4.5.5-nikque.16 の変更点
 
 **Androidを追加公開しました。** 初回CIのヘッダー不足を1行修正し、全7ジョブが成功しました。完全版ZIPとAndroid用ZIPを追加しています。[追加検証・対応ソース](manual/ja/android-nikque16.md)を参照してください。初回の比較報告と失敗ログは履歴として残します。

@@ -2,6 +2,10 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-nikque.17
+
+bookを毎回同じに作るための設定 `book-seed`（bookの乱数の種、既定 `auto`＝時計）と `book-reproducible`（既定 `off`）を足しました。`book-reproducible = on` では、bookの命令の探索をすべて1スレッドにし、同時に広げた結果を選んだ順にbookへ入れます（Linkが変わった展開は探索し直します）。`book deviate` 系・`enhance`・`fill` は、スレッドの数によらず `n-tasks 1` と同じbookになります。複数の棋譜を同時に打つ `book learn` は、bookの手を選ぶ乱数の種を棋譜ごとに付けるようにしました。**既定の動作（設定を書かないとき）は、できるbook・速さ・メモリとも v4.5.5-nikque.16 と同じです。** `on` では、32スレッドで条件により0.84〜1.20倍の時間、最大メモリが7〜82%増えます。元の比較試験の14 suiteで、1論理CPUと32コアの両方ですべてのファイルが保存日時以外一致しました。マニュアル 7.6 の説明の誤りも直しました。`eval.dat`・bookのファイル形式・探索は変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)・[英語README](README-NIKQUE.en.md)・[検証の報告](manual/ja/validation-nikque17.md)にあります。
+
 ## v4.5.5-nikque.16
 
 追記：利用者の追加許可によりAndroidのヘッダー不足を1行修正し、全7CIジョブが成功しました。完全版とAndroid用ZIPを追加公開しました。[追加検証と対応ソース](manual/ja/android-nikque16.md)。初回失敗ログは保持しています。

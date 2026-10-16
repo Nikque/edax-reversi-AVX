@@ -2,6 +2,10 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.17
+
+New settings to make a book the same from a run to the next: `book-seed` (seed of the random numbers of the book; default `auto`, the clock) and `book-reproducible` (default `off`). With `book-reproducible = on`, every search of the book commands has one thread, and the results of the positions expanded at the same time are put into the book in the order they were chosen (an expansion whose links changed is searched again). The `book deviate` family, `enhance` and `fill` then give the book of `n-tasks 1`, whatever the number of threads. `book learn` with several games at the same time seeds the random choice of book moves for each game. **The default behaviour (without the settings) gives the same books, speed and memory as v4.5.5-nikque.16.** With `on`, 32 threads take 0.84 to 1.20 times the time depending on the case, and 7% to 82% more peak memory. In the 14 book suites of the previous comparison, every file is the same except the save date, on one logical CPU and on 32 cores. An error of the user manual (7.6) is corrected. `eval.dat`, the book file format and the search are unchanged. See the [English README](README-NIKQUE.en.md), the [Japanese README](README-NIKQUE.ja.md) and the [Japanese validation report](manual/ja/validation-nikque17.md).
+
 ## v4.5.5-nikque.16
 
 Update: Android was added after an authorized one-line header correction. All seven CI jobs pass. See the [additional validation and corresponding source](manual/ja/android-nikque16.md). Initial failure logs are retained.
