@@ -4,26 +4,132 @@
 
 ## v4.5.5-nikque.17
 
-bookを毎回同じに作るための設定 `book-seed`（bookの乱数の種、既定 `auto`＝時計）と `book-reproducible`（既定 `off`）を足しました。`book-reproducible = on` では、bookの命令の探索をすべて1スレッドにし、同時に広げた結果を選んだ順にbookへ入れます（Linkが変わった展開は探索し直します）。`book deviate` 系・`enhance`・`fill` は、スレッドの数によらず `n-tasks 1` と同じbookになります。複数の棋譜を同時に打つ `book learn` は、bookの手を選ぶ乱数の種を棋譜ごとに付けるようにしました。**既定の動作（設定を書かないとき）は、できるbook・速さ・メモリとも v4.5.5-nikque.16 と同じです。** `on` では、32スレッドで条件により0.84〜1.20倍の時間、最大メモリが7〜82%増えます。元の比較試験の14 suiteで、1論理CPUと32コアの両方ですべてのファイルが保存日時以外一致しました。マニュアル 7.6 の説明の誤りも直しました。`eval.dat`・bookのファイル形式・探索は変わりません。詳しくは[日本語README](README-NIKQUE.ja.md)・[英語README](README-NIKQUE.en.md)・[検証の報告](manual/ja/validation-nikque17.md)にあります。
+bookを毎回同じに作るための設定を2つ足しました。**既定の動作（設定を書かないとき）は、できるbook・速さ・メモリとも v4.5.5-nikque.16 と同じです。** `eval.dat`・bookのファイル形式・探索は変わりません。
+
+新しい設定：
+
+- `book-seed`（0〜2^64−1、既定 `auto`＝時計）：bookの同じ評価値の手から選ぶ乱数の種です。数を指定すると、`book learn` が毎回同じ対局を学習します。
+- `book-reproducible`（既定 `off`）：`on` では、bookの命令の探索をすべて1スレッドにし、同時に広げた結果を選んだ順にbookへ入れます（Linkが変わった展開は探索し直します）。`book deviate` 系・`enhance`・`fill` は、スレッドの数によらず `n-tasks 1` と同じbookになります。
+
+動作が変わるところ：
+
+- 複数の棋譜を同時に打つ `book learn` は、bookの手を選ぶ乱数の種を棋譜ごとに付けます。
+- マニュアル 7.6 の説明の誤りを直しました。
+
+速さとメモリ（`book-reproducible = on`）：
+
+- 32スレッドで、条件により0.84〜1.20倍の時間がかかり、最大メモリが7〜82%増えます。
+
+確認：
+
+- 元の比較試験の14 suiteで、1論理CPUと32コアの両方で、すべてのファイルが保存日時以外一致しました。
+
+詳しくは[日本語README](README-NIKQUE.ja.md)・[英語README](README-NIKQUE.en.md)・[検証の報告](manual/ja/validation-nikque17.md)にあります。
 
 ## v4.5.5-nikque.16
 
-追記：利用者の追加許可によりAndroidのヘッダー不足を1行修正し、全7CIジョブが成功しました。完全版とAndroid用ZIPを追加公開しました。[追加検証と対応ソース](manual/ja/android-nikque16.md)。初回失敗ログは保持しています。
+v4.5.5-nikque.15 の公開の後の 2 回目のソースの読み直し（クロスチェック）で見つかった不具合を直しました（多くは上流からのものです）。`eval.dat`・bookのファイル形式・探索の結果は変わりません。
 
-v4.5.5-nikque.15 の公開の後の 2 回目のソースの読み直し（クロスチェック）で見つかった不具合を直しました（多くは上流からのものです）：ハッシュ表のロックの選び方、棋譜のファイルの最後の棋譜を読まない、`base correct`・`base complete` の途中で止まると棋譜のファイルが壊れる、壊れた棋譜・Wthor ファイル・使えない盤面（FEN・setboard・libedax）を読み込む、手の数が奇数の棋譜の点数の符号、`book stats`・`book depth` の範囲、時間・座標・`mode` の読み取り、入力のスレッドと終了の競合、XBoard・Cassio・GGS の不具合、`MOVE_GENERATOR_NEON` を指定した aarch64 ビルドの石の返し方、32 ビット・統計用ビルド、eval_builder などの道具。`base unique`・`base save`・飽和した局面の数え直しを速くしました。libedax に関数 `edax_book_keep_unread_file` を足しました（読めなかったbookを `.damaged` として残します）。`eval.dat`・bookのファイル形式・探索の結果は変わりません。bookの厳密なバイト一致と多数スレッドの揺れの条件は未達の項目があり、比較報告に差を記録しています。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+不具合の修正：
 
-追加修正（2026-10-16）：Cassioで改行なしの最終行の後にEOFになると終了しない不具合を直しました。MSVC 19.44の32ビットAVX2構成では、CRCハッシュをインライン化した生成コードにより評価値の誤り・スタックオーバーフローが再現したため、この構成だけインライン化を止めました。通常ビルドの回帰試験と再現試験は通過しました。Windows PGO5種・DLL3種を再作成して検証し、速度比較を完了しました。base uniqueはCLI全体で約9.8倍速。leaf expandの初回2.10%の遅れは追加ABBAで0.94%でした。[比較報告](manual/ja/validation-nikque16.md)には不一致・保存失敗・手順の訂正も記載しています。
+- ハッシュ表のロックの選び方。
+- 棋譜のファイルの最後の棋譜を読まない。
+- `base correct`・`base complete` の途中で止まると、棋譜のファイルが壊れる。
+- 壊れた棋譜・Wthor ファイル・使えない盤面（FEN・setboard・libedax）を読み込む。
+- 手の数が奇数の棋譜の点数の符号。
+- `book stats`・`book depth` の範囲。
+- 時間・座標・`mode` の読み取り。
+- 入力のスレッドと終了の競合。
+- XBoard・Cassio・GGS の不具合。
+- `MOVE_GENERATOR_NEON` を指定した aarch64 ビルドの石の返し方。
+- 32 ビット・統計用ビルド、eval_builder などの道具。
+- 追加修正（2026-10-16）：Cassioで、改行なしの最終行の後にEOFになると終了しない。
+- 追加修正（2026-10-16）：MSVC 19.44の32ビットAVX2構成で、CRCハッシュをインライン化した生成コードにより評価値の誤り・スタックオーバーフローが再現したため、この構成だけインライン化を止めました。
+
+速さ：
+
+- `base unique`・`base save`・飽和した局面の数え直しを速くしました。`base unique` はCLI全体で約9.8倍速です。
+
+libedax：
+
+- 関数 `edax_book_keep_unread_file` を足しました（読めなかったbookを `.damaged` として残します）。
+
+配布：
+
+- Windows PGO5種・DLL3種を再作成して検証しました。
+- 追記：利用者の追加許可によりAndroidのヘッダー不足を1行修正し、全7CIジョブが成功しました。完全版とAndroid用ZIPを追加公開しました（[追加検証と対応ソース](manual/ja/android-nikque16.md)）。初回失敗ログは保持しています。
+
+確認：
+
+- 通常ビルドの回帰試験と再現試験は通過しました。
+- 速度比較を完了しました。`leaf expand` の初回2.10%の遅れは、追加ABBAで0.94%でした。
+- bookの厳密なバイト一致と多数スレッドの揺れの条件は未達の項目があり、比較報告に差を記録しています。
+- [比較報告](manual/ja/validation-nikque16.md)には、不一致・保存失敗・手順の訂正も記載しています。
+
+詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
 ## v4.5.5-nikque.15
 
-v4.5.5-nikque.14 の公開の後のソースの読み直し（クロスチェック）で見つかった不具合を直しました（上流からのものを含みます）：正規形でない盤面のあるtextの `book import` の後で `book prune`・`book subtree` が止まらない、壊れたbookのファイルで異常終了する（`book load`・`book merge` が読み込まないようにしました）、評価ファイルの印の検査が片方で通る、`book import` の失敗で途中までのbookに入れ替わる、ハッシュ表の大きさを変えるとロックの配列が漏れる、メモリ不足でLinkを減らすと全部消える、libedaxで別の `eval-file` を読み直さない。Linux・macOSでもプールの使わない部分を放し、学習で使われなくなったプールの場所も放します。`book fill` 系の一覧の並べ替えとメモリを減らしました。`eval.dat`・bookのファイル形式・探索は変わりません。正しいbookでできるbookは v4.5.5-nikque.14 と同じです（大きなtextの `book import` は区画の数が変わります）。**直した後のソースは、ビルドと起動の確認だけで公開し、公開の後に試験一式を行いました（問題なし。リポジトリの試験ファイル1つを直しました）。400万局面のtextの `book import` は 9.7秒 → 7.9秒。** 詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+v4.5.5-nikque.14 の公開の後のソースの読み直し（クロスチェック）で見つかった不具合を直しました（上流からのものを含みます）。`eval.dat`・bookのファイル形式・探索は変わりません。
 
+不具合の修正：
 
-追加確認（2026-10-15）：不足入力を再作成し、AddressSanitizer未実施21通り×3設定は63回とも検出0・正常終了。importの確保失敗で現在のbookを保持、Link縮小時の確保0、評価ファイルの再読込、非正規形binary bookの正規化とprune終了、libedaxのbase系停止試験、Linuxのprune・学習後のプール返却を確認しました。ThreadSanitizerの2,432バイトの報告は旧版にもあり、進捗カウンタ以外の競合報告は残ります。実bookは利用者の指定で未実施です。詳しい条件と限界はREADMEにあります。
+- 正規形でない盤面のあるtextの `book import` の後で、`book prune`・`book subtree` が止まらない。
+- 壊れたbookのファイルで異常終了する（`book load`・`book merge` が読み込まないようにしました）。
+- 評価ファイルの印の検査が、片方で通る。
+- `book import` の失敗で、途中までのbookに入れ替わる。
+- ハッシュ表の大きさを変えると、ロックの配列が漏れる。
+- メモリ不足でLinkを減らすと、全部消える。
+- libedaxで、別の `eval-file` を読み直さない。
+
+速さとメモリ：
+
+- Linux・macOSでもプールの使わない部分を放し、学習で使われなくなったプールの場所も放します。
+- `book fill` 系の一覧の並べ替えとメモリを減らしました。
+- 400万局面のtextの `book import` は 9.7秒 → 7.9秒になりました。
+
+動作が変わるところ：
+
+- 正しいbookでできるbookは v4.5.5-nikque.14 と同じです（大きなtextの `book import` は区画の数が変わります）。
+
+確認：
+
+- **直した後のソースは、ビルドと起動の確認だけで公開し、公開の後に試験一式を行いました（問題なし。リポジトリの試験ファイル1つを直しました）。**
+- 追加確認（2026-10-15）：不足入力を再作成し、AddressSanitizer未実施21通り×3設定は63回とも検出0・正常終了でした。
+- importの確保失敗で現在のbookを保持すること、Link縮小時の確保0、評価ファイルの再読込、非正規形binary bookの正規化とprune終了、libedaxのbase系停止試験、Linuxのprune・学習後のプール返却を確認しました。
+- ThreadSanitizerの2,432バイトの報告は旧版にもあり、進捗カウンタ以外の競合報告は残ります。
+- 実bookは利用者の指定で未実施です。
+
+詳しい条件と限界は[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
 ## v4.5.5-nikque.14
 
-bookの欠けた所を埋める命令 `book fill2` と、Linkより良いLeafを広げる命令 `book leaf expand` を足しました。`book fill`・`fill2`・`leaf expand` は、`book fill 2 5 5` のように `book deviate3` と同じ範囲を指定できます。`book fill` は `book deviate` と同じように複数スレッドで速くしました（できるbookが変わります。`book fill 1` は同じです）。この3つの命令は、どの周も初めに欠けたLink（手の先の局面がbookにあるのに、Linkになっていない手）を張ります（`fill`・`fill2` はすべての局面、`leaf expand` はLeafの手の先がbookにある局面）。`book leaf-recalculate` の名前は `book leaf recalculate` になりました（ハイフンの付いた名前は使えません）。libedaxに5つの関数を足しました。`eval.dat`・bookのファイル形式・探索は変わりません。`book deviate` 系・棋譜の学習・`book fix`・negamax・切り詰めでできるbookは、v4.5.5-nikque.13 と同じです。詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+bookの欠けた所を埋める命令と、Linkより良いLeafを広げる命令を足しました。`eval.dat`・bookのファイル形式・探索は変わりません。
+
+新しい命令：
+
+- `book fill2`：bookの欠けた所を埋めます。
+- `book leaf expand`：Linkより良いLeafを広げます。
+- `book fill`・`fill2`・`leaf expand` は、`book fill 2 5 5` のように `book deviate3` と同じ範囲を指定できます。
+- この3つの命令は、どの周も初めに欠けたLink（手の先の局面がbookにあるのに、Linkになっていない手）を張ります（`fill`・`fill2` はすべての局面、`leaf expand` はLeafの手の先がbookにある局面）。
+
+速さ：
+
+- `book fill` は、`book deviate` と同じように複数スレッドで速くしました（できるbookが変わります。`book fill 1` は同じです）。
+
+名前の変更：
+
+- `book leaf-recalculate` の名前は `book leaf recalculate` になりました（ハイフンの付いた名前は使えません）。
+
+libedax：
+
+- 5つの関数を足しました。
+
+動作が変わるところ：
+
+- `book deviate` 系・棋譜の学習・`book fix`・negamax・切り詰めでできるbookは、v4.5.5-nikque.13 と同じです。
+
+詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
 ## v4.5.5-nikque.13
 
