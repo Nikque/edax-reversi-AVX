@@ -2,6 +2,22 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.5 (with the changes of v4.5.5-nikque.16 and 17)
+
+v4.5.5-eval2.4 now holds the changes of v4.5.5-nikque.16 and 17. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file).
+
+Changes taken in:
+
+- nikque.16: the fixes of the second cross-check and others (the nikque.16 entry below).
+- nikque.17: `book-seed` and `book-reproducible` (the nikque.17 entry below; the default behaviour is unchanged).
+
+Checks (2026-10-16):
+
+- The 5 Windows release executables: one-thread results and node counts of fforum-20-39 equal to eval2.4. 7 Cassio cases; the 3 DLLs pass 204 API checks, 0 failures.
+- The seven jobs of the release CI pass.
+
+See the [English README](README-NIKQUE.en.md) and the [Japanese README](README-NIKQUE.ja.md).
+
 ## v4.5.5-eval2.4 (with the changes of v4.5.5-nikque.15)
 
 v4.5.5-eval2.3 now holds the changes of v4.5.5-nikque.15 (the fixes of the defects found by a cross-check, and the points of speed and memory), and the same two fixes are made in the evaluation function file of this series (the check of the header of the evaluation file, the new `eval-file` of libedax initialized again). **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The checks before and after publication are listed below. See the [English README](README-NIKQUE.en.md) and the [Japanese README](README-NIKQUE.ja.md).

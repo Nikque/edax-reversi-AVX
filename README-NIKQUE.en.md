@@ -6,6 +6,31 @@ This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5c
 
 **This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.5).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.17) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
 
+## Changes in v4.5.5-eval2.5
+
+v4.5.5-eval2.4 now holds **the changes of v4.5.5-nikque.16 and v4.5.5-nikque.17** ("Changes in v4.5.5-nikque.17" and "Changes in v4.5.5-nikque.16" below). The evaluation function and `eval.dat` are those of v4.5.5-eval2.1 (the same file).
+
+Changes taken in:
+
+- nikque.16: the fixes of the second cross-check, faster `base unique` and others, the libedax function `edax_book_keep_unread_file`, Cassio's EOF, the inlining of MSVC's 32-bit AVX2 build.
+- nikque.17: the settings `book-seed` and `book-reproducible` that make a book the same from a run to the next (the default behaviour is unchanged).
+
+Source:
+
+- Apart from the 4 files of the evaluation function, the source is that of v4.5.5-nikque.17. `eval.c` and `midgame.c` merged automatically with the changes of the nikque line.
+
+Checks (2026-10-16):
+
+- The 5 Windows release executables (PGO): with the `eval.dat` of eval2, one-thread `-solve` of fforum-20-39 gives the same depths, scores, node counts (78,733,223 in all) and principal variations as the same executables of v4.5.5-eval2.4. The 7 Cassio cases pass.
+- One-thread `-solve` of fforum-1-19: 2,192,396 nodes in all, as eval2.4.
+- The 3 DLLs: 204 API checks, 0 failures, with the `eval.dat` of eval2.
+- With `book-reproducible on`, the `book deviate` family (suite F) gives the same books (except the save date) with 32 threads and with 1 thread.
+- The seven jobs of the release CI pass (the Linux job tests the library).
+
+Not checked:
+
+- The speed and strength of this version (the evaluation function is that of eval2.1); the full book regression set for eval2; the real 29 GB book; Android, Windows ARM64 and macOS on devices.
+
 ## Changes in v4.5.5-eval2.4
 
 v4.5.5-eval2.3 now holds **the changes of v4.5.5-nikque.15** (the fixes of the defects found by a cross-check, and the points of speed and memory: "Changes in v4.5.5-nikque.15" below). The same two fixes are made in the evaluation function file of this series (`eval.c`): the header of the evaluation file passes only when both halves of its 8 bytes are right, and libedax initialized again with another `eval-file` loads that file. The evaluation function and `eval.dat` are those of v4.5.5-eval2.1 (the same file). The checks before and after publication are listed below.

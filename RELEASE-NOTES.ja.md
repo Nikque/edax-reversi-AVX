@@ -2,6 +2,22 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-eval2.5（v4.5.5-nikque.16・17 の変更を取り込み）
+
+v4.5.5-eval2.4 に、v4.5.5-nikque.16 と 17 の変更を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。
+
+取り込んだもの：
+
+- nikque.16：2回目のクロスチェックで見つかった不具合の修正など（下の nikque.16 の項）。
+- nikque.17：`book-seed`・`book-reproducible`（下の nikque.17 の項。既定の動作は変わりません）。
+
+確認（2026-10-16）：
+
+- Windows の配布用5種：fforum-20-39 の1スレッドの結果・ノード数が eval2.4 と一致。Cassio 7条件、DLL 3種の API試験 204項目・失敗0。
+- 配布用CIの7ジョブが成功。
+
+詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
+
 ## v4.5.5-eval2.4（v4.5.5-nikque.15 の変更を取り込み）
 
 v4.5.5-eval2.3 に、v4.5.5-nikque.15 の変更（クロスチェックで見つかった不具合の修正と、速さ・メモリの点）を取り込み、この系列の評価関数のファイルにも同じ2つ（評価ファイルの印の検査、libedaxでの `eval-file` の読み直し）を直しました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。**ビルドと起動の確認だけで公開しました（試験は公開の後）。** 詳しくは[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
