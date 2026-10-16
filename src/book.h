@@ -82,6 +82,7 @@ bool book_save(Book*, const char*);
 bool book_save_to_book_file(Book*);
 void book_set_replaced_file(const char*);
 void book_set_loaded_file(const char*, const bool);
+bool book_keep_unread_file(const char*);
 bool book_save_progress(Book*, const char*);
 bool book_import(Book*, const char*);
 void book_export(Book*, const char*);

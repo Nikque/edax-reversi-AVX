@@ -115,10 +115,10 @@ static int accumlate_eval(int ply, Eval *eval)
 	DD = _mm256_i32gather_epi32((int *) w->S8x4, _mm256_cvtepu16_epi32(eval->feature.v8[2]), 4);
 	SS = _mm256_add_epi32(SS, _mm256_srai_epi32(_mm256_sll_epi32(DD, SW), 16));
 
-	DD = _mm256_i32gather_epi32((int *) w->S7654, _mm256_cvtepu16_epi32(*(__m128i *) &eval->feature.us[30]), 4);
+	DD = _mm256_i32gather_epi32((int *) w->S7654, _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *) &eval->feature.us[30])), 4);
 	SS = _mm256_add_epi32(SS, _mm256_srai_epi32(_mm256_sll_epi32(DD, SW), 16));
 
-	DD = _mm256_i32gather_epi32((int *) w->S7654, _mm256_cvtepu16_epi32(*(__m128i *) &eval->feature.us[38]), 4);
+	DD = _mm256_i32gather_epi32((int *) w->S7654, _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i *) &eval->feature.us[38])), 4);
 	SS = _mm256_add_epi32(SS, _mm256_srai_epi32(_mm256_sll_epi32(DD, SW), 16));
 	__m128i S = _mm_add_epi32(_mm256_castsi256_si128(SS), _mm256_extracti128_si256(SS, 1));
 
@@ -752,9 +752,9 @@ int NWS_midgame(Search *search, const int alpha, int depth, Node *parent)
 		if (search->height <= PV_HASH_HEIGHT) hash_store(&search->pv_table, &search->board, hash_code, &hash_data);
 		hash_store(&search->hash_table, &search->board, hash_code, &hash_data);
 
-		SQUARE_STATS(foreach_move(move, &movelist))
+		SQUARE_STATS(foreach_move(move, movelist))
 		SQUARE_STATS(++statistics.n_played_square[search->eval.n_empties][SQUARE_TYPE[move->x]];)
-		SQUARE_STATS(if (node.bestscore > alpha) ++statistics.n_good_square[search->eval.n_empties][SQUARE_TYPE[node->bestmove]];)
+		SQUARE_STATS(if (node.bestscore > alpha) ++statistics.n_good_square[search->eval.n_empties][SQUARE_TYPE[node.bestmove]];)
 
 	 	assert(SCORE_MIN <= node.bestscore && node.bestscore <= SCORE_MAX);
 

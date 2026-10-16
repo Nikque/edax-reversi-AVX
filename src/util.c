@@ -142,45 +142,10 @@ void time_print(long long t, bool justified, FILE* f)
 	s = t / 1000;
 	c = (t - s * 1000);
 
-	if (d) fprintf(f, "%2d:%02d:%02d:%02d.%03d", sign*d, h, m, s, c);
-	else if (h) fprintf(f, "%s%2d:%02d:%02d.%03d", space, sign*h, m, s, c);
-	else fprintf(f, "%s%s%2d:%02d.%03d", space, space, sign*m, s, c);
-}
-
-/**
- * @brief read time as "D:HH:MM:SS.C".
- *
- * @param f Input stream.
- * @return time in milliseconds.
- */
-long long time_read(FILE *f)
-{
-	long long t = 0;
-	int n, c;
-
-	while (isspace(c = getc(f)))
-		;
-	ungetc(c, f);
-	n = 0; while (isdigit(c = getc(f))) n = n * 10 + (c - '0');
-	if (c == ':') {
-		t = 60 * n; //  time has the form MM:SS ?
-		n = 0; while (isdigit(c = getc(f))) n = n * 10 + (c - '0');
-		if (c == ':') {
-			t = 60 * (t + n); // 	time has the form HH:MM:SS ?
-			n = 0; while (isdigit(c = getc(f))) n = n * 10 + (c - '0');
-			if (c == ':') {
-				t = 24 * (t + n); // 	time has the form D:HH:MM:SS ?
-				n = 0; while (isdigit(c = getc(f))) n = n * 10 + (c - '0');
-			}
-		}
-	}
-
-	t = (t + n) * 1000;
-	if (c != '.') return t;
-	n = 0; while (isdigit(c = getc(f))) n = n * 10 + (c - '0');
-	while (n > 1000) n /= 10;
-	t += n;
-	return t;
+	// the sign is printed apart: up to v4.5.5-nikque.15 it was lost under a minute (or an hour, a day), as -0
+	if (d) fprintf(f, "%s%d:%02d:%02d:%02d.%03d", sign < 0 ? "-" : (d < 10 ? " " : ""), d, h, m, s, c);
+	else if (h) fprintf(f, "%s%s%d:%02d:%02d.%03d", space, sign < 0 ? "-" : (h < 10 ? " " : ""), h, m, s, c);
+	else fprintf(f, "%s%s%s%d:%02d.%03d", space, space, sign < 0 ? "-" : (m < 10 ? " " : ""), m, s, c);
 }
 
 /**
@@ -297,6 +262,24 @@ char* string_read_line(FILE *f)
 	return line;
 }
 
+/**
+ * @brief Replace a file by another one, that was written under another name first.
+ *
+ * The book, the game files and the OBF files are saved this way: a file is never left half written.
+ *
+ * @param from File written.
+ * @param to File to replace (it may not exist).
+ * @return true if the file was replaced.
+ */
+bool file_replace(const char *from, const char *to)
+{
+#ifdef _WIN32
+	return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+	return rename(from, to) == 0;
+#endif
+}
+
 
 /**
  * @brief Duplicate a string.
@@ -332,21 +315,20 @@ long long string_to_time(const char *string)
 	double x = 0.0;
 
 	if (string) {
+		// SS, MM:SS, HH:MM:SS or D:HH:MM:SS: the fields are read first (up to v4.5.5-nikque.15 the form
+		// D:HH:MM:SS was read as if a day lasted 24 minutes)
+		static const int ratio[3] = {60, 60, 24}; // seconds in a minute, minutes in an hour, hours in a day
+		int field[4], k = 0, i;
 		const char *s = parse_skip_spaces(string);
 		s = parse_int(s, &n);
-		if (*s == ':') {
-			t = 60 * n; //  time has the form MM:SS ?
+		field[k++] = n;
+		while (*s == ':' && k < 4) {
 			s = parse_int(s + 1, &n);
-			if (*s == ':') {
-				t = 60 * (t + n); // 	time has the form HH:MM:SS ?
-				s = parse_int(s + 1, &n);
-				if (*s == ':') {
-					t = 24 * (t + n); // 	time has the form D:HH:MM:SS ?
-					s = parse_int(s + 1, &n);
-				}
-			}
+			field[k++] = n;
 		}
-		if (*s == '.' && isdigit(s[1])) {
+		for (i = 0; i < k; ++i) t = (i ? t * ratio[k - 1 - i] : 0) + field[i];
+		n = 0;
+		if (*s == '.' && isdigit((unsigned char) s[1])) {
 			s = parse_real(s, &x);
 		}
 		t = (t + n + x) * 1000;
@@ -364,7 +346,7 @@ void string_to_lowercase(char *s)
 {
 	if (s) {
 		do {
-			*s = tolower(*s);
+			*s = tolower((unsigned char) *s);
 		} while (*s++);
 	}
 }
@@ -378,7 +360,7 @@ void string_to_uppercase(char *s)
 {
 	if (s) {
 		do {
-			*s = toupper(*s);
+			*s = toupper((unsigned char) *s);
 		} while (*s++);
 	}
 }
@@ -394,13 +376,14 @@ int string_to_coordinate(const char *s)
 	int x = NOMOVE;
 
 	if (s && *s) {
-		if (tolower(s[0]) == 'p' && s[1] == '@') s += 2;
+		if (tolower((unsigned char) s[0]) == 'p' && s[1] == '@') s += 2;
 		else if (s[0] == '@') ++s;
+		if (*s == '\0') return NOMOVE; // ("P@" or "@" alone: up to v4.5.5-nikque.15 the char after the end was read)
 
-		if (tolower(s[0]) == 'p' && (tolower(s[1]) == 'a' || tolower(s[1]) == 's')) x = PASS;
+		if (tolower((unsigned char) s[0]) == 'p' && (tolower((unsigned char) s[1]) == 'a' || tolower((unsigned char) s[1]) == 's')) x = PASS;
 		else if (s[0] == '@' && s[1] == '@') x = PASS; // xboard pass = "@@@@"
 		else {
-			int c = tolower(s[0]) - 'a';
+			int c = tolower((unsigned char) s[0]) - 'a';
 			int r = s[1] - '1';
 			if (0 <= c && c <= 7 && 0 <= r && r <= 7) x = r * 8 + c;
 		}
@@ -421,9 +404,9 @@ char* string_to_word(char *s)
 	char *w = NULL;
 
 	if (s) {
-		while (*s && isspace(*s++)) ;
+		while (*s && isspace((unsigned char) *s++)) ;
 		w = --s;
-		while (*s && !isspace(*s++)) ;
+		while (*s && !isspace((unsigned char) *s++)) ;
 		*s = '\0';
 	}
 	return w;
@@ -522,7 +505,7 @@ double string_to_real(const char *s, const double default_value)
 char* parse_skip_spaces(const char *string)
 {
 	if (string) {
-		while (*string && isspace(*string)) ++string;
+		while (*string && isspace((unsigned char) *string)) ++string;
 	}
 	return (char*) string;
 }
@@ -536,9 +519,9 @@ char* parse_skip_spaces(const char *string)
 char* parse_skip_word(const char *string)
 {
 	if (string) {
-		while (*string && isspace(*string)) ++string;
-		while (*string && !isspace(*string)) ++string;
-		while (*string && isspace(*string)) ++string;
+		while (*string && isspace((unsigned char) *string)) ++string;
+		while (*string && !isspace((unsigned char) *string)) ++string;
+		while (*string && isspace((unsigned char) *string)) ++string;
 	}
 	return (char*) string;
 }
@@ -682,7 +665,7 @@ char* parse_game(const char *string, const Board *board_init, Line *line)
 	board = *board_init;
 
 	while ((next = parse_move(string, &board, &move)) != string || move.x == PASS) {
-		line_push(line, move.x);
+		if (!line_push(line, move.x)) break; // (a full line)
 		board_update(&board, &move);
 		string = next;
 	}
@@ -708,7 +691,7 @@ char* parse_board(const char *string, Board *board, int *player)
 		board->player = board->opponent = 0;
 		for (i = A1; i <= H8; ++i) {
 			s = parse_skip_spaces(s);
-			switch (tolower(*s)) {
+			switch (tolower((unsigned char) *s)) {
 			case 'b':
 			case 'x':
 			case '*':
@@ -730,7 +713,7 @@ char* parse_board(const char *string, Board *board, int *player)
 		board_check(board);
 
 		for (; *s; ++s) {
-			switch (tolower(*s)) {
+			switch (tolower((unsigned char) *s)) {
 			case 'b':
 			case 'x':
 			case '*':
@@ -832,47 +815,6 @@ char* parse_real(const char *string, double *result)
 	}
 	return (char*) string;
 }
-
-/**
- * @brief parse time as "D:HH:MM:SS.C".
- *
- * @param string Time as a string.
- * @param t Output time in milliseconds.
- * @return The remaining of the input string.
- */
-char* parse_time(const char *string, long long *t)
-{
-	int n = 0;
-	double x = 0.0;
-
-	*t = 0;
-	
-	if (string) {
-		const char *s = parse_skip_spaces(string);
-		s = parse_int(s, &n);
-		if (*s == ':') {
-			*t = 60 * n; //  time has the form MM:SS ?
-			s = parse_int(s + 1, &n);
-			if (*s == ':') {
-				*t = 60 * (*t + n); // 	time has the form HH:MM:SS ?
-				s = parse_int(s + 1, &n);
-				if (*s == ':') {
-					*t = 24 * (*t + n); // 	time has the form D:HH:MM:SS ?
-					s = parse_int(s + 1, &n);
-				}
-			}
-		}
-		if (*s == '.' && isdigit(s[1])) {
-			s = parse_real(s, &x);
-			assert(0.0 <= x && x < 1.0);
-		}
-		*t = (*t + n + x) * 1000;
-		if (errno != EINVAL && errno != ERANGE) string = s;
-	}
-
-	return (char*) string;
-}
-
 
 /**
  * @brief Parse a command.

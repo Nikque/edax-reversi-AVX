@@ -130,7 +130,13 @@ static int guess_move(Search *search, Board *board)
 
 	search->board = saved; search_setup(search);
 
-	assert(hash_data.move[0] != NOMOVE || board_is_game_over(board));
+	// PVS_shallow() does not store a position with one move, or a pass (nor at depth 2...): its only move is
+	// the guess (up to v4.5.5-nikque.15 the line stopped there, and a debug build failed its assertion)
+	if (hash_data.move[0] == NOMOVE && !board_is_game_over(board)) {
+		const unsigned long long moves = board_get_moves(board);
+		if (moves == 0) return PASS;
+		if ((moves & (moves - 1)) == 0) return first_bit(moves);
+	}
 
 	return hash_data.move[0];
 }
@@ -191,7 +197,7 @@ void record_best_move(Search *search, const Move *bestmove, const int alpha, con
 		board_get_move_flip(&board, x, &move);
 		if (board_check_move(&board, &move)) {
 			board_update(&board, &move);
-			--expected_depth; 
+			if (move.x != PASS) --expected_depth; // a pass is searched at the same depth (as in is_pv_ok; up to v4.5.5-nikque.15 the depth went down)
 			tmp = expected_bound.upper; expected_bound.upper = -expected_bound.lower; expected_bound.lower = -tmp;
 			fail_low = !fail_low;
 			line_push(&result->pv, move.x);

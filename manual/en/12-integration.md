@@ -129,6 +129,7 @@ int main(void)
 Good to know:
 
 - One process can use one Edax. The functions are called one after the other from one thread (only `edax_stop` and `edax_book_stop_count_bestpath`, which stop what is running, may be called from another thread).
+- The book is loaded into memory, and a save replaces the file. If two processes learn into the same book file and save it, only the last save remains: let one process write a book file.
 - The settings have the same names and the same syntax as in Edax itself.
 - **While a function that changes the book, or one that writes a game file (`edax_base_complete`, `edax_base_correct`), is running, `edax_stop` does not stop the search** (so that the result of a search cut short cannot go into the book or the file).
 - The line returned by `edax_get_moves` holds 80 plies at most (moves and passes together).
@@ -160,6 +161,7 @@ How to write `learning_list.txt`:
 
 - Leaving `2,` out and writing the moves alone is the same as `0,moves`.
 - Each time a line (or, when several are learned at the same time, a group) is done, edax_runner saves the book to `data/book.dat` and reads the list again. The list may be edited while it runs.
+- A second edax_runner started in the same folder stops without doing anything (since 5.3.0+nikque.10).
 - When the setting `book-store-tasks` is not 1 (the default `auto` included), the "one game Edax against Edax" lines are grouped by that number and learned at the same time.
 - The rest of this section, and the behaviour of edax_runner itself, were not checked again for this manual (edax_runner is tested separately). For details see the `README.md` of edax_runner.
 

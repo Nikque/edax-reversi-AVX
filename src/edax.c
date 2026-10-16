@@ -413,6 +413,7 @@ void ui_loop_edax(UI *ui)
 			// mode
 			} else if (strcmp(cmd, "m") == 0 || strcmp(cmd, "mode") == 0) {
 				ui->mode = string_to_int(param, 3);
+				BOUND(ui->mode, 0, 3, "mode");
 
 			// analyze a game
 			} else if (strcmp(cmd, "a") == 0 || strcmp(cmd, "analyze") == 0 || strcmp(cmd, "analyse") == 0) {
@@ -672,6 +673,7 @@ void ui_loop_edax(UI *ui)
 				// set book depth (until which to learn)
 				} else if (strcmp(book_cmd, "depth") == 0) { // learn
 					val_1 = 36; book_param = parse_int(book_param, &val_1);
+					BOUND(val_1, 1, 61, "book depth"); // (up to v4.5.5-nikque.15 any depth: a game of 60 moves was read beyond its moves)
 					book->options.n_empties = 61 - val_1;
 
 				// create a new empty book
@@ -992,10 +994,9 @@ void ui_loop_edax(UI *ui)
 					int n_empties = 24;
 					base_param = parse_int(base_param, &n_empties);
 
-					if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+					if (base_load(&base, base_file)) { // a file which was not loaded (or not completely) is kept as it is
 						base_analyze(&base, &play->search, n_empties, true);
-						remove(base_file);
-						base_save(&base, base_file);
+						base_replace(&base, base_file); // (the file is replaced once the games are saved to another file)
 					}
 
 				// check erroneous games
@@ -1008,10 +1009,9 @@ void ui_loop_edax(UI *ui)
 
 				// terminate unfinished base
 				} else if (strcmp(base_cmd, "complete") == 0) {
-					if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+					if (base_load(&base, base_file)) { // a file which was not loaded (or not completely) is kept as it is
 						base_complete(&base, &play->search);
-						remove(base_file);
-						base_save(&base, base_file);
+						base_replace(&base, base_file); // (the file is replaced once the games are saved to another file)
 					}
 
 				// convert a base to another format

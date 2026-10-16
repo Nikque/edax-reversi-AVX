@@ -32,7 +32,7 @@
 	#include <unistd.h>
 	#include <sys/socket.h>
 	#include <netdb.h>
-	#include <netinet/tcp.h>
+	#include <netinet/in.h>
 #endif
 
 
@@ -137,6 +137,7 @@ typedef struct GGSEvent {
 	int socket;                 /**< socket */
 	bool loop;                  /**< loop */
 	char *buffer;               /**< read buffer */
+	long long time;             /**< time of the last reception */
 	Thread thread;              /**< thread */
 	Lock lock;                  /**< lock */
 } GGSEvent;
@@ -263,6 +264,19 @@ static char *ggs_parse_line(const char *buffer, char **line)
 		n = 0;
 	}
 	return (char*) (buffer + n);
+}
+
+/**
+ * @brief Tell whether a line of a text holds at least n characters (the board lines are read at fixed places).
+ *
+ * @param text Text.
+ * @param i Line index.
+ * @param n Characters.
+ * @return true if the line exists and is long enough.
+ */
+static bool ggs_line_has(const Text *text, const int i, const size_t n)
+{
+	return 0 <= i && i < text->n_lines && strlen(text->line[i]) >= n;
 }
 
 /**
@@ -425,6 +439,7 @@ static bool ggs_player_set(GGSPlayer *player, const char *name, const char *rati
 	if (name == NULL || *name == '\0') return false;
 
 	parse_word(name, word, WORD_SIZE);
+	free(player->name); // (the names of the previous message: up to v4.5.5-nikque.15 they were not freed)
 	player->name = string_duplicate(word);
 
 	rating = parse_skip_spaces(rating);	
@@ -526,6 +541,7 @@ static bool ggs_request(GGSRequest *request, Text *text)
 		if (strcmp("+", word) == 0) {
 			if (*line) {
 				line = parse_word(line, word, WORD_SIZE);
+				free(request->id); // (the id of the previous request)
 				request->id = string_duplicate(word);
 				return true;
 			}
@@ -559,6 +575,7 @@ static bool ggs_match_on(GGSMatchOn *match, Text *text)
 	if (strcmp("match", word) != 0) return false;
 
 	line = parse_word(line, word, WORD_SIZE);
+	free(match->id); // (the id of the previous match)
 	match->id = string_duplicate(word);
 
 	line = parse_word(line, word, WORD_SIZE);
@@ -603,6 +620,7 @@ static bool ggs_match_off(GGSMatchOff *match, Text *text)
 	if (strcmp("match", word) != 0) return false;
 
 	line = parse_word(line, word, WORD_SIZE);
+	free(match->id); // (the id of the previous match)
 	match->id = string_duplicate(word);
 
 	line = parse_word(line, word, WORD_SIZE);
@@ -648,6 +666,7 @@ static bool ggs_board(GGSBoard *board, Text *text)
 
 	if (*line == '\0') return false;
 	line = parse_word(line, word, WORD_SIZE);
+	free(board->id); // (the id of the previous board)
 	board->id = string_duplicate(word);
 
 	if (*line == '\0') return false;
@@ -666,7 +685,10 @@ static bool ggs_board(GGSBoard *board, Text *text)
 	}
 
 	if (board->is_join) {
-		if (!ggs_parse_int(&board->move_list_n, text->line[1] + 1))
+		if (text->n_lines < 2 || !ggs_parse_int(&board->move_list_n, text->line[1] + 1))
+			return false;
+		// (up to v4.5.5-nikque.15 neither the count of the moves nor the length of the lines was checked)
+		if (board->move_list_n < 0 || board->move_list_n > MOVELIST_SIZE)
 			return false;
 		if (board->move_list_n > 0) {
 			if (text->n_lines < board->move_list_n + 30)
@@ -674,14 +696,17 @@ static bool ggs_board(GGSBoard *board, Text *text)
 			ii = 5;
 			for (i = 0; i < 8; i++) {
 	    		++ii;
+				if (!ggs_line_has(text, ii, 19)) return false;
 				for (j = 0; j < 8; j++)
 					board->board_init[i * 8 + j] = text->line[ii][4 + j * 2];
 			}
 			ii += 3;
+			if (!ggs_line_has(text, ii, 2)) return false;
 			board->turn_init = text->line[ii][1];
 
 			for (i = 0; i < board->move_list_n; i++) {
 				++ii;
+				if (!ggs_line_has(text, ii, 6)) return false;
 				parse_field(text->line[ii] + 6, word, WORD_SIZE, '/');
 				ggs_parse_move(board->move_list + i, word);
 			}
@@ -717,10 +742,12 @@ static bool ggs_board(GGSBoard *board, Text *text)
 
 	for (i = 0; i < 8; i++) {
 	    ++ii;
+		if (!ggs_line_has(text, ii, 19)) return false;
 		for (j = 0; j < 8; j++)
 			board->board[i * 8 + j] = text->line[ii][4 + j * 2];
 	}
 	ii += 3;
+	if (!ggs_line_has(text, ii, 2)) return false;
 	board->turn = text->line[ii][1];
 
 	if (board->is_join && board->move_list_n == 0) {
@@ -805,7 +832,10 @@ static int ggs_admin(GGSAdmin *admin, Text *text)
 
 	line = parse_word(line, word, WORD_SIZE);
 	for (i = 0; *admin_list[i]; i++) {
-		if (strncmp(admin_list[i], word, strlen(admin_list[i])) == 0) {
+		const size_t n = strlen(admin_list[i]);
+		// the whole name (up to v4.5.5-nikque.15 any name that started with it: "dan" was "daniel" too)
+		if (strncmp(admin_list[i], word, n) == 0 && (word[n] == '\0' || word[n] == ':')) {
+			free(admin->command);
 			admin->command = string_duplicate(line);
 			strcpy(admin->name, admin_list[i]);
 			return true;
@@ -891,10 +921,15 @@ static void* ggs_event_loop(void *v)
 		if (r > 0) {
 			lock(event);
 				l = strlen(event->buffer);
-				event->buffer = (char*) realloc(event->buffer, r + l + 1);
+				{
+					char *grown = (char*) realloc(event->buffer, r + l + 1);
+					if (grown == NULL) fatal_error("GGS: cannot allocate the received text\n"); // (up to v4.5.5-nikque.15 not checked)
+					event->buffer = grown;
+				}
 				memcpy(event->buffer + l, buffer, r);
 				event->buffer[l + r] = '\0';
 				*buffer = '\0';
+				event->time = real_clock();
 			unlock(event);
 		} else {
 			event->loop = false;
@@ -936,7 +971,7 @@ static void ggs_event_init(GGSEvent *event)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
-	hints.ai_protocol = getprotobyname("tcp")->p_proto;
+	hints.ai_protocol = IPPROTO_TCP; // (getprotobyname() may give NULL)
 	hints.ai_canonname = NULL;
 	hints.ai_addr = NULL;
 	hints.ai_next = NULL;
@@ -947,8 +982,7 @@ static void ggs_event_init(GGSEvent *event)
 			if (event->socket != -1) {
 				if (connect(event->socket, rp->ai_addr, rp->ai_addrlen) != -1) break; /* Success */
 #ifdef _WIN32
-				closesocket(event->socket);
-				WSACleanup();
+				closesocket(event->socket); // (WSACleanup() is done once, when the client ends: up to v4.5.5-nikque.15 the next addresses could not be tried)
 #else
 				close(event->socket);
 #endif
@@ -958,6 +992,8 @@ static void ggs_event_init(GGSEvent *event)
 			fatal_error("Could not connect to %s %s\n", options.ggs_host, options.ggs_port);
 		}
   		freeaddrinfo(result);
+	} else { // (up to v4.5.5-nikque.15 the client went on with the socket 0)
+		fatal_error("Could not find %s %s\n", options.ggs_host, options.ggs_port);
 	}
 
 	thread_create(&event->thread, ggs_event_loop, event);
@@ -1003,10 +1039,14 @@ static bool ggs_event_peek(GGSEvent *event, Text *text)
 	lock(event);
 	if (*event->buffer) {
 		s = ggs_parse_text(event->buffer, text);
-		if (s > event->buffer) {
-			memmove(event->buffer, s, strlen(s) + 1);
-			ok = (*event->buffer != '|');
-		}
+		if (s > event->buffer) memmove(event->buffer, s, strlen(s) + 1);
+	}
+	// a message ends where the next one starts (a line that does not start with '|'); when everything received
+	// is read, its last lines may still be on the way: it ends when nothing more comes for a while (up to
+	// v4.5.5-nikque.15 it was taken as complete at once, and its next lines as another message)
+	if (text->n_lines > 0) {
+		if (*event->buffer) ok = (*event->buffer != '|');
+		else ok = (real_clock() - event->time >= 50);
 	}
 	unlock(event);
 
@@ -1054,7 +1094,7 @@ static void ggs_client_send(GGSClient *client, const char *fmt, ...) {
 		message_length = vsnprintf(buffer, size, fmt, ap);
 		va_end(ap);
 
-		if (message_length > 0 && message_length < size) break;
+		if (message_length >= 0 && message_length < size) break; // (an empty message made the buffer grow without end)
 
 		if (message_length > 0) size = message_length + 1;
 		else size *= 2;
@@ -1063,7 +1103,17 @@ static void ggs_client_send(GGSClient *client, const char *fmt, ...) {
 
 	log_send(ggs_log, "GGS", "%s", buffer);
 	printf("GGS< %s", buffer);
-	send(client->event.socket, buffer, message_length, 0);
+	{	// send() may send a part of the message only: the rest is sent then (up to v4.5.5-nikque.15 it was lost)
+		int sent = 0, n;
+		while (sent < message_length) {
+			n = send(client->event.socket, buffer + sent, message_length - sent, 0);
+			if (n <= 0) {
+				warn("GGS: cannot send \"%s\"\n", buffer);
+				break;
+			}
+			sent += n;
+		}
+	}
 	
 	free(buffer);
 }
@@ -1522,8 +1572,8 @@ void ui_loop_ggs(UI *ui) {
 						printf("[store match]\n");
 						play_store(ui->play);
 					}
-					if (ui->book.need_saving) {
-						book_save(&ui->book, options.book_file);
+					// a book that could not be saved is saved again later (at the end): up to v4.5.5-nikque.15 it was not
+					if (ui->book.need_saving && book_save(&ui->book, options.book_file)) {
 						ui->book.need_saving = false;
 					}
 				}
@@ -1555,8 +1605,10 @@ void ui_loop_ggs(UI *ui) {
 		/* admin on */
 		} else if (ggs_admin(client->admin, &text)) {
 			printf("[received GGS_ADMIN_CMD]\n");
-			ggs_client_send(client, client->admin->command);
+			ggs_client_send(client, "%s", client->admin->command); // (a received text is no format: '%' was read as one up to v4.5.5-nikque.15)
 			ggs_client_send(client, "\ntell %s command processed\n", client->admin->name);
+			free(client->admin->command);
+			client->admin->command = NULL;
 
 		/* To request Saio a game later */
 		} else if (ggs_saio_delay(&text, &client->once->delay)) {

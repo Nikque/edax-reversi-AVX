@@ -95,6 +95,9 @@ Options options = {
 	0, // games learned at the same time: auto
 	true, // save the book to <book-file>.store after book store
 	1, // passes of book leaf recalculate
+	false, // book random numbers from the clock
+	0, // book seed (when set)
+	false, // book functions as fast as possible (not reproducible)
 };
 
 /**
@@ -144,6 +147,8 @@ void options_usage(void)
 		"  -book-store-tasks <n|auto>    learn n games at the same time (n-tasks / n threads each); auto (default): n-tasks; 1: as before.\n"
 		"  -book-store-auto-save <on/off> save the book to <book-file>.store after book store and book learn (default on).\n"
 		"  -book-leaf-recalculate-rounds <n> passes of book leaf recalculate (2, 3, 4) at most; a pass that changes no leaf is the last (default 1).\n"
+		"  -book-seed <n|auto>           seed of the random choices of the book (auto, the default: from the clock).\n"
+		"  -book-reproducible <on/off>   book functions give the same book from a run to the next (default off).\n"
 		"  -search-log-file <file>       file to store search detailed output/s.\n"
 		"  -ui-log-file <file>           file to store input/output to the (U)ser (I)nterface.\n");
 
@@ -178,6 +183,28 @@ static int option_int(const char *option, const char *value, const int current)
 static int option_int_or_auto(const char *option, const char *value, const int current, const int auto_value)
 {
 	return strcmp(value, "auto") == 0 ? auto_value : option_int(option, value, current);
+}
+
+/**
+ * @brief Read book-seed: a whole number from 0 to 2^64 - 1, or auto (the clock).
+ *
+ * @param option Option name (for the message).
+ * @param value Option value.
+ */
+static void option_seed(const char *option, const char *value)
+{
+	char *end;
+	unsigned long long n;
+
+	if (strcmp(value, "auto") == 0) { options.book_seed_set = false; return; }
+	errno = 0;
+	n = strtoull(value, &end, 10);
+	if (end != value && *value != '-' && errno == 0) {
+		while (*end == ' ' || *end == '\t') ++end;
+		if (*end == '\0') { options.book_seed = n; options.book_seed_set = true; return; }
+	}
+	errno = 0;
+	warn("%s: \"%s\" is not a number from 0 to %llu, or auto; ignored\n", option, value, ULLONG_MAX);
 }
 
 /**
@@ -335,6 +362,8 @@ int options_read(const char *option, const char *value)
 		else if (strcmp(option, "book-merge-auto-save") == 0) option_boolean(option, value, &options.book_merge_auto_save);
 		else if (strcmp(option, "book-store-auto-save") == 0) option_boolean(option, value, &options.book_store_auto_save);
 		else if (strcmp(option, "book-leaf-recalculate-rounds") == 0) options.book_leaf_recalculate_rounds = option_int(option, value, options.book_leaf_recalculate_rounds);
+		else if (strcmp(option, "book-seed") == 0) option_seed(option, value);
+		else if (strcmp(option, "book-reproducible") == 0) option_boolean(option, value, &options.book_reproducible);
 
 		else read = 0;
 	}
@@ -441,16 +470,26 @@ static void settings_parse_line(char *line, const char *file, int n_line)
  */
 void options_parse(const char *file)
 {
+	// an option file may read another one ("option-file"): a file that reads itself, or a loop of files, is
+	// stopped (up to v4.5.5-nikque.15 the stack and the open files were exhausted)
+	static int depth = 0;
 	char *line;
-	FILE *f = fopen(file, "r");
+	FILE *f;
 
+	if (depth >= 16) {
+		warn("%s: too many option files read from one another\n", file);
+		return;
+	}
+	f = fopen(file, "r");
 	if (f != NULL) {
 
 		int n_line = 0;
+		++depth;
 		while ((line = string_read_line(f)) != NULL) {
 			settings_parse_line(line, file, ++n_line);
 			free(line);
 		}
+		--depth;
 
 		fclose(f);
 	}
@@ -519,6 +558,7 @@ void options_bound(void)
 	if (options.book_store_tasks != 0) BOUND(options.book_store_tasks, 1, max_threads, "book-store-tasks");
 	BOUND(options.book_depth, 0, 60, "book-depth");	// 0 = auto
 	BOUND(options.verbosity, 0, 4, "verbosity");
+	BOUND(options.mode, 0, 3, "mode"); // (an index of the names of the modes: up to v4.5.5-nikque.15 not bounded)
 	BOUND(options.noise, 0, 60, "noise");
 	BOUND(options.width, 3, 250, "width");
 	BOUND(options.level, 0, 60, "level");
@@ -591,6 +631,9 @@ void options_dump(FILE *f)
 	fprintf(f, "\tbook merge auto-save: %s\n", boolean_string[options.book_merge_auto_save]);
 	fprintf(f, "\tbook store auto-save: %s\n", boolean_string[options.book_store_auto_save]);
 	fprintf(f, "\tbook leaf recalculate rounds: %d\n", options.book_leaf_recalculate_rounds);
+	if (options.book_seed_set) fprintf(f, "\tbook seed: %llu\n", options.book_seed);
+	else fprintf(f, "\tbook seed: auto (the clock)\n");
+	fprintf(f, "\tbook reproducible: %s\n", boolean_string[options.book_reproducible]);
 	if (options.book_store_tasks > 0) fprintf(f, "\tbook store tasks: %d\n\n", options.book_store_tasks);
 	else fprintf(f, "\tbook store tasks: auto\n\n");
 

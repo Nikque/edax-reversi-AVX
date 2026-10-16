@@ -219,6 +219,7 @@ LIBEDAX_API void edax_book_load(const char*);
 LIBEDAX_API void edax_book_save(const char*);
 LIBEDAX_API int edax_book_save_checked(const char*);       /* nikque: book save; 1 if the book was saved, 0 otherwise */
 LIBEDAX_API int edax_book_failed(void);                    /* nikque: 1 if the last book function could not add a position */
+LIBEDAX_API int edax_book_keep_unread_file(const char*);  /* nikque: before a book saved to another file replaces book_file: keep book_file as .damaged if it could not be loaded; 0 if it must not be replaced */
 LIBEDAX_API void edax_book_import(const char*);
 LIBEDAX_API void edax_book_export(const char*);
 LIBEDAX_API void edax_book_merge(const char*);

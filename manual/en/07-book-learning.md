@@ -325,10 +325,24 @@ Searches at a low level are short, so using many threads for one search does not
 | `auto` (the value in the `config.ini` of the package) | Decided from the level of the book: 2 threads per search up to level 18, 4 up to level 24, 8 above (the number of leaves expanded at the same time is `n-tasks` divided by that). In addition, up to level 18, when a round has at least 32 times `n-tasks` leaves to expand, `n-tasks` searches of 1 thread run at the same time |
 
 - In the measurement of the README of the package (32 logical CPUs, level 18, a book of 656.88 million positions, the first 10,000 leaves of `book deviate3 2 5`): about 805 to 832 seconds with `1`, about 174 seconds with `16` (2 threads each).
-- **The resulting book is not the same as with `1`.** The positions added and the moves of the links are the same, but the move and the score of some leaves may differ by 1 or 2 discs. Also, the positions being expanded at the same time do not see each other (when two positions of the same round reach the same new position, the link is not made on the spot; it is made in a later round, or by `book fix`).
+- **The resulting book is not the same as with `1`.** The positions added and the moves of the links are the same, but the move and the score of some leaves may differ by 1 or 2 discs. Also, a position being expanded at the same time as others only sees the ones already put into the book (when two positions of the same round reach the same new position, the link may not be made on the spot; it is made in a later round, or by `book fix`. Which one happens depends on the order in which the searches end: see `book-reproducible` below).
 - Each of the searches that run at the same time has its own hash table, so more memory is used ([chapter 9](09-large-books.md)).
 - A round with a single leaf is the same as expanding one at a time. In a round with few leaves, fewer searches run at the same time.
 - For exactly the behaviour of the original Edax, set `book-expand-tasks = 1`.
+
+### The same book from a run to the next: book-reproducible and book-seed
+
+When `book-expand-tasks` is 2 or more (`auto` included), a position being expanded sees the result of another one if that result was put into the book first, and does not see it otherwise. Which one happens depends on the order in which the searches end, so the same command can give a slightly different book from a run to the next. Also, the choice among book moves of equal score (even with `book-randomness = 0`) is random, and its seed is taken from the clock: `book learn` learns other games from a run to the next.
+
+| Setting | Behaviour |
+|---|---|
+| `book-reproducible = on` | Every search of the book commands has one thread, and the results of the expansions done at the same time are put into the book in the order they were chosen. Before that, an expansion whose new position got other links since it was searched is searched again. The commands that expand give the book of `n-tasks 1`, whatever the number of threads |
+| `book-seed = a number` | The seed of the random numbers of the book. `book learn` learns the same games from a run to the next |
+
+- The defaults are the previous behaviour (`off`, `auto`).
+- With `on`, each one-thread search has the hash table of a one-thread run (57 MB with `hash-table-size = auto`): about 1.8 GB with `n-tasks` 32.
+- What is the same is the content except the save date (8 bytes at the start of the file).
+- `book store`, `add` and `learn` with several threads give the same book from a run to the next, but not the book of `n-tasks 1`. The searches of the moves of games (`play`, `go`, the games of `book learn` with `n-tasks 1` or `book-store-tasks 1`) and the searches with a time limit are not changed.
 
 ## 7.7 Examples of growing
 

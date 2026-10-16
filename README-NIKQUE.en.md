@@ -4,7 +4,7 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.4).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.15) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.5).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.17) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
 
 ## Changes in v4.5.5-eval2.4
 
@@ -167,6 +167,158 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+## Changes in v4.5.5-nikque.17
+
+Two new settings make a book the same from a run to the next. **The default behaviour is unchanged**: without them, books are made as with v4.5.5-nikque.16, at the same speed and with the same memory. `eval.dat`, the book file format and the search are unchanged.
+
+### Why a book changed from a run to the next
+
+In the comparison of v4.5.5-nikque.16, the same commands with several threads gave slightly different books from a run to the next (also with the old version). Two causes were confirmed; both were already in the old version:
+
+- **The random choice among book moves of equal score (even with `book-randomness = 0`) is seeded from the clock.** `book learn` learns other games from a run to the next.
+- **When positions are expanded at the same time (`book-expand-tasks` 2 or more, `auto` included), the links of a new position are the ones of the book at that moment, with the results that other threads put into it first.** Which ones come first depends on the order in which the searches end, so the input of the searches itself changes from a run to the next. The order of the records of the saved file follows the order of the insertions too.
+
+### New settings
+
+| Setting | Values | Default | Behaviour |
+|---|---|---|---|
+| `book-seed` | 0 to 2^64 - 1, `auto` | `auto` (the clock) | Seed of the random numbers of the book. With a number, `book learn` learns the same games from a run to the next |
+| `book-reproducible` | `on` / `off` | `off` | `on`: every search of the book commands has one thread, and the results of the positions expanded at the same time are put into the book in the order they were chosen. Before that, an expansion whose new position got other links since it was searched is searched again |
+
+- With `book-reproducible = on`, `book deviate`, `deviate2`, `deviate3`, `enhance` and `fill` (the commands tested) give the book of `n-tasks 1`, whatever the number of threads (except the 8 bytes of the save date).
+- `book store`, `add` and `learn` with several threads give the same book from a run to the next, but not the book of `n-tasks 1` (games played in a group at the same time and games played one by one are different behaviours). In the previous behaviour with `n-tasks 1`, `book store` reuses the hash table of the search of the game just played; with `on` it does not.
+- The searches of the moves of games (`play`, `go`) and the searches with a time limit are not changed.
+- For `book learn`, give `book-seed` a number too.
+- See the [user manual, 7.6](manual/en/07-book-learning.md).
+
+### Speed and memory (`book-reproducible = on`, measured)
+
+32 threads on a quiet computer, against v4.5.5-nikque.16, four runs each in alternating order.
+
+| Case | Time (nikque.16 = 1) | Peak memory |
+|---|---|---|
+| `book leaf expand` (level 12) | 0.84 | 1,558 → 2,423 MiB |
+| `book fill2 2` (level 12) | 0.94 | 694 → 745 MiB |
+| `book deviate` family (level 21) | 1.20 | 1,124 → 2,043 MiB |
+| Learning 30 games at level 18 (8 threads) | 1.19 | 278 → 331 MiB |
+
+Each one-thread search has the hash table of a one-thread run (21 bits, 57 MB, with `hash-table-size = auto`), so more memory is used. With the default (`off`), the time and peak memory of the four cases are the same as with v4.5.5-nikque.16 (the `book deviate` family, measured again 16 times each: ratio 1.0000).
+
+### What changes (summary)
+
+- Without the new settings, books are made as with v4.5.5-nikque.16.
+- `book learn` with several games at the same time (`book-store-tasks` 2 or more): the random choice of book moves is seeded for each game instead of each thread. The seed still comes from the clock, so the choices are as random as before.
+- Manual 7.6 said that positions expanded at the same time do not see each other; they see the ones already put into the book. Corrected.
+
+### Checks
+
+- The 14 book suites of the previous comparison (`book deviate` family, `enhance`, `fill`, `fix`, `correct`, `merge`, `add`, `store`, `learn`, level 18 learning, ...) were run twice each with `book-reproducible = on` and 32 threads, on one logical CPU and on 32 cores: every file is the same except the save date (S1, with `go`, included). Ten suites (the expansion commands among them) also give the books of v4.5.5-nikque.16 with `n-tasks 1`.
+- With the default settings and `n-tasks 1`, 13 of the suites give the books of v4.5.5-nikque.16 (S3 uses random choices); S3 with `book-seed 1` gives the books that v4.5.5-nikque.15 and 16 gave with a fixed seed during the investigation.
+- `tests/regression.c` has two new cases: `reproducible` (`book-seed`, the check of the links, the same book with 4 threads twice and 1 thread) and `expandredo` (an expansion whose links changed is searched again, and the book is the one of the one-by-one expansion). They pass on Windows (MSVC) and Linux (gcc 11.4). ThreadSanitizer reports nothing from the changed code (the older report about `need_saving` in the parallel negamax remains).
+- See the [Japanese validation report](manual/ja/validation-nikque17.md). The real 29 GB book was not used. Android and Windows ARM64 were not run on devices.
+
+## Changes in v4.5.5-nikque.16
+
+**Android has now been added.** A one-line header correction fixed the initial build failure; all seven CI jobs pass. The full and Android ZIPs are available. See the [additional validation and corresponding source](manual/ja/android-nikque16.md). Initial logs and the original comparison remain as history.
+
+A second source cross-check and the additional checks below found defects after v4.5.5-nikque.15. `eval.dat` and the book format are unchanged. On Windows PGO v4, all 20 fforum-20-39 depths and scores match at 32 and 8 threads, twice per version. Strict book byte equality did not pass because of save dates and S3 variation; 11 multithreaded conditions exceeded the difference observed between two old runs. These limits are reported, rather than calling every check a pass. See the [Japanese validation report](manual/ja/validation-nikque16.md).
+
+### Additional Windows and Linux fixes (2026-10-16)
+
+- Cassio: EOF after a final command without a newline ended the input thread without notifying the engine thread, which kept waiting. EOF is now queued after that final command. Seven input conditions pass on Windows and Linux, including Linux with ThreadSanitizer.
+- MSVC 19.44, 32-bit AVX2 with `/O2 /GL`: the generated code reused a CRC hash result as part of the board in a later legal-move calculation, producing wrong scores and stack overflow. The hash function is kept out of line only for this configuration. After the fix, 96 exact positions match an independent solver, and all 20 fforum-20-39 depths, scores, node counts and lines match the working 64-bit build (77,639,567 nodes in total).
+- The 42 normal-build regression cases pass. All five Windows PGO executables pass the 20-position depth/score comparison and seven Cassio EOF cases each. The three DLLs pass 204 checks each. The timed v4 executable is unchanged, checked by SHA-256.
+
+### Windows PGO comparison with v15 (2026-10-16)
+
+Ryzen 9 9950X, 32 threads, 192 GiB, Windows 11 Pro build 26300, VS2022 17.14.42. Each case has warm-ups, then ABBAABBA (four per version). A is v15; B source is `19e99cb1c16ade6f4e1a4c6b9c10f82cd219c09e`. Ratios are means of four paired B/A times; ± is sample SD. Times cover the whole process, including startup and I/O.
+
+| 条件 / Case | A平均 / mean s | B平均 / mean s | B/A ± SD |
+|---|---|---|---|
+| Endgame, 1 thread | 1.005078 | 1.011058 | 1.0060 ± 0.0039 |
+| Endgame, 32 threads | 0.427658 | 0.429263 | 1.0042 ± 0.0258 |
+| Midgame, level 18 | 0.973384 | 0.976649 | 1.0034 ± 0.0166 |
+| Midgame, level 21 | 4.046103 | 4.089137 | 1.0106 ± 0.0326 |
+| Learn games, n=1 | 119.052166 | 119.752446 | 1.0059 ± 0.0064 |
+| Learn games, n=8 | 20.200064 | 20.333607 | 1.0067 ± 0.0137 |
+| book fill 2 | 6.831650 | 6.748804 | 0.9881 ± 0.0165 |
+| book fill2 2 | 3.109296 | 3.137015 | 1.0090 ± 0.0117 |
+| book leaf expand | 1.683624 | 1.719111 | 1.0210 ± 0.0158 |
+| base unique | 1.439397 | 0.146957 | 0.1021 ± 0.0031 |
+
+Leaf expand was initially 2.10% slower; the additional ABBA gave 1.0094±0.0009 (0.94% slower). No other initial case exceeded 2%. Other CPU load recorded during runs was 0.34–7.42%; these are not guaranteed fully idle measurements. Peak working sets and all individual times are in the report.
+
+The 51,106-game base has no final newline: A outputs 51,105 games, B 51,106; B's extra game is the last input line. The approximately 9.8-fold improvement is for the CLI process, not a new measurement of the previous 0.012-second function-only figure. The 29 GB book was not used. See the report for byte mismatches, multithreaded variation and procedure incidents.
+
+### Fixes
+
+- **Book and hash table**
+  - The lock of the hash table is chosen by bucket (the 4 places that a position can use), not by hash code (from upstream): the same bucket could be read and written under two different locks.
+  - A link that could not be added (exhausted memory) was taken as added. Now the job is skipped (the plan of the `book fill` commands), or the leaf is kept and the failure recorded (the `book expand` commands).
+  - `book stats` counted out of its arrays for a position with a stage or a score out of range (a damaged book; from upstream). They are counted apart and shown.
+  - The recount of the positions whose win/draw/loss counts are saturated forgot the leaf. The recount now remembers its partial results, so that a position is not counted again and again (speed below).
+  - `book depth` is bounded to 1–61, and the number of empties of a book file to 0–60. The search of a book without a header, the lines longer than a game (`line_push`), and the positions without a move in `book check` and the like are fixed (from upstream).
+- **Game files (base)**
+  - The last game of a game file could be lost (txt, pgn; from upstream). A truncated edx or Wthor file, and a read error, are failures (a line of a txt file that cannot be read is still an empty game, as before).
+  - `base correct` and `base complete` write another file and then replace the game file (a stop while writing broke the file). `base save` does not write when it cannot read the existing file. The saves tell their result.
+  - A game read from a file is checked (player to move, discs on the same square, at least 4 discs, moves that are squares, ended names). A damaged edx file stops where it is damaged. Wthor: ended names, the range of the moves, truncated files and failed saves (from upstream).
+  - The score of a game (`game_score`) had the wrong sign for a game of an odd number of moves; `base complete` could take the wrong player from the second round of its completion loop (from upstream).
+  - `base unique` compares the initial board and the player to move too, not only the moves.
+- **Input from outside**
+  - FEN, the XBoard `setboard`, GGF `BO`, the FEN of PGN and the boards given to libedax refuse a board that cannot be used (fewer than 4 discs, discs on the same square, a wrong number of rows or columns). A refused board keeps the current game.
+  - The times (`1:30:00` and the like), the print of a negative time, the coordinates `P@` and `@`, the range of `mode` (0–3) and the depth in an option file are fixed (from upstream). The unused functions `time_read` and `parse_time` are removed (`parse_time` had the same defect of the times).
+  - The depth of the line after a pass, and the move guessed when the hash table has none (a single move, a pass) are fixed (from upstream).
+  - The races between the input thread and the end of the program (Cassio, XBoard, command line), and the read again after EINTR, are fixed (from upstream).
+- **XBoard, Cassio, GGS** (from upstream)
+  - XBoard: `force`, the end of the input, the log. Cassio: the number of moves of a line, a negative depth, the history, the free after `stop`, the input thread at the end.
+  - GGS: whole administrator names, no received text used as a format, messages received in parts, the bound of the move list, frees, connection failures.
+- **CPU-specific code** (from upstream)
+  - `flip_neon_rbit.c` (aarch64 builds with `MOVE_GENERATOR_NEON`; not the default): the masks of the reversed board and of the board were swapped, and wrong discs were flipped.
+  - The bit scans and shift ranges of 32-bit builds, the types for CPUs without lzcnt, `solve_1`, the evaluation load of the x86 assembly version, and the builds with statistics (`-DHASH_STATS` and the like) that did not compile.
+  - 16-byte loads from addresses that are not 16-byte aligned (midgame.c) use unaligned loads (same results).
+- **Tools** (from upstream; they do not affect Edax itself)
+  - eval_builder: equalize, filters, table packing, feature squares, options, file checks, memory.
+  - perft shapes, the OBF tools (temporary file, move bound, error count), histogram, opening name matching, package-release.py (no partial ZIP left).
+- **libedax**: new function `edax_book_keep_unread_file` (below).
+
+### Speed and memory (same results)
+
+- `base unique` sorts the games before comparing them (47,000 games: 4.9 s → 0.012 s).
+- `base save` writes the games without copying them.
+- The recount of saturated positions remembers its partial results (test book: 891 → 525 ms, same values).
+- The size of an allocation of the evaluation data (eval.c) is fixed.
+
+### What behaves differently (summary)
+
+- A game file whose last game was lost: it is read.
+- A truncated edx or Wthor file, or a read error: a failure (before, what could be read was used).
+- A board that cannot be used (FEN, setboard, libedax): refused (before, it was loaded, and the search could go wrong).
+- A damaged game file or Wthor file: not loaded.
+- `base unique`: games with another initial board or player to move are not the same.
+- The score of a game of an odd number of moves: right sign.
+- A `mode` out of 0–3: bounded.
+- An unusable board in the XBoard `setboard`: an error, and the current game is kept.
+- libedax: `edax_setboard_from_obj` refuses an unusable board.
+
+### libedax
+
+- **New function `edax_book_keep_unread_file`**: when the last `book load` could not read the book file (damaged or truncated), it moves the file to `<file>.damaged`; when it was read, it does nothing. It returns 1 on success, 0 when the file could not be moved. It is called before a save, so that a book that could not be read is not replaced by an empty book (edax_runner uses it). The library exports 105 functions (one more).
+
+### Not changed, and good to know
+
+- The real book (formerly called the 34 GB book) was not used, as the user requested.
+- The verified Windows PGO executables and DLLs are retained. After the header fix, Android, Linux, macOS and Windows ARM64 CI builds passed. Android and Windows ARM64 have not been tested on physical devices.
+- The `MOVE_GENERATOR_NEON` defect is not in the default builds (aarch64 uses another method by default).
+- Some speed points were measured and left as they are because their effect is small: the creation of the helper threads of parallel searches (about 18,000 creations take 47 ms), and the like.
+- The functions of libedax are still called from one thread, one after the other; let one process write a book file (added to "To use it from another program" below). Since 5.3.0+nikque.10, a second edax_runner started in the same folder stops.
+
+### Checks
+
+- With the version before the fixes (v4.5.5-nikque.15), most of the defects were reproduced by small tests (the lost last game, the lock choice, the stats out of range, unusable boards, the reading of FEN, times and coordinates, truncated Wthor files, the Cassio lines, `flip_neon_rbit.c`, ...), with AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer.
+- `tests/regression.c` has new cases (hashlock, lastgame, basereplace, keepunread, statsrange, gamescore, badinput, wthortrunc, cassiolist, parsers, tools, unique). The 44 cases pass on Linux (gcc, `NDEBUG`).
+- Search: fforum-20-39 solved with 1 thread gives the same depths, scores, node counts (77,639,567) and lines as v4.5.5-nikque.15; with 4 threads, the same scores.
+- aarch64 (qemu): the default build, the build with `HAS_CPU_64`, and the build with NEON and LASTFLIP_LOWCUT give the same depths and scores as x64 on fforum-20-39 (the ARM builds have the same node counts, 77,662,358; the difference with x64 was already there). After the fix, `flip_neon_rbit.c` flips the same discs as the generic code on 200,000 random positions.
+
 ## Changes in v4.5.5-nikque.15
 
 After v4.5.5-nikque.14 was published, another reading of the source (a cross-check) found some defects; they are fixed, with a few points of speed and memory. `eval.dat`, the book file format and the search do not change. On **a correct book**, `book deviate` and the like, game learning, `book fill`, `fill2`, `leaf expand`, `book fix`, negamax and pruning make the same book as v4.5.5-nikque.14. The results change only with a book holding boards that are not unique, a damaged book, exhausted memory, and the `book import` of a large text book (see "What behaves differently" below).
@@ -1128,6 +1280,7 @@ The 93 functions of [libedax by lavox](https://github.com/lavox/edax-reversi) ([
 2. In C or C++, include `src/libedax.h`. In another language, load the library with its foreign function interface (Dart has [libedax4dart](https://pub.dev/packages/libedax4dart); ctypes of Python, P/Invoke of C#, ... call the same functions).
 3. Call `libedax_initialize` first (it reads the settings), `edax_init` to start a game, and `libedax_terminate` at the end. The functions are the commands of edax (`edax_play`, `edax_go`, `edax_hint`, `edax_book_*`, ...): they are listed in `src/libedax.h`, and `tests/libedax_test.c` calls every one of them.
 4. A process has one Edax (as with the original libedax). Call the functions from one thread, one after the other (`edax_stop` and `edax_book_stop_count_bestpath` can be called from another thread to stop what is running).
+5. A book is loaded into memory, and a save replaces the file. If two processes (Edax, programs using libedax) learn into the same book file and save it, only the last save remains: let one process write a book file. To avoid replacing a book that could not be read, `edax_book_keep_unread_file` (since v4.5.5-nikque.16) can be called before a save.
 
 A short example (`tests/libedax_example.c`; built and run on Windows and Linux):
 
@@ -1634,7 +1787,7 @@ The book memory does not depend on these settings (about 50 bytes per position w
 
 ## Build and use
 
-The bundle of this series (v4.5.5-eval2.1, v4.5.5-eval2.2) includes the evaluation data of this series at `bin/data/eval.dat` (version 3.3.0, SHA-256 `1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172`; see "Changes in v4.5.5-eval2.1" above), and the initial `bin/data/book.dat` and problem files copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5). The upstream `eval.dat` (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`) is in the bundles up to v4.5.5-nikque.9. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
+The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5) (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`). It also includes the upstream initial `bin/data/book.dat` and problem files. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
 
 | Environment | File in `bin/` |
 |---|---|

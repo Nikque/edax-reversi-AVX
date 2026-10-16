@@ -90,8 +90,8 @@ char* move_to_string(const int x, const int player, char *s)
 	}
 
 	if (player == BLACK) {
-		s[0] = toupper(s[0]);
-		s[1] = toupper(s[1]);
+		s[0] = toupper((unsigned char) s[0]);
+		s[1] = toupper((unsigned char) s[1]);
 	}
 	s[2] = '\0';
 
@@ -585,19 +585,24 @@ void line_init(Line *line, const int player)
 /**
  * @brief Add a move to the sequence.
  *
+ * A line holds GAME_SIZE moves and passes: a move is not added to a full line (up to
+ * v4.5.5-nikque.15 it was written beyond it, a line of more than 20 passes or a damaged book).
+ *
  * @param line the move sequence.
  * @param x move coordinate.
+ * @return false if the line is full (the move is not added).
  */
-void line_push(Line* line, const int x)
+bool line_push(Line* line, const int x)
 {
 	int i;
 
-	assert(line->n_moves < GAME_SIZE);
+	if (line->n_moves >= GAME_SIZE) return false;
 
 	for (i = 0; i < line->n_moves; ++i) {
 		assert(line->move[i] != x || x == PASS);
 	}
 	line->move[line->n_moves++] = (char) x;
+	return true;
 }
 
 /**

@@ -46,6 +46,67 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
   book_free(&b);puts("PASS deviate save cadence: final-only, every 10 rounds, final remainder, and every round");
  }
+ else if(!strcmp(t,"reproducible")){
+  /* book-seed: the random numbers of a book start from the seed; auto and a wrong value leave it to the clock */
+  Book r={0};Random want;options_read("book-seed","12345");book_init(&r);random_seed(&want,12345);int ok=options.book_seed_set&&r.random.x==want.x;book_free(&r);
+  options_read("book-seed","auto");ok=ok&&!options.book_seed_set;options_read("book-seed","-1");ok=ok&&!options.book_seed_set;options_read("book-seed","1x");ok=ok&&!options.book_seed_set;
+  printf("REPRODUCIBLE seed option ok=%d\n",ok);if(!ok)return 2;
+  /* the links of a new position are checked against the book before its expansion is applied */
+  Search s;init_search(&s,4);Book b={0};b.search=&s;book_init(&b);Board start;board_init(&start);
+  Position c,d;position_init(&c);c.board=start;position_link(&c,&b);int fresh=position_links_current(&c,&b);
+  position_init(&d);board_next(&start,F5,&d.board);d.score.value=3;position_unique(&d);if(book_add(&b,&d)<=0)return 2;
+  int stale_new=!position_links_current(&c,&b);position_link(&c,&b);int relinked=position_links_current(&c,&b)&&c.n_link==4; /* (the 4 first moves give the same position) */
+  for(int i=0;i<c.n_link;++i)relinked=relinked&&position_links(&c)[i].score==-3;
+  Board after;board_next(&start,F5,&after);book_probe(&b,&after)->score.value=5;int stale_score=!position_links_current(&c,&b);position_free(&c);book_free(&b);
+  printf("REPRODUCIBLE links check: fresh=%d new_position=%d relinked=%d new_score=%d\n",fresh,stale_new,relinked,stale_score);if(!fresh||!stale_new||!relinked||!stale_score)return 2;
+  /* the same book with 4 threads (expansions applied in the order of the list) and with 1 (one after the other) */
+  options_read("book-reproducible","on");options.book_file="audit-repro.dat";
+  const char *out[3]={"audit-repro-4a.dat","audit-repro-4b.dat","audit-repro-1.dat"};const int tasks[3]={4,4,1};unsigned char *bytes[3];long size[3];
+  /* (a shallow book: positions down to 52 empties, 8 moves; with 36 empties the book grew to hundreds of MB) */
+  for(int k=0;k<3;++k){options.n_task=tasks[k];book_new(&b,2,52);book_deviate(&b,&start,2,4);if(!book_save(&b,out[k]))return 2;printf("REPRODUCIBLE n_task=%d positions=%d\n",tasks[k],b.n_nodes);book_free(&b);
+   FILE *f=fopen(out[k],"rb");if(!f)return 2;fseek(f,0,SEEK_END);size[k]=ftell(f);rewind(f);bytes[k]=malloc(size[k]);if(fread(bytes[k],1,size[k],f)!=(size_t)size[k])return 2;fclose(f);remove(out[k]);}
+  remove("audit-repro.dat.dev");
+  for(int k=1;k<3;++k){int same=size[k]==size[0]&&!memcmp(bytes[k],bytes[0],10)&&!memcmp(bytes[k]+18,bytes[0]+18,size[0]-18);
+   printf("REPRODUCIBLE %s against %s: same except the date=%d (%ld, %ld bytes)\n",out[k],out[0],same,size[k],size[0]);if(!same)return 2;}
+  printf("REPRODUCIBLE expansions searched again (their links changed): %lld\n",book_test_expand_redo);
+  for(int k=0;k<3;++k)free(bytes[k]);options_read("book-reproducible","off");search_free(&s);
+  puts("PASS reproducible: book-seed, links check, the same book with 4 threads (twice) and 1 thread");
+ }
+ else if(!strcmp(t,"expandredo")){
+  /* book-reproducible: the expansion 1 is searched before the expansion 0, whose new position is a move of the new position of 1:
+     when 0 is applied, 1 has old links, is searched again, then applied; the book is the one of position_expand (0, then 1) */
+  Search s;init_search(&s,1);options_read("book-reproducible","on");
+  Board x0=late_board(40),x,c0;unsigned long long m0=board_get_moves(&x0);if(!m0)return 2;int a=first_bit(m0);board_next(&x0,a,&x);
+  unsigned long long m1=board_get_moves(&x);if(!m1)return 2;int m=first_bit(m1);board_next(&x,m,&c0);
+  Book b[2]={{0}};
+  for(int k=0;k<2;++k){b[k].search=&s;book_init(b+k);b[k].options.level=2;b[k].options.n_empties=20;
+   Position p;position_init(&p);p.board=x;p.level=2;p.leaf.move=(unsigned char)m;p.leaf.score=0;p.score.value=0;position_unique(&p);if(book_add(b+k,&p)<=0)return 2;
+   position_init(&p);p.board=x0;p.level=2;p.leaf.move=(unsigned char)a;p.leaf.score=0;p.score.value=0;position_unique(&p);if(book_add(b+k,&p)<=0)return 2;}
+  /* the reference: one after the other */
+  position_expand(book_probe(b+1,&x),b+1);position_expand(book_probe(b+1,&x0),b+1);
+  /* the same expansions, applied in their order after being searched in the other order */
+  ExpandShared sh;memset(&sh,0,sizeof sh);sh.book=b;sh.action="Expand test";sh.tmp_file="audit-expandredo.tmp";sh.t=real_clock();sh.n_slot=4;sh.slot=calloc(4,sizeof *sh.slot);for(int i=0;i<4;++i)sh.slot[i].index=-1;
+  lock_init(&sh);condition_init(&sh);
+  b[0].todo_list.item=malloc(2*sizeof *b[0].todo_list.item);b[0].todo_list.n=b[0].todo_list.size=2;b[0].todo_list.valid=true;
+  b[0].todo_list.item[0]=position_key(b,book_probe(b,&x));b[0].todo_list.item[1]=position_key(b,book_probe(b,&x0));
+  Search *search=book_search(b);ExpandSlot *e0=sh.slot,*e1=sh.slot+1;
+  for(int i=0;i<2;++i){ExpandSlot *e=sh.slot+i;e->index=i;e->skip=false;e->ready=false;if(!book_expand_take(&sh,book_position(b,b[0].todo_list.item[i]),&e->parent,&e->child))return 2;}sh.next=2;
+  int links_before=e1->child.n_link;
+  e1->r=book_expand_search(search,&e1->parent,&e1->child,&e1->leaf);e1->ready=true;Link stale_leaf=e1->leaf,stale_parent=e1->parent.leaf;book_expand_apply_ready(&sh);int waited=sh.applied==0&&sh.redo==NULL;
+  e0->r=book_expand_search(search,&e0->parent,&e0->child,&e0->leaf);e0->ready=true;book_expand_apply_ready(&sh);int redo=sh.applied==1&&sh.redo==e1&&e1->child.n_link==links_before+1;
+  sh.redo=NULL;e1->r=book_expand_search(search,&e1->parent,&e1->child,&e1->leaf);e1->ready=true;
+  printf("EXPANDREDO expansion 1 with the old links: link %d:%d, next leaf %d:%d; searched again: link %d:%d, next leaf %d:%d\n",stale_leaf.move,stale_leaf.score,stale_parent.move,stale_parent.score,e1->leaf.move,e1->leaf.score,e1->parent.leaf.move,e1->parent.leaf.score);
+  book_expand_apply_ready(&sh);int applied=sh.applied==2;
+  printf("EXPANDREDO waited_for_0=%d searched_again=%d (links %d -> %d) applied=%d positions=%d/%d\n",waited,redo,links_before,links_before+1,applied,b[0].n_nodes,b[1].n_nodes);
+  int same=b[0].n_nodes==b[1].n_nodes;const Board *boards[3]={&x0,&x,&c0};
+  for(int i=0;i<3;++i){Position *p=book_probe(b,boards[i]),*q=book_probe(b+1,boards[i]);if(!p||!q){same=0;continue;}
+   int eq=p->leaf.move==q->leaf.move&&p->leaf.score==q->leaf.score&&p->score.value==q->score.value&&p->n_link==q->n_link;
+   for(int j=0;eq&&j<p->n_link;++j){int f=0;for(int k=0;k<q->n_link;++k)f|=position_links(p)[j].move==position_links(q)[k].move&&position_links(p)[j].score==position_links(q)[k].score;eq=f;}
+   printf("EXPANDREDO position %d: leaf %d:%d / %d:%d, score %d / %d, links %d / %d, same=%d\n",i,p->leaf.move,p->leaf.score,q->leaf.move,q->leaf.score,p->score.value,q->score.value,p->n_link,q->n_link,eq);same=same&&eq;}
+  free(sh.slot);condition_free(&sh);lock_free(&sh);book_free(b);book_free(b+1);options_read("book-reproducible","off");search_free(&s);remove("audit-expandredo.tmp");
+  if(!waited||!redo||!applied||!same)return 2;
+  puts("PASS expandredo: an expansion whose links changed is searched again, and the book is the one of position_expand");
+ }
  else if(!strcmp(t,"analyze")){Search s;init_search(&s,1);Game g;game_init(&g);g.initial_board=late_board(4);printf("ANALYZE custom initial empty=%d moves=0\n",board_count_empties(&g.initial_board));fflush(stdout);game_analyze(&g,&s,4,false);search_free(&s);}
  else if(!strcmp(t,"enhance")){Search s;init_search(&s,1);Book b={0};b.search=&s;book_init(&b);b.options.level=0;b.options.n_empties=58;options.book_file="audit-enhance.dat";Board start;board_init(&start);book_add_board(&b,&start);book_enhance(&b,&start,64,64);printf("ENHANCE nodes_after=%d\n",b.n_nodes);book_clean(&b);position_negamax(book_probe(&b,&start),&b);book_clean(&b);position_enhance(book_probe(&b,&start),&b);int pending=0;Position *p;PositionArray *a;Book *bp=&b;foreach_position(p,a,bp)pending+=position_is_todo(p,bp);printf("ENHANCE pending_after_finished=%d\n",pending);book_free(&b);search_free(&s);}
  else if(!strcmp(t,"core")){core(argc>2?atoi(argv[2]):1);}
@@ -97,6 +158,81 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   char line[400],copy[LEARN_MOVES_SIZE];int i,ok;
   strcpy(line,"F5d6");for(i=4;i<253;++i)line[i]=' ';strcpy(line+253,"c3g5");
   learn_moves_copy(copy,line);ok=!strcmp(copy,"f5d6c3g5");printf("LEARN line of %d bytes copied as \"%s\" ok=%d\n",(int)strlen(line),copy,ok);if(!ok)return 2;}
+ else if(!strcmp(t,"hashlock")){ /* v4.5.5-nikque.16: the hash codes of the same entries take the same lock (the lock was hash_code & lock_mask) */
+  HashTable h={0};int bad=0;hash_init(&h,1024);
+  for(unsigned long long k=0;k<100000;++k){unsigned long long c=k*0x9E3779B97F4A7C15ULL;for(int d=1;d<HASH_N_WAY;++d)if(hash_lock(&h,c)!=hash_lock(&h,c^(unsigned long long)d))++bad;}
+  printf("HASH lock of the same entries: n_lock=%d hash_mask=%llu different=%d\n",h.n_lock,h.hash_mask,bad);hash_cleanup(&h);free(h.memory);if(bad)return 2;}
+ else if(!strcmp(t,"lastgame")){ /* v4.5.5-nikque.16: the last game of a file without an end of line, and of a pgn file, is loaded */
+  const char *ext[]={".txt",".pgn",".ggf",".sgf",".edx"};const char *line[]={"f5d6c3d3c4f4f6f3e6e7d7g6g5f7e8","f5f6e6f4e3c5c4","f5d6c5f4e3"};int ok=1;
+  for(int e=0;e<5;++e){char name[32];Base b;Game g;FILE *f;long n;char *buf;sprintf(name,"audit-lastgame%s",ext[e]);remove(name);base_init(&b);
+   for(int i=0;i<3;++i){game_init(&g);text_to_game(line[i],&g);base_append(&b,&g);}base_save(&b,name);base_free(&b);
+   f=fopen(name,"rb");fseek(f,0,SEEK_END);n=ftell(f);rewind(f);buf=malloc(n);if(fread(buf,1,n,f)!=(size_t)n)n=0;fclose(f);if(e<4)while(n>0&&(buf[n-1]=='\n'||buf[n-1]=='\r'))--n;
+   f=fopen(name,"wb");fwrite(buf,1,n,f);fclose(f);free(buf);base_init(&b);int loaded=base_load(&b,name);printf("BASE %s without the final end of line: loaded=%d games=%d (expected 3)\n",ext[e],loaded,b.n_games);
+   if(!loaded||b.n_games!=3||b.game[2].move[4]!=g.move[4]){ok=0;}base_free(&b);remove(name);}
+  if(!ok)return 2;}
+ else if(!strcmp(t,"basereplace")){ /* v4.5.5-nikque.16: base correct/complete save to another file first, then replace the file */
+  Base b;Game g;FILE *f;int ok;remove("audit-replace.txt");remove("audit-replace.txt.saving.txt");f=fopen("audit-replace.txt","w");fputs("f5d6\nf5f6\nf5d6c3",f);fclose(f);
+  base_init(&b);ok=base_load(&b,"audit-replace.txt")&&b.n_games==3;game_init(&g);text_to_game("f5f4",&g);b.game[0]=g;ok=ok&&base_replace(&b,"audit-replace.txt");base_free(&b);
+  base_init(&b);ok=ok&&base_load(&b,"audit-replace.txt")&&b.n_games==3&&b.game[0].move[1]==g.move[1];base_free(&b);f=fopen("audit-replace.txt.saving.txt","r");if(f){fclose(f);ok=0;}
+  printf("BASE replace: 3 games, first one changed, no file left aside ok=%d\n",ok);remove("audit-replace.txt");if(!ok)return 2;}
+ else if(!strcmp(t,"keepunread")){ /* v4.5.5-nikque.16: a book file that could not be loaded is kept as .damaged before a book saved to another file replaces it */
+  Search s;init_search(&s,1);Book b={0};FILE *f;int ok,kept;remove("audit-unread.dat");remove("audit-unread.dat.damaged");remove("audit-unread.dat.saving");
+  f=fopen("audit-unread.dat","wb");for(int i=0;i<300;++i)fputc(i*7,f);fclose(f);b.search=&s;ok=!book_load(&b,"audit-unread.dat");book_free(&b);
+  book_init(&b);b.search=&s;book_new(&b,2,36);ok=ok&&book_save(&b,"audit-unread.dat.saving");ok=ok&&book_keep_unread_file("audit-unread.dat");
+  f=fopen("audit-unread.dat.damaged","rb");kept=f!=NULL;if(f){fseek(f,0,SEEK_END);kept=ftell(f)==300;fclose(f);}ok=ok&&kept&&rename("audit-unread.dat.saving","audit-unread.dat")==0;
+  ok=ok&&book_keep_unread_file("audit-unread.dat");f=fopen("audit-unread.dat.damaged.1","rb");if(f){fclose(f);ok=0;} /* (once kept, the file is no longer the one that could not be loaded) */
+  printf("BOOK unread file kept as .damaged (300 bytes)=%d ok=%d\n",kept,ok);book_free(&b);remove("audit-unread.dat");remove("audit-unread.dat.damaged");search_free(&s);if(!ok)return 2;}
+ else if(!strcmp(t,"statsrange")){ /* v4.5.5-nikque.16: book stats counts apart the scores out of -64..64 (a book file holds up to +/-127) */
+  Search s;init_search(&s,1);Book b={0};Board init;Position *p;b.search=&s;book_new(&b,2,36);board_init(&init);p=book_probe(&b,&init);if(!p)return 2;p->score.value=127;
+  book_stats(&b);p->score.value=-127;book_stats(&b);printf("BOOK stats with scores +/-127 done\n");book_free(&b);search_free(&s);}
+ else if(!strcmp(t,"gamescore")){ /* v4.5.5-nikque.16: the score of a game of an odd number of moves had the wrong sign */
+  int bad[2]={0,0},total[2]={0,0};
+  for(int k=0;k<4000;++k){Game g;Board b;int n=0,black=1;game_init(&g);board_init(&b);
+   for(;;){unsigned long long m=board_get_moves(&b);if(!m){board_pass(&b);black^=1;m=board_get_moves(&b);if(!m)break;}int r=rr()%bit_count(m);while(r--)m&=m-1;g.move[n++]=first_bit(m);board_next(&b,first_bit(m),&b);black^=1;}
+   int p=bit_count(b.player),o=bit_count(b.opponent),e=64-p-o,d=p-o;if(d>0)d+=e;else if(d<0)d-=e;++total[n&1];if(game_score(&g)!=(black?d:-d))++bad[n&1];}
+  printf("GAME score: even moves %d games %d wrong, odd moves %d games %d wrong\n",total[0],bad[0],total[1],bad[1]);if(bad[0]||bad[1]||!total[1])return 2;}
+ else if(!strcmp(t,"badinput")){ /* v4.5.5-nikque.16: FEN rows, edx games, boards of fewer than 4 discs, book depth */
+  Board b;Game g;FILE *f;int ok=1;
+  if(board_from_FEN(&b,"9p b")!=EMPTY||board_from_FEN(&b,"8/8/8/8/8/8/8/8/8/p b")!=EMPTY||board_from_FEN(&b,"8/8/8/3Pp3/3pP3/8/8 b")!=EMPTY)ok=0;
+  if(board_from_FEN(&b,"8/8/8/3Pp3/3pP3/8/8/8 b")!=BLACK||board_count_empties(&b)!=60)ok=0;
+  b.player=1;b.opponent=2;if(board_is_usable(&b))ok=0;board_init(&b);if(!board_is_usable(&b))ok=0;
+  game_init(&g);g.move[0]=100;f=fopen("audit-bad.edx","wb");fwrite(&g,sizeof g,1,f);fclose(f);f=fopen("audit-bad.edx","rb");if(game_read_checked(&g,f))ok=0;fclose(f);
+  game_init(&g);g.player=7;f=fopen("audit-bad.edx","wb");fwrite(&g,sizeof g,1,f);fclose(f);f=fopen("audit-bad.edx","rb");if(game_read_checked(&g,f))ok=0;fclose(f);
+  {Base base;base_init(&base);if(base_load(&base,"audit-bad.edx"))ok=0;base_free(&base);}remove("audit-bad.edx");
+  {Line l;line_init(&l,BLACK);for(int i=0;i<GAME_SIZE;++i)line_push(&l,PASS);if(line_push(&l,PASS)||l.n_moves!=GAME_SIZE)ok=0;}
+  printf("BAD input refused ok=%d\n",ok);if(!ok)return 2;}
+ else if(!strcmp(t,"wthortrunc")){ /* v4.5.5-nikque.16: a wthor file that cannot be read completely is not loaded, and no game is added to it */
+  Base b;Game g;FILE *f;long n;char buf[1024];int ok;remove("audit-trunc.wtb");base_init(&b);for(int i=0;i<3;++i){game_init(&g);text_to_game(i?"f5f6e6f4":"f5d6c3",&g);base_append(&b,&g);}
+  ok=base_save(&b,"audit-trunc.wtb");base_free(&b);{Base c;base_init(&c);ok=ok&&base_load(&c,"audit-trunc.wtb")&&c.n_games==3;base_free(&c);}
+  f=fopen("audit-trunc.wtb","rb");n=fread(buf,1,sizeof buf,f);fclose(f);f=fopen("audit-trunc.wtb","wb");fwrite(buf,1,n-30,f);fclose(f);{Base c;base_init(&c);ok=ok&&!base_load(&c,"audit-trunc.wtb");base_free(&c);} /* (a truncated wthor file is not loaded) */
+  base_init(&b);game_init(&g);text_to_game("f5f4",&g);base_append(&b,&g);ok=ok&&!base_save(&b,"audit-trunc.wtb");base_free(&b);f=fopen("audit-trunc.wtb","rb");fseek(f,0,SEEK_END);ok=ok&&ftell(f)==n-30;fclose(f);
+  printf("WTHOR truncated file kept ok=%d\n",ok);remove("audit-trunc.wtb");remove("WTHOR.JOU");if(!ok)return 2;}
+ else if(!strcmp(t,"cassiolist")){ /* v4.5.5-nikque.16: the list of the positions of Cassio keeps every position */
+  options.n_task=1;options.hash_table_size=10;options.verbosity=0;options.cpu_affinity=false;eval_open(eval_path());search_global_init();
+  Engine *e=calloc(1,sizeof *e);Board b[3];int ok;e->search=engine_create_search();e->last_position.n=0;
+  for(int i=0;i<3;++i){b[i]=late_board(20+i);is_position_new(e,b+i);}
+  ok=e->last_position.n==3&&board_equal(e->last_position.board,b+2)&&board_equal(e->last_position.board+1,b+1)&&board_equal(e->last_position.board+2,b);
+  ok=ok&&!is_position_new(e,b);printf("CASSIO position list of 3 ok=%d\n",ok);engine_free(e->search);free(e);if(!ok)return 2;}
+ else if(!strcmp(t,"parsers")){ /* v4.5.5-nikque.16: D:HH:MM:SS times, "P@" alone, option files that read themselves, mode */
+  int ok=string_to_time("0:1:0:0")==3600000&&string_to_time("1:0:0:0")==86400000&&string_to_time("1:00:00")==3600000&&string_to_time("1:30")==90000&&string_to_time("2:03.5")==123500;
+  char *p=malloc(3);strcpy(p,"P@");ok=ok&&string_to_coordinate(p)==NOMOVE;free(p);p=malloc(2);strcpy(p,"@");ok=ok&&string_to_coordinate(p)==NOMOVE;free(p);
+  ok=ok&&string_to_coordinate("P@d3")==D3&&string_to_coordinate("@@@@")==PASS;
+  FILE *f=fopen("audit-loop.ini","w");fputs("option-file audit-loop.ini\nmode 9\n",f);fclose(f);options_parse("audit-loop.ini");options_bound();ok=ok&&options.mode==3;remove("audit-loop.ini");
+  printf("PARSERS times, coordinates, option-file loop, mode ok=%d\n",ok);if(!ok)return 2;}
+ else if(!strcmp(t,"tools")){ /* v4.5.5-nikque.16: opening names, shapes after a pass, the moves of an OBF line */
+  int ok=1;const char *l;ShapeHash sh;BoardCache bc;Board b;unsigned seed=3;int found=0;OBF obf;FILE *f;
+  l=opening_get_line("tigre centrale");ok=ok&&l&&!strcmp(l,"f5d6c3d3c4f4c5");l=opening_get_line("tigre");ok=ok&&l&&!strcmp(l,"f5d6c3d3c4");
+  while(!found){board_init(&b);for(;;){unsigned long long m=board_get_moves(&b);if(!m){Board p=b;board_pass(&p);if(board_get_moves(&p)&&board_count_empties(&b)>3)found=1;break;}int k=(int)((seed=seed*1103515245+12345)>>16);k%=bit_count(m);while(k--)m&=m-1;board_next(&b,first_bit(m),&b);}}
+  {Board p=b;board_pass(&p);shapehash_init(&sh,12);boardcache_init(&bc,12);ok=ok&&count_shape(&sh,&bc,&b,1)==(unsigned long long)bit_count(board_get_moves(&p));shapehash_delete(&sh);boardcache_delete(&bc);}
+  f=fopen("audit-moves.obf","w");fputs("---------------------------OX------XO--------------------------- X",f);for(int i=0;i<40;++i)fputs(";f5:+1",f);fputs(";\n",f);fclose(f);
+  f=fopen("audit-moves.obf","r");memset(&obf,0,sizeof obf);obf_read(&obf,f);fclose(f);ok=ok&&obf.n_moves==MAX_MOVE;obf_free(&obf);remove("audit-moves.obf");
+  printf("TOOLS opening names, shapes after a pass, OBF moves ok=%d\n",ok);if(!ok)return 2;}
+ else if(!strcmp(t,"unique")){ /* v4.5.5-nikque.16: base unique sorts the games (the first ones kept, in order); games from other boards differ */
+  Base b;Game g,c;int ok;base_init(&b);
+  for(int i=0;i<300;++i){game_init(&g);text_to_game(i%3?"f5d6c3":"f5f6e6f4",&g);sprintf(g.name[0],"p%d",i%50);base_append(&b,&g);}
+  c=g;c.initial_board.player^=1ULL<<A1;base_append(&b,&c);base_unique(&b);
+  ok=b.n_games==101&&!strcmp(b.game[0].name[0],"p0")&&b.game[0].move[1]==F6&&!strcmp(b.game[1].name[0],"p1")&&b.game[1].move[1]==D6&&!board_equal(&b.game[100].initial_board,&b.game[99].initial_board);
+  printf("BASE unique: %d games kept (101 expected) ok=%d\n",b.n_games,ok);base_free(&b);if(!ok)return 2;}
  else return 1;
  return 0;
 }

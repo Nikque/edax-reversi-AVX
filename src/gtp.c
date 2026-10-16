@@ -147,7 +147,7 @@ void ui_loop_gtp(UI *ui)
 
 		log_print(gtp_log, "received: \"%s %s\"\n", cmd, param);
 
-		if (isdigit(*cmd)) {
+		if (isdigit((unsigned char) *cmd)) {
 			has_id = true;
 			parse_int(cmd, &id);
 			parse_command(param, cmd, param, strlen(param) + 1);

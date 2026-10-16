@@ -712,30 +712,31 @@ LIBEDAX_API void edax_setboard(const char *board)
 LIBEDAX_API void edax_setboard_from_obj(const LibedaxBoard *board, const int turn)
 {
 	Play *play;
+	Board b;
+	int player;
 	if (g_ui == NULL || board == NULL) return;
 	play = g_ui->play;
 
 	// set a new initial position
 	play_stop_pondering(play);
-	play->initial_board.player = board->player;
-	play->initial_board.opponent = board->opponent;
+	b.player = board->player;
+	b.opponent = board->opponent;
 	if (turn == BLACK) {
-		play->initial_player = BLACK;
+		player = BLACK;
 	} else if (turn == WHITE) {
-		board_swap_players(&play->initial_board);
-		play->initial_player = WHITE;
+		board_swap_players(&b);
+		player = WHITE;
 	} else {
-		play->initial_player = EMPTY;
+		player = EMPTY;
 	}
-	if (play->initial_board.player & play->initial_board.opponent) { /* bad board */
-		play->initial_board.opponent &= (~play->initial_board.player);
+	if (b.player & b.opponent) { /* bad board */
+		b.opponent &= (~b.player);
 	}
-	if (play->initial_player == EMPTY) { /* bad turn */
-		play->initial_player = (board_count_empties(&play->initial_board) & 1);
-		if (play->initial_player == WHITE) board_swap_players(&play->initial_board);
+	if (player == EMPTY) { /* bad turn */
+		player = (board_count_empties(&b) & 1);
+		if (player == WHITE) board_swap_players(&b);
 	}
-	play_force_init(play, "");
-	play_new(play);
+	play_set_initial_board(play, &b, player); // (a board of fewer than 4 discs is refused: the current game is kept)
 }
 
 /**
@@ -1492,8 +1493,12 @@ LIBEDAX_API void edax_book_depth(const int depth)
 	if (g_ui == NULL) return;
 	book = lib_book_begin();
 
-	// set book depth (until which to learn)
-	book->options.n_empties = 61 - depth;
+	// set book depth (until which to learn); as "book depth" (up to v4.5.5-nikque.15 any depth)
+	{
+		int d = depth;
+		BOUND(d, 1, 61, "book depth");
+		book->options.n_empties = 61 - d;
+	}
 
 	lib_book_end(book);
 }
@@ -1601,6 +1606,24 @@ LIBEDAX_API int edax_book_failed(void)
 {
 	if (g_ui == NULL) return 0;
 	return g_ui->play->book->failed ? 1 : 0;
+}
+
+/**
+ * @brief Keep the book file that could not be loaded at the start under another name, before
+ * a book saved to another file replaces it.
+ *
+ * edax_book_save_checked(book_file) keeps the book file that could not be loaded as
+ * <book_file>.damaged before replacing it. A program that saves the book to another file, then
+ * renames it to the book file, calls this function before the rename (with the book file name).
+ *
+ * @param book_file book file name to be replaced.
+ * @return 1 if the file can be replaced (it was loaded, or it is now kept as <book_file>.damaged),
+ *         0 if it could not be loaded and could not be kept: it must not be replaced.
+ */
+LIBEDAX_API int edax_book_keep_unread_file(const char *book_file)
+{
+	if (g_ui == NULL || book_file == NULL) return 0;
+	return book_keep_unread_file(book_file) ? 1 : 0;
 }
 
 /**
@@ -2356,14 +2379,13 @@ LIBEDAX_API void edax_base_correct(const char *base_file, const int n_empties)
 	base_init(&base);
 
 	// correct erroneous games
-	if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+	if (base_load(&base, base_file)) { // a file which was not loaded (or not completely) is kept as it is
 		// as the commands which change the book: edax_stop() would only cut one search short, and
 		// its unfinished result would go to the file
 		const bool running = lib_book_change_set(true);
 		base_analyze(&base, &g_ui->play->search, n_empties, true);
 		lib_book_change_set(running);
-		remove(base_file);
-		base_save(&base, base_file);
+		base_replace(&base, base_file); // (the file is replaced once the games are saved to another file)
 	}
 
 	base_free(&base);
@@ -2381,12 +2403,11 @@ LIBEDAX_API void edax_base_complete(const char *base_file)
 	base_init(&base);
 
 	// terminate unfinished base
-	if (base_load(&base, base_file)) { // a file which was not loaded is kept as it is
+	if (base_load(&base, base_file)) { // a file which was not loaded (or not completely) is kept as it is
 		const bool running = lib_book_change_set(true); // (see edax_base_correct)
 		base_complete(&base, &g_ui->play->search);
 		lib_book_change_set(running);
-		remove(base_file);
-		base_save(&base, base_file);
+		base_replace(&base, base_file); // (the file is replaced once the games are saved to another file)
 	}
 
 	base_free(&base);

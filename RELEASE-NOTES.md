@@ -68,16 +68,134 @@ Speed (release executables: time of this version with the new `eval.dat`, divide
 Training data: the search scores of self-play games of Edax itself (level 8, about 840,000 games), the positions and scores of a book learned with this fork, and the training data published on the site of [Egaroucid](https://www.egaroucid.nyanyan.dev/). For Egaroucid, only the published data was used for training: its patterns and trained weights are not used. The training data is not in the package.
 
 Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
+## v4.5.5-nikque.17
+
+Two new settings make a book the same from a run to the next. **The default behaviour (without the settings) gives the same books, speed and memory as v4.5.5-nikque.16.** `eval.dat`, the book file format and the search are unchanged.
+
+New settings:
+
+- `book-seed` (0 to 2^64 - 1, default `auto`, the clock): the seed of the random choice among book moves of equal score. With a number, `book learn` learns the same games from a run to the next.
+- `book-reproducible` (default `off`): with `on`, every search of the book commands has one thread, and the results of the positions expanded at the same time are put into the book in the order they were chosen (an expansion whose links changed is searched again). The `book deviate` family, `enhance` and `fill` then give the book of `n-tasks 1`, whatever the number of threads.
+
+What changes:
+
+- `book learn` with several games at the same time seeds the random choice of book moves for each game.
+- An error of the user manual (7.6) is corrected.
+
+Speed and memory (`book-reproducible = on`):
+
+- 32 threads take 0.84 to 1.20 times the time depending on the case, and 7% to 82% more peak memory.
+
+Checks:
+
+- In the 14 book suites of the previous comparison, every file is the same except the save date, on one logical CPU and on 32 cores.
+
+See the [English README](README-NIKQUE.en.md), the [Japanese README](README-NIKQUE.ja.md) and the [Japanese validation report](manual/ja/validation-nikque17.md).
+
+## v4.5.5-nikque.16
+
+Fixes of defects found by a second cross-check of the source after v4.5.5-nikque.15 was published (most of them from upstream). `eval.dat`, the book file format and the search results do not change.
+
+Bug fixes:
+
+- The choice of the hash table locks.
+- The last game of a game file could be lost.
+- A stop during `base correct` or `base complete` broke the game file.
+- Damaged game files, Wthor files and unusable boards (FEN, setboard, libedax) were loaded.
+- The sign of the score of a game of an odd number of moves.
+- The ranges of `book stats` and `book depth`.
+- The reading of times, coordinates and `mode`.
+- Races between the input thread and the end.
+- Defects of XBoard, Cassio and GGS.
+- The flips of aarch64 builds with `MOVE_GENERATOR_NEON`.
+- 32-bit and statistics builds; eval_builder and other tools.
+- Additional fix (2026-10-16): Cassio did not exit on EOF after a final input line without a newline.
+- Additional fix (2026-10-16): MSVC 19.44's 32-bit AVX2 build produced wrong scores and stack overflow when the CRC hash was inlined; inlining is disabled for this configuration.
+
+Speed:
+
+- `base unique`, `base save` and the recount of saturated positions are faster. `base unique` is approximately 9.8 times faster for the CLI process.
+
+libedax:
+
+- New function `edax_book_keep_unread_file` (it keeps a book that could not be read as `.damaged`).
+
+Distribution:
+
+- The Windows PGO builds (5 executables) and the 3 DLLs were rebuilt and checked.
+- Update: Android was added after an authorized one-line header correction. All seven CI jobs pass. See the [additional validation and corresponding source](manual/ja/android-nikque16.md). Initial failure logs are retained.
+
+Checks:
+
+- Normal-build regression and reproduction tests pass.
+- The speed comparison is complete. Leaf expand was initially 2.10% slower, 0.94% on the additional ABBA.
+- Strict byte equality and the observed multithreaded variation bounds did not pass in all conditions; the validation report records these differences.
+- See the [Japanese validation report](manual/ja/validation-nikque16.md), including mismatches and procedure incidents.
+
+See the [English README](README-NIKQUE.en.md) and the [Japanese README](README-NIKQUE.ja.md).
+
 ## v4.5.5-nikque.15
 
-Fixes of defects found by another reading of the source (a cross-check) after v4.5.5-nikque.14 was published (some of them from upstream): `book prune` and `book subtree` never ended after the `book import` of a text book with a board that is not unique; a damaged book file made Edax crash (`book load` and `book merge` no longer load it); the header of the evaluation file passed with one half right; a failed `book import` replaced the book with the part read; each change of the hash table size leaked the locks; removing links with exhausted memory removed all of them; libedax did not load another `eval-file`. The unused part of the pool is released on Linux and macOS too, and the places of the pool that learning no longer uses are released. The lists of the `book fill` commands take less sorting and memory. `eval.dat`, the book file format and the search do not change. A correct book gives the same book as v4.5.5-nikque.14 (the `book import` of a large text book changes the number of buckets). **The fixed source was published after the builds and a start check only; the test set ran after the release (no problem; one repository test file fixed). `book import` of a text book of 4 million positions: 9.7 s → 7.9 s.** See the [English README](README-NIKQUE.en.md) and the [Japanese README](README-NIKQUE.ja.md).
+Fixes of defects found by another reading of the source (a cross-check) after v4.5.5-nikque.14 was published (some of them from upstream). `eval.dat`, the book file format and the search do not change.
 
+Bug fixes:
 
-Additional checks (2026-10-15): recreated missing inputs; all 63 runs of the 21 omitted cases × 3 sanitizer settings completed normally with no detection. Checked preservation of the current book on import allocation failure, allocation-free link shrinking, evaluation-file reload, noncanonical binary-book normalization and prune completion, libedax base-command stop handling, and Linux pool release after prune and learning. The 2,432-byte ThreadSanitizer report already existed; race reports other than the fixed progress counters remain. The real book was not used, as requested. Conditions and limits are in the README.
+- `book prune` and `book subtree` never ended after the `book import` of a text book with a board that is not unique.
+- A damaged book file made Edax crash (`book load` and `book merge` no longer load it).
+- The header of the evaluation file passed with one half right.
+- A failed `book import` replaced the book with the part read.
+- Each change of the hash table size leaked the locks.
+- Removing links with exhausted memory removed all of them.
+- libedax did not load another `eval-file`.
+
+Speed and memory:
+
+- The unused part of the pool is released on Linux and macOS too, and the places of the pool that learning no longer uses are released.
+- The lists of the `book fill` commands take less sorting and memory.
+- `book import` of a text book of 4 million positions: 9.7 s → 7.9 s.
+
+What changes:
+
+- A correct book gives the same book as v4.5.5-nikque.14 (the `book import` of a large text book changes the number of buckets).
+
+Checks:
+
+- **The fixed source was published after the builds and a start check only; the test set ran after the release (no problem; one repository test file fixed).**
+- Additional checks (2026-10-15): recreated missing inputs; all 63 runs of the 21 omitted cases × 3 sanitizer settings completed normally with no detection.
+- Checked preservation of the current book on import allocation failure, allocation-free link shrinking, evaluation-file reload, noncanonical binary-book normalization and prune completion, libedax base-command stop handling, and Linux pool release after prune and learning.
+- The 2,432-byte ThreadSanitizer report already existed; race reports other than the fixed progress counters remain.
+- The real book was not used, as requested.
+
+Conditions and limits are in the [English README](README-NIKQUE.en.md) and the [Japanese README](README-NIKQUE.ja.md).
 
 ## v4.5.5-nikque.14
 
-New commands: `book fill2` fills the gaps after the leaves, and `book leaf expand` expands the leaves that are better than every link. `book fill`, `fill2` and `leaf expand` take the same range as `book deviate3` (`book fill 2 5 5`). `book fill` uses several threads, as `book deviate` does (the book it makes changes; `book fill 1` is unchanged). Every round of these three commands first adds the missing links (moves that lead to a position of the book but are not links: in every position for `fill` and `fill2`, in the positions whose leaf leads to a position of the book for `leaf expand`). `book leaf-recalculate` is renamed `book leaf recalculate` (the names with a hyphen no longer work). libedax has five new functions. `eval.dat`, the book file format and the search are unchanged. The books made by `book deviate`, `deviate2`, `deviate3`, by learning games, by `book fix`, the negamax and the commands that cut a book are the same as with v4.5.5-nikque.13. See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
+New commands fill the gaps of a book and expand the leaves that are better than every link. `eval.dat`, the book file format and the search are unchanged.
+
+New commands:
+
+- `book fill2` fills the gaps after the leaves.
+- `book leaf expand` expands the leaves that are better than every link.
+- `book fill`, `fill2` and `leaf expand` take the same range as `book deviate3` (`book fill 2 5 5`).
+- Every round of these three commands first adds the missing links (moves that lead to a position of the book but are not links: in every position for `fill` and `fill2`, in the positions whose leaf leads to a position of the book for `leaf expand`).
+
+Speed:
+
+- `book fill` uses several threads, as `book deviate` does (the book it makes changes; `book fill 1` is unchanged).
+
+Renamed:
+
+- `book leaf-recalculate` is renamed `book leaf recalculate` (the names with a hyphen no longer work).
+
+libedax:
+
+- Five new functions.
+
+What changes:
+
+- The books made by `book deviate`, `deviate2`, `deviate3`, by learning games, by `book fix`, the negamax and the commands that cut a book are the same as with v4.5.5-nikque.13.
+
+See the [English](README-NIKQUE.en.md) and [Japanese](README-NIKQUE.ja.md) READMEs for details.
 
 ## v4.5.5-nikque.13
 

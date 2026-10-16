@@ -603,7 +603,7 @@ void eval_open(const char* file)
 
 	// create unpacking tables
 	OPPONENT_FEATURE = (unsigned short *) malloc(59049 * sizeof(unsigned short));	// 3^10
-	P = (SymetryPacking (*)[2]) malloc(2 * sizeof(*P));
+	P = (SymetryPacking (*)[2]) malloc(sizeof(*P)); // (*P is the 2 tables: up to v4.5.5-nikque.15 twice their size)
 	T = (int *) malloc(2 * 59049 * sizeof(*T));
 	if ((OPPONENT_FEATURE == NULL) || (P == NULL) || (T == NULL))
 		fatal_error("Cannot allocate temporary table variable.\n");

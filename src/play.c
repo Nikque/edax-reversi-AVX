@@ -115,7 +115,7 @@ bool play_load(Play *play, const char *file)
 
 	if (load == game_read) {
 		if (!game_read_checked(&game, f)) {
-			snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Incomplete game file %s\n", file);
+			snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Incomplete or damaged game file %s\n", file);
 			fclose(f);
 			return false;
 		}
@@ -125,6 +125,10 @@ bool play_load(Play *play, const char *file)
 	fclose(f);
 
 	// check every move before the current game is replaced (same rules as play_move)
+	if (!board_is_usable(&game.initial_board) || (game.player != BLACK && game.player != WHITE)) {
+		snprintf(play->error_message, PLAY_MESSAGE_MAX_LENGTH, "Unusable initial board in %s\n", file);
+		return false;
+	}
 	{
 		Board board = game.initial_board;
 		int player = game.player;
@@ -661,21 +665,27 @@ void play_redo(Play *play)
 }
 
 /**
- * @brief Set a new board.
+ * @brief Start a new game from a board given from outside (setboard, FEN, libedax).
+ *
+ * A board of fewer than 4 discs, or with discs on the same square, is refused: the current game is kept
+ * (up to v4.5.5-nikque.15 it was searched with more than 60 empties, out of the table of the levels).
+ *
  * @param play Play.
- * @param board A new board.
+ * @param board The initial board.
+ * @param player The player to move.
+ * @return false if the board is refused.
  */
-void play_set_board(Play *play, const char *board)
+bool play_set_initial_board(Play *play, const Board *board, const int player)
 {
-	play_stop_pondering(play);
-	play->initial_player = board_set(&play->initial_board, board);
-	if (play->initial_player == EMPTY) { /* bad board ? */
-		play->initial_board.opponent &= (~play->initial_board.player);
-		play->initial_player = (board_count_empties(&play->initial_board) & 1);
-		if (play->initial_player == WHITE) board_swap_players(&play->initial_board);
+	if (!board_is_usable(board)) {
+		warn("setboard: a board needs at least 4 discs\n");
+		return false;
 	}
+	play->initial_board = *board;
+	play->initial_player = player;
 	play_force_init(play, "");
 	play_new(play);
+	return true;
 }
 
 /**
@@ -683,14 +693,37 @@ void play_set_board(Play *play, const char *board)
  * @param play Play.
  * @param board A new board.
  */
-void play_set_board_from_FEN(Play *play, const char *board)
+void play_set_board(Play *play, const char *board)
 {
+	Board b;
+	int player;
+
 	play_stop_pondering(play);
-	play->initial_player = board_from_FEN(&play->initial_board, board);
-	if (play->initial_player != EMPTY) {
-		play_force_init(play, "");
-		play_new(play);
+	player = board_set(&b, board);
+	if (player == EMPTY) { /* bad board ? */
+		b.opponent &= (~b.player);
+		player = (board_count_empties(&b) & 1);
+		if (player == WHITE) board_swap_players(&b);
 	}
+	play_set_initial_board(play, &b, player);
+}
+
+/**
+ * @brief Set a new board.
+ * @param play Play.
+ * @param board A new board.
+ * @return false if the FEN is refused (the current game is kept).
+ */
+bool play_set_board_from_FEN(Play *play, const char *board)
+{
+	Board b;
+	int player;
+
+	play_stop_pondering(play);
+	// a FEN that is refused leaves the current game as it is (up to v4.5.5-nikque.15 the initial board was
+	// changed, and the initial player became EMPTY)
+	player = board_from_FEN(&b, board);
+	return player != EMPTY && play_set_initial_board(play, &b, player);
 }
 
 /**
@@ -1079,6 +1112,7 @@ typedef struct LearnGame {
 	Move game[PLAY_GAME_SIZE]; /**< moves of the game (with the passes: as Play.game; 80 up to v4.5.5-nikque.12) */
 	int n_game;                /**< number of moves */
 	bool legal;                /**< the first moves are legal */
+	unsigned long long seed;   /**< seed of the random choices among the book moves of this game */
 } LearnGame;
 
 /** games played at the same time */
@@ -1094,7 +1128,7 @@ typedef struct LearnShared {
 typedef struct LearnLane {
 	LearnShared *shared;
 	Search *search;
-	Random random;             /**< to choose among the book moves */
+	Random random;             /**< to choose among the book moves (seeded for each game) */
 	bool progress;             /**< this one shows the progress */
 	int n_tasks;               /**< threads of its search */
 } LearnLane;
@@ -1169,7 +1203,7 @@ static void learn_lane_share_threads(LearnLane *lane)
 	LearnShared *s = lane->shared;
 	int n;
 
-	if (lane->n_tasks >= LEARN_LANE_SHARE_MAX) return;
+	if (lane->n_tasks >= LEARN_LANE_SHARE_MAX || options.book_reproducible) return; // (book-reproducible: one-thread searches)
 	lock(s);
 	n = MIN(s->n_threads / s->n_busy, MAX_THREADS - 1);
 	unlock(s);
@@ -1213,6 +1247,7 @@ static void* learn_lane_run(void *v)
 
 		g = s->game + i;
 		player = learn_game_start(g, &board);
+		random_seed(&lane->random, g->seed); // (the choices of a game do not depend on the lane that plays it)
 		search_cleanup(search); // as play_new()
 		left[0] = left[1] = options.time;
 		while (g->legal && g->n_game < PLAY_GAME_SIZE && !board_is_game_over(&board)) {
@@ -1303,7 +1338,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 	play_stop_pondering(play);
 
 	if (book_store_task_count() > 1) {
-		const int n_tasks = lane_tasks = MAX(1, book_store_thread_count() / n_lanes);
+		const int n_tasks = lane_tasks = options.book_reproducible ? 1 : MAX(1, book_store_thread_count() / n_lanes); // (a search with several threads can give another game)
 
 		game = (LearnGame*) calloc(n, sizeof *game);
 		buffer = (char*) malloc((size_t) n * LEARN_MOVES_SIZE);
@@ -1365,6 +1400,7 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			learn_moves_copy(buffer + i * LEARN_MOVES_SIZE, moves[i]);
 			game[i].moves = buffer + i * LEARN_MOVES_SIZE;
 			game[i].randomness = randomness ? randomness[i] : book_randomness;
+			game[i].seed = random_get(&book->random);
 		}
 		shared.book = book; shared.game = game; shared.n = n; shared.next = shared.n_done = 0;
 		shared.n_threads = book_store_thread_count(); shared.n_busy = n_lanes;
@@ -1374,7 +1410,6 @@ int play_learn_games(Play *play, const char *const *moves, const int *randomness
 			lane[i].search = search[i];
 			lane[i].progress = (i == 0);
 			lane[i].n_tasks = lane_tasks;
-			random_seed(&lane[i].random, random_get(&book->random));
 		}
 		book_print("Playing games...\r");
 		thread_run_workers(learn_lane_run, lane, sizeof *lane, n_lanes, true, false); // (this thread runs the first lane)
