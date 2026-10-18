@@ -143,7 +143,7 @@ The 51,106-game base has no final newline: A outputs 51,105 games, B 51,106; B's
 
 ### Not changed, and good to know
 
-- The real book (formerly called the 34 GB book) was not used, as the user requested.
+- The real book (formerly called the 34 GB book) was not used.
 - The verified Windows PGO executables and DLLs are retained. After the header fix, Android, Linux, macOS and Windows ARM64 CI builds passed. Android and Windows ARM64 have not been tested on physical devices.
 - The `MOVE_GENERATOR_NEON` defect is not in the default builds (aarch64 uses another method by default).
 - Some speed points were measured and left as they are because their effect is small: the creation of the helper threads of parallel searches (about 18,000 creations take 47 ms), and the like.
@@ -192,7 +192,7 @@ After v4.5.5-nikque.14 was published, another reading of the source (a cross-che
 
 ### Not changed, and good to know
 
-- The real book (previously described as 34 GB) was not used, as requested. ThreadSanitizer still reports search-stop, statistics, negamax and hash-table accesses. The small tests do not establish real-book behavior or the absence of all races.
+- The real book (previously described as 34 GB) was not used. ThreadSanitizer still reports search-stop, statistics, negamax and hash-table accesses. The small tests do not establish real-book behavior or the absence of all races.
 
 - Without a range, `book fill`, `fill2` and `leaf expand` still negamax the book from the initial position (as told for v4.5.5-nikque.14).
 - edax_runner copies the rest of the learning list for each learned line it takes out (only as many as the games learned at the same time: little effect, kept as it is).

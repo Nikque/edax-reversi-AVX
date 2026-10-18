@@ -57,7 +57,7 @@ libedax:
 Distribution:
 
 - The Windows PGO builds (5 executables) and the 3 DLLs were rebuilt and checked.
-- Update: Android was added after an authorized one-line header correction. All seven CI jobs pass. See the [additional validation and corresponding source](manual/ja/android-nikque16.md). Initial failure logs are retained.
+- Update: Android was added after a one-line header correction. All seven CI jobs pass. See the [additional validation and corresponding source](manual/ja/android-nikque16.md). Initial failure logs are retained.
 
 Checks:
 
@@ -98,7 +98,7 @@ Checks:
 - Additional checks (2026-10-15): recreated missing inputs; all 63 runs of the 21 omitted cases × 3 sanitizer settings completed normally with no detection.
 - Checked preservation of the current book on import allocation failure, allocation-free link shrinking, evaluation-file reload, noncanonical binary-book normalization and prune completion, libedax base-command stop handling, and Linux pool release after prune and learning.
 - The 2,432-byte ThreadSanitizer report already existed; race reports other than the fixed progress counters remain.
-- The real book was not used, as requested.
+- The real book was not used.
 
 Conditions and limits are in the [English README](README-NIKQUE.en.md) and the [Japanese README](README-NIKQUE.ja.md).
 
