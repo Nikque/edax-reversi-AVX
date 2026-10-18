@@ -19,6 +19,7 @@ Checks (one logical CPU):
 - fforum-20-39 with 1 thread: the 5 Windows programs give the same depths, moves, scores, node counts (77,639,567) and principal variations as those of v4.5.5-nikque.17. Cassio: 7 cases. The 3 DLLs: 204 API checks, 0 failures. `book-reproducible`: the books of suite F are those of v4.5.5-nikque.17.
 - Linux (WSL, gcc 11.4, built as the release binaries workflow does): the 4 programs give the same rows as the Windows programs of v4.5.5-nikque.17 (77,639,567 nodes); the 3 libraries: 204 API checks, 0 failures. No build folder in them, nor in the Android programs (NDK r27d).
 - Speed (CPU cycles, 12 pairs in alternating order, against v4.5.5-nikque.17): 0.976 to 1.000.
+- Speed with 32 threads (2026-10-19, the released `wEdax-x86-64-v4.exe`, ratio of the times to v4.5.5-nikque.17, mean of 6 alternating rounds): suite F (the `book deviate` family, level 21) 0.997, `book learn` (30 games, level 18) 1.003, `book fill 2` 1.005, `book fill2 2` 0.987, `book leaf expand` 0.998, `book fill2 2 5 5` 0.993, `book import` (a text book of 4 million positions) 0.988: each within the standard deviation (0.7 to 3.4 %) or faster. The same peak memory (±1 MiB; also in three one-thread test suites of book commands).
 - Size: -3,072 to +512 bytes. The strings of the error messages are about 800 bytes shorter; the code of a PGO build changes by a few hundred bytes from a build to the next (the same source built twice: -512 to 0 bytes).
 
 ## v4.5.5-nikque.17
