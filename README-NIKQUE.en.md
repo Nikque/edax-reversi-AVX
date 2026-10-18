@@ -4,6 +4,25 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.18
+
+The programs no longer hold the folder where they were built. **The search, `eval.dat`, the book file format and the results are the same as v4.5.5-nikque.17.**
+
+What changes:
+
+- The Windows programs and libraries held the full path of the source files on the build machine (`__FILE__`, for the error messages). They now hold only the file name, as the Linux, macOS and Android programs already did: an error message shows `book.c` instead of the build folder and `src\book.c`.
+- `tests/check-build-paths.py` fails on a program that holds such a path. The release binaries workflow runs it on the programs each job builds.
+- The documents no longer name folders of the work machine, nor say what was asked or allowed.
+- The earlier releases were corrected in the same way: the build folders in their Windows programs (the file names are kept, nothing else changes) and the folders of the work machine in their documents. Their ZIP files and `SHA256SUMS` were replaced.
+- edax_runner 5.3.0+nikque.10 (separate release): the libraries of this version. A `book.dat` that could not be read is now kept as `book.dat.damaged` (with `edax_book_keep_unread_file`), and a second edax_runner started in the same folder stops.
+
+Checks (one logical CPU):
+
+- fforum-20-39 with 1 thread: the 5 Windows programs give the same depths, moves, scores, node counts (77,639,567) and principal variations as those of v4.5.5-nikque.17. Cassio: 7 cases. The 3 DLLs: 204 API checks, 0 failures. `book-reproducible`: the books of suite F are those of v4.5.5-nikque.17.
+- Linux (WSL, gcc 11.4, built as the release binaries workflow does): the 4 programs give the same rows as the Windows programs of v4.5.5-nikque.17 (77,639,567 nodes); the 3 libraries: 204 API checks, 0 failures. No build folder in them, nor in the Android programs (NDK r27d).
+- Speed (CPU cycles, 12 pairs in alternating order, against v4.5.5-nikque.17): 0.976 to 1.000.
+- Size: -3,072 to +512 bytes. The strings of the error messages are about 800 bytes shorter; the code of a PGO build changes by a few hundred bytes from a build to the next (the same source built twice: -512 to 0 bytes).
+
 ## Changes in v4.5.5-nikque.17
 
 Two new settings make a book the same from a run to the next. **The default behaviour is unchanged**: without them, books are made as with v4.5.5-nikque.16, at the same speed and with the same memory. `eval.dat`, the book file format and the search are unchanged.
