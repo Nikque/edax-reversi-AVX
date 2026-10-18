@@ -1,6 +1,6 @@
 # v4.5.5-nikque.16：Android追加公開
 
-初回公開ではAndroid CIがggs.cのIPPROTO_TCP未定義で失敗した。その後、利用者がエンジンソースの修正とAndroidの公開を明示的に許可したため、対応を追加した。最初の失敗ログ・Windows比較値は履歴として保持する。
+初回公開ではAndroid CIがggs.cのIPPROTO_TCP未定義で失敗した。その後、エンジンソースの修正とAndroidの公開を追加で行った。最初の失敗ログ・Windows比較値は履歴として保持する。
 
 ## 確認した事実
 
