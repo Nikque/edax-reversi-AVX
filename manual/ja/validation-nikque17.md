@@ -1,10 +1,10 @@
 # v4.5.5-nikque.17 検証の報告：bookを毎回同じに作る設定（book-seed・book-reproducible）
 
-作成：2026-10-16。nikque.16の比較試験で見つかったbookの差の原因を確かめ、修正と試験を行った記録です。文中の `work/`・`outputs/`・`D:/...` は、試験を行ったPCの場所です（試験の出力と記録は、Releaseの検証資料ZIPに入れています）。元の14 suite（学習level18を含む）を、1論理CPUと32コアの両方で検証しました。性能・メモリは、利用者がほかの処理を止めた静かな状態で実測しました。行ったものと行っていないものを分けて書きます。
+作成：2026-10-16。nikque.16の比較試験で見つかったbookの差の原因を確かめ、修正と試験を行った記録です。文中の `work/`・`outputs/` は、試験を行ったPCの作業フォルダーです（試験の出力と記録は、Releaseの検証資料ZIPに入れています）。元の14 suite（学習level18を含む）を、1論理CPUと32コアの両方で検証しました。性能・メモリは、ほかの処理を止めた静かな状態で実測しました。行ったものと行っていないものを分けて書きます。
 
 ## 1. 作業の場所
 
-- **作業フォルダは2026-10-16 09:36にDドライブへ移した（利用者の指示）：** `E:/Users/Ogata/Documents/Codex/2026-10-16/edax-v4-5-5-nikque-16-2` → `D:/Codex/2026-10-16/edax-v4-5-5-nikque-16-2`。4,024ファイル（2.095GB）を移動前後のSHA-256で照合し、すべて一致した（`D:/CodexEdaxBenchmark-20261016/move-sha256-before.csv`、`move-robocopy.log`）。junctionの3つ（comparison-runs、comparison-runs-configured、inputs）は、同じDドライブの先を指す形で作り直した。Eドライブの元フォルダは、照合のあとで削除した。以下の `work/`・`outputs/` は移動先のフォルダを指す。
+- **作業フォルダは2026-10-16 09:36に別のドライブへ移した：** 4,024ファイル（2.095GB）を移動前後のSHA-256で照合し、すべて一致した。junctionの3つ（comparison-runs、comparison-runs-configured、inputs）は、移動先を指す形で作り直した。元のフォルダは、照合のあとで削除した。以下の `work/`・`outputs/` は移動先のフォルダを指す。
 
 - 修正：`work/edax16-repro`（`work/edax16` の複製）、branch `fix/book-reproducible`、commit `55d9829`（エンジンのソース）と `77d2d62`（試験の追加）。親は `fc1f57a`（tag v4.5.5-nikque.16-android のsrc）。試験はこのソースで行い、v4.5.5-nikque.17 として公開した。v4.5.5-nikque.16 のタグとReleaseは変えていない。
 - 元の `work/edax15`・`work/edax16`・`work/pgo-A`・`work/pgo-B`、入力、元の結果には書き込んでいません（`work/edax16` は基準版のコンパイル元として読んだだけです）。
@@ -49,7 +49,7 @@
 - 並列学習の乱数：レーンごとの種から、棋譜ごとの種（`book->random` から棋譜の番号順に引く）に変えた。既定では種が時計なので、選ばれ方のでたらめさは変わらない。ただし、学習後の `book->random` の状態は変わる（引く回数がレーン数から棋譜数になるため）。
 
 ### 文書の修正
-- manual 7.6の「同時に広げている局面どうしは、互いを見ません」は不正確だった（先に反映されたものは見る）。実際の動作に合わせて直し、新しい設定の節を足した（日本語・英語）。設定表とconfig.iniにも2項目を追加した。manualの元原稿（C:/edaxwork/manual）には反映していない。
+- manual 7.6の「同時に広げている局面どうしは、互いを見ません」は不正確だった（先に反映されたものは見る）。実際の動作に合わせて直し、新しい設定の節を足した（日本語・英語）。設定表とconfig.iniにも2項目を追加した。manualの元原稿（作業PCの別のフォルダー）には反映していない。
 
 ## 4. 回帰テスト
 
@@ -60,7 +60,7 @@
 
 実行の状況：
 - 1回目（条件 `book new 2 36`、`deviate 4 8`）は、テスト側の想定の誤り（初期局面の4手が対称でLinkが4本になる）で失敗した。
-- 想定を直した2回目は、`book-seed` とLinkの確かめ直しの2項目は通った。しかし条件が大きすぎ、bookが増え続けた（途中経過ファイル約197MB、Eドライブの空き2.5GB）ので、利用者が止めた。途中経過ファイルはごみ箱へ移した。
+- 想定を直した2回目は、`book-seed` とLinkの確かめ直しの2項目は通った。しかし条件が大きすぎ、bookが増え続けた（途中経過ファイル約197MB、ドライブの空き2.5GB）ので、止めた。途中経過ファイルはごみ箱へ移した。
 - 条件を小さくした3回目（`book new 2 52`、`deviate 2 4`、1論理CPU、97秒）は**通った**。4スレッド2回と1スレッドで225局面のbookが日時以外一致。ただし、探索し直しの経路は0回で、この条件では通らなかった。
 - そこで `expandredo` を追加した。2つの展開を逆の順で探索させ、必ず探索し直しが起きる形にしたもの。**通った**：後ろの展開は前の展開の反映を待ち、Linkが0本から1本に変わったので探索し直され、3局面とも `position_expand` を順に呼んだbookとLeaf・評価値・Linkまで一致した。古いLinkのままなら、Linkの評価値は −24 になり、正しい −30 と違っていた（このテストは探索し直しの抜けを見分けられる）。
 
@@ -95,14 +95,14 @@
 
 ## 5b. 元の14 suiteの検証（1論理CPU、優先度「通常」、2026-10-16 07:41〜）
 
-元の比較試験（run_comparison.py、extra_learning_equivalence.py）と同じ命令・level・入力・引数で、各suiteを5通り実行した（`work/repro/suites.json`、出力は `D:/CodexEdaxBenchmark-20261016/repro-runs/S-<suite>-<種類>`）。
+元の比較試験（run_comparison.py、extra_learning_equivalence.py）と同じ命令・level・入力・引数で、各suiteを5通り実行した（`work/repro/suites.json`、出力は `repro-runs/S-<suite>-<種類>`）。
 
 - R1、R2：修正版、`-n 32 -book-seed 1 -book-reproducible on`
 - R1n1：修正版、`-n 1`、同じ設定
 - Bn1：基準版（fc1f57a）、`-n 1`
 - Dn1：修正版、`-n 1`、既定の設定
 
-利用者のEdaxが常に全CPUを使っているので、1論理CPUに限った。優先度を「通常以下」にするとほぼ時間がもらえなかった（回帰テストで約1分半にCPU 0.3秒）ため、「通常」で動かした。比較は `compare_suites.py`。bookは日時以外のバイト・保存順・生レコード・論理データ、テキストと棋譜はバイトで比べた。数字は「一致したファイル / ファイル数」。
+ほかのEdaxが常に全CPUを使っていたので、1論理CPUに限った。優先度を「通常以下」にするとほぼ時間がもらえなかった（回帰テストで約1分半にCPU 0.3秒）ため、「通常」で動かした。比較は `compare_suites.py`。bookは日時以外のバイト・保存順・生レコード・論理データ、テキストと棋譜はバイトで比べた。数字は「一致したファイル / ファイル数」。
 
 | suite | R1/R2（2回） | R1/R1n1（スレッド数） | R1n1/Bn1（旧来のn=1） | Dn1/Bn1（既定の動作） |
 |---|---|---|---|---|
@@ -140,12 +140,12 @@
 
 - 既定の動作でも同じだけ遅いので、reproducibleモードが原因ではない。
 - CPU時間はn=1とほぼ同じで、経過時間の大半は待ち時間。ハッシュ表を作って消す処理は、CPU時間で約1秒。
-- 1論理CPUに32スレッドを詰め込み、その論理CPUを利用者のEdaxとも分け合う試験条件で、スレッドの受け渡しのたびに順番待ちが起きていると考えられる（推測）。32コアでの時間は①で確かめる。
+- 1論理CPUに32スレッドを詰め込み、その論理CPUをほかのEdaxとも分け合う試験条件で、スレッドの受け渡しのたびに順番待ちが起きていると考えられる（推測）。32コアでの時間は①で確かめる。
 - 最大メモリは、このsuiteでreproducibleモードが既定の約1.8倍（1スレッド探索ごとに21bitの表を持つため）。
 
 ## 5c. 32コアでの再現性の再試験（2026-10-16 10:18〜10:30、全論理CPU）
 
-`work/repro/c32.json`：14 suiteをreproducibleモード（`-n 32 -book-seed 1 -book-reproducible on`）で全論理CPUを使って2回ずつ、suite AとFは最終のsrcでビルドした遅延注入版2種も実行した（32回、すべて終了コード0）。suite S3offまでは利用者のEdaxが動いている中で実行した（S3の直後の確認でもCPU使用率100%で動いていた）。M1の実行中の確認では、利用者のEdaxは止まっていた（CPU使用率51%、この試験の分）。
+`work/repro/c32.json`：14 suiteをreproducibleモード（`-n 32 -book-seed 1 -book-reproducible on`）で全論理CPUを使って2回ずつ、suite AとFは最終のsrcでビルドした遅延注入版2種も実行した（32回、すべて終了コード0）。suite S3offまではほかのEdaxが動いている中で実行した（S3の直後の確認でもCPU使用率100%で動いていた）。M1の実行中の確認では、ほかのEdaxは止まっていた（CPU使用率51%、この試験の分）。
 
 | suite | 32コア2回 | 32コアと1論理CPU（5bのR1） | 遅延注入0 / 1 |
 |---|---|---|---|
@@ -165,21 +165,21 @@
 | L18 | 3/3 | 3/3 | |
 
 - 32組すべて一致（`c32-compare.json`）。S1は対局の探索（`go`、32スレッド）を含むが、この試験では一致した。ただし、対局の探索は `book-reproducible` の対象外で、毎回同じになる保証はない（`go` はbook関数ではない）。
-- suite Bは、利用者のEdaxが動いている中では32コアでも経過21.8〜22.7秒（CPU時間3.8〜4.0秒）だった。5bの「1論理CPUに詰め込んだための待ち」という推測は、32コアでも同じ形だったので確かめられていない。静かな状態での時間は6章の測定で見る。
+- suite Bは、ほかのEdaxが動いている中では32コアでも経過21.8〜22.7秒（CPU時間3.8〜4.0秒）だった。5bの「1論理CPUに詰め込んだための待ち」という推測は、32コアでも同じ形だったので確かめられていない。静かな状態での時間は6章の測定で見る。
 ## 5d. Linux（WSL Ubuntu 22.04、gcc 11.4.0）
 
 修正ブランチを `work/linux-repro` に複製し（77d2d62）、WSLでビルド・実行した（`linux-tests.sh`、記録は `linux/`）。
 - 本体（`-std=c99 -pedantic -W -Wall -Wextra -O2 -march=x86-64-v3`）：ビルドは通った。警告は `endgame.c` の `bestmove` の1件だけで、以前のLinuxビルドにもあるもの。book.c・options.c・play.c の警告はなかった。この最初のビルドの記録ファイルは、WSLの一時フォルダが消えて残っていない（画面で確かめた内容）。
 - 回帰テスト（通常版）：`reproducible`、`expandredo`、`core 4` がすべて通った。`reproducible` は、Linuxでも4スレッド2回と1スレッドのbookが日時以外一致した。
-- ThreadSanitizer版：`expandredo` は警告0件で通った。`reproducible` は判定は通ったが、警告が1件あった（終了コード66）。場所は並列negamax（`position_negamax_compute`、book.c 1307行）の `book->need_saving = true` で、複数のスレッドが同じ値 `true` を同時に書く競合。この部分は今回の修正では変えていない既存のコード（差分の範囲外）で、nikque.15の記録（D:\edaxwork\docs\NEXT15-1.md 8.6節）にも「既存の経路のTSan報告は残る」とある。今回の修正の展開・反映のコード（`book_expand_worker_ordered`、`book_expand_apply_ready`）からの警告はなかった。
+- ThreadSanitizer版：`expandredo` は警告0件で通った。`reproducible` は判定は通ったが、警告が1件あった（終了コード66）。場所は並列negamax（`position_negamax_compute`、book.c 1307行）の `book->need_saving = true` で、複数のスレッドが同じ値 `true` を同時に書く競合。この部分は今回の修正では変えていない既存のコード（差分の範囲外）で、nikque.15の作業記録にも「既存の経路のTSan報告は残る」とある。今回の修正の展開・反映のコード（`book_expand_worker_ordered`、`book_expand_apply_ready`）からの警告はなかった。
 ## 5e. Android（ビルド確認のみ）
 
-利用者の許可を得て、Android NDK r27d（27.3.13750724、以前のCIと同じ版）のLinux版を `D:\Android\` に取得した。取得元は `https://dl.google.com/android/repository/android-ndk-r27d-linux.zip`。大きさ663,956,036 bytes、SHA-1 22105e410cf29afcf163760cc95522b9fb981121で、Androidの旧版配布ページ（github.com/android/ndk/wiki/Unsupported-Downloads）の値と一致した（SHA-256 601246087a682d1944e1e16dd85bc6e49560fe8b6d61255be2829178c8ed15d9）。WSLで `D:\Android\android-ndk-r27d` に展開した。
+Android NDK r27d（27.3.13750724、以前のCIと同じ版）のLinux版を取得した。取得元は `https://dl.google.com/android/repository/android-ndk-r27d-linux.zip`。大きさ663,956,036 bytes、SHA-1 22105e410cf29afcf163760cc95522b9fb981121で、Androidの旧版配布ページ（github.com/android/ndk/wiki/Unsupported-Downloads）の値と一致した（SHA-256 601246087a682d1944e1e16dd85bc6e49560fe8b6d61255be2829178c8ed15d9）。WSLで展開して使った。
 
 CIと同じ命令（`ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application.mk APP_ABI='armeabi-v7a arm64-v8a' APP_PLATFORM=android-21`、`android-build.sh`）で、修正ブランチ（77d2d62）をビルドした。終了コード0、警告・エラーなし（`android-build.log`）。arm64-v8a 565,056 bytes、armeabi-v7a 384,788 bytes。実機・エミュレーターがないので、実行は確認していない。
 ## 6. 性能・メモリへの影響（実測、2026-10-16 10:34〜10:47）
 
-条件：利用者がEdaxとほかの窓を止めたあと、全論理CPU（32）。ほかの処理は合わせて約1%（測定の直前に、プロセスごとに5秒間測った）。3種を1回ずつ温めてから（集計から除く）、ABC CBA ABC CBA の順に4回ずつ実行した（`speed2.json`）。A＝基準版（fc1f57a）、B＝修正版の既定動作、C＝修正版のreproducibleモード。時間はプロセスの作成から終了まで（起動・読込・保存を含む）。比は同じ巡目どうしの4組の平均 ± 標本標準偏差。最大メモリはOSのPeakWorkingSetSize。ビルドはMSVC /O2 /GL AVX512（PGOなし）で、配布物とは別物。
+条件：ほかのEdaxと作業を止めたあと、全論理CPU（32）。ほかの処理は合わせて約1%（測定の直前に、プロセスごとに5秒間測った）。3種を1回ずつ温めてから（集計から除く）、ABC CBA ABC CBA の順に4回ずつ実行した（`speed2.json`）。A＝基準版（fc1f57a）、B＝修正版の既定動作、C＝修正版のreproducibleモード。時間はプロセスの作成から終了まで（起動・読込・保存を含む）。比は同じ巡目どうしの4組の平均 ± 標本標準偏差。最大メモリはOSのPeakWorkingSetSize。ビルドはMSVC /O2 /GL AVX512（PGOなし）で、配布物とは別物。
 
 | 条件（元の速度測定と同じ） | A 4回（秒） | B/A | C/A | 最大メモリ A / B / C（MiB） |
 |---|---|---|---|---|
@@ -199,14 +199,14 @@ reproducibleモード（C/A）：
 - 最大メモリは、1スレッド探索ごとに21bitの表を持つため増える：leaf expand +56%、suite F +82%、学習 +19%、fill2 +7%。
 - 反映の直前のLinkの確かめ直しと探索し直しにかかる時間は、分けて測っていない。
 
-suite Bの時間（`p4.json`、同じ静かな状態の32コア）：既定 0.9秒（2回）、reproducible 1.1秒（2回）、reproducible n=1 1.6秒（2回）。5b・5cの17〜38秒は、PCが混んでいた（1論理CPUに限った、または利用者のEdaxが全CPUを使っていた）ための待ち時間だった。
+suite Bの時間（`p4.json`、同じ静かな状態の32コア）：既定 0.9秒（2回）、reproducible 1.1秒（2回）、reproducible n=1 1.6秒（2回）。5b・5cの17〜38秒は、PCが混んでいた（1論理CPUに限った、またはほかのEdaxが全CPUを使っていた）ための待ち時間だった。
 ## 7. 未確認・未実施
 
-- 29GBの実bookでの測定は、利用者の指示で禁止（2026-10-16）。今回の性能測定は、元の速度測定と同じ小さいbook（base12、learn-seed）だけ。
+- 29GBの実bookでの測定は行っていない（2026-10-16の方針）。今回の性能測定は、元の速度測定と同じ小さいbook（base12、learn-seed）だけ。
 - macOSのビルド・実行：このPCにはmacOSがなく、以前はGitHub Actionsでビルドしていたが、今回はpushが依頼の対象外なのでCIも使えない。
 - Androidの実行（ビルドは5eで確認）：実機・エミュレーターがない。
 - 並列negamaxの `need_saving` の競合（5d）：既存のコードで、今回は直していない。
 - 時間制限つきの学習、level 0 の探索の手の並び替え乱数（`search->random`、時計で種付け）。どちらも `book-reproducible` の対象外。
-- manualの元原稿（`C:\edaxwork\manual`＝`D:\edaxwork\manual`、junction）への反映：最初の依頼に「D:/edaxworkの元資料は書き換えない」とあるので、反映していない。リポジトリ内のmanual（日本語・英語の7章と14章）は更新済み。
+- manualの元原稿（作業PCの別のフォルダー）への反映：していない。リポジトリ内のmanual（日本語・英語の7章と14章）は更新済み。
 - leaf expand の2%低下は、今回の修正とは別の未確認事項として残る。
 

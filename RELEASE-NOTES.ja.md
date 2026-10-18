@@ -57,7 +57,7 @@ libedax：
 配布：
 
 - Windows PGO5種・DLL3種を再作成して検証しました。
-- 追記：利用者の追加許可によりAndroidのヘッダー不足を1行修正し、全7CIジョブが成功しました。完全版とAndroid用ZIPを追加公開しました（[追加検証と対応ソース](manual/ja/android-nikque16.md)）。初回失敗ログは保持しています。
+- 追記：Androidのヘッダー不足を1行修正し、全7CIジョブが成功しました。完全版とAndroid用ZIPを追加公開しました（[追加検証と対応ソース](manual/ja/android-nikque16.md)）。初回失敗ログは保持しています。
 
 確認：
 
@@ -98,7 +98,7 @@ v4.5.5-nikque.14 の公開の後のソースの読み直し（クロスチェッ
 - 追加確認（2026-10-15）：不足入力を再作成し、AddressSanitizer未実施21通り×3設定は63回とも検出0・正常終了でした。
 - importの確保失敗で現在のbookを保持すること、Link縮小時の確保0、評価ファイルの再読込、非正規形binary bookの正規化とprune終了、libedaxのbase系停止試験、Linuxのprune・学習後のプール返却を確認しました。
 - ThreadSanitizerの2,432バイトの報告は旧版にもあり、進捗カウンタ以外の競合報告は残ります。
-- 実bookは利用者の指定で未実施です。
+- 実bookでの確認は未実施です。
 
 詳しい条件と限界は[日本語README](README-NIKQUE.ja.md)と[英語README](README-NIKQUE.en.md)にあります。
 
