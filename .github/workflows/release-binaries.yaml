@@ -15,10 +15,13 @@ jobs:
         include:
           - arch: x64
             targets: vc-x64 vc-x64-v3 vc-x64-v4 vc-lib
+            built: bin/wEdax-x86-64*.exe bin/libedax-x64*.dll
           - arch: x64_x86
             targets: vc-x86 vc-x86-sse
+            built: bin/wEdax-x86.exe bin/wEdax-x86-sse.exe
           - arch: x64_arm64
             targets: vc-a64
+            built: bin/wEdax-arm64.exe
     steps:
       - uses: actions/checkout@v4
       - name: Build Windows ${{ matrix.arch }}
@@ -28,6 +31,8 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.arch }}
           cd src
           for %%t in (${{ matrix.targets }}) do (nmake -f nmakefile %%t || exit /b 1)
+      - name: No build folder in the programs
+        run: python tests/check-build-paths.py ${{ matrix.built }}
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows-${{ matrix.arch }}
@@ -51,6 +56,8 @@ jobs:
           for arch in x86-64 x86-64-v3 x86-64-v4; do
             make -C src libbuild ARCH="$arch" COMP=gcc OS=linux
           done
+      - name: No build folder in the programs
+        run: python3 tests/check-build-paths.py "bin/lEdax-*" "bin/libedax-*.so"
       - uses: actions/upload-artifact@v4
         with:
           name: release-linux
@@ -73,6 +80,8 @@ jobs:
         run: |
           mkdir -p bin
           make -C src build ARCH=x64-modern COMP=clang OS=osx CC='clang -arch x86_64'
+      - name: No build folder in the program
+        run: python3 tests/check-build-paths.py bin/mEdax-x64-modern
       - uses: actions/upload-artifact@v4
         with:
           name: release-macos-x64
@@ -95,6 +104,8 @@ jobs:
           lipo -create bin/libedax-arm64.dylib bin/libedax-x64-modern.dylib -output bin/libedax.universal.dylib
           lipo -info bin/libedax.universal.dylib
           rm bin/libedax-arm64.dylib bin/libedax-x64-modern.dylib
+      - name: No build folder in the programs
+        run: python3 tests/check-build-paths.py bin/mEdax-arm64 bin/libedax.universal.dylib
       - uses: actions/upload-artifact@v4
         with:
           name: release-macos-arm64
@@ -124,6 +135,8 @@ jobs:
           cp src/libs/arm64-v8a/aEdax bin/aEdax-arm64-v8a
           cp src/libs-lib/armeabi-v7a/libedax.so bin/libedax-armeabi-v7a.so
           cp src/libs-lib/arm64-v8a/libedax.so bin/libedax-arm64-v8a.so
+      - name: No build folder in the programs
+        run: python3 tests/check-build-paths.py "bin/aEdax-*" "bin/libedax-a*.so"
       - uses: actions/upload-artifact@v4
         with:
           name: release-android
