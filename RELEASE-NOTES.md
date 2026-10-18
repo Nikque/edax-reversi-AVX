@@ -2,6 +2,17 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.6 (with the changes of v4.5.5-nikque.18)
+
+v4.5.5-eval2.5 now holds the changes of v4.5.5-nikque.18 (the nikque.18 entry below): the programs no longer hold the folder where they were built. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file); the search and the results are those of v4.5.5-eval2.5.
+
+Checks (one logical CPU):
+
+- fforum-20-39 with 1 thread: the 5 Windows programs give the same depths, moves, scores, node counts (78,733,223) and principal variations as those of v4.5.5-eval2.5. Cassio: 7 cases. The 3 DLLs: 204 API checks, 0 failures. `book-reproducible`: the books of suite F are those of v4.5.5-eval2.5.
+- Linux (WSL, gcc 11.4, built as the release binaries workflow does): the 4 programs give the same rows as the Windows programs of v4.5.5-eval2.5 (78,733,223 nodes); the 3 libraries: 204 API checks, 0 failures. No build folder in them.
+- Speed (CPU cycles, 12 pairs in alternating order, against v4.5.5-eval2.5): 0.995 to 1.002. The first build of `wEdax-x86-sse.exe` gave 1.0025 (median 1.0009), so it was built again (0.9998); the source of eval2.5 built again gives 1.0006: the speed of a PGO build changes by a few tenths of a percent from a build to the next.
+- Size: -1,024 to +512 bytes.
+
 ## v4.5.5-eval2.5 (with the changes of v4.5.5-nikque.16 and 17)
 
 v4.5.5-eval2.4 now holds the changes of v4.5.5-nikque.16 and 17. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file).
@@ -84,6 +95,25 @@ Speed (release executables: time of this version with the new `eval.dat`, divide
 Training data: the search scores of self-play games of Edax itself (level 8, about 840,000 games), the positions and scores of a book learned with this fork, and the training data published on the site of [Egaroucid](https://www.egaroucid.nyanyan.dev/). For Egaroucid, only the published data was used for training: its patterns and trained weights are not used. The training data is not in the package.
 
 Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
+## v4.5.5-nikque.18
+
+The programs no longer hold the folder where they were built. **The search, `eval.dat`, the book file format and the results are the same as v4.5.5-nikque.17.**
+
+What changes:
+
+- The Windows programs and libraries held the full path of the source files on the build machine (`__FILE__`, for the error messages). They now hold only the file name, as the Linux, macOS and Android programs already did: an error message shows `book.c` instead of the build folder and `src\book.c`.
+- `tests/check-build-paths.py` fails on a program that holds such a path. The release binaries workflow runs it on the programs each job builds.
+- The documents no longer name folders of the work machine, nor say what was asked or allowed.
+- The earlier releases were corrected in the same way: the build folders in their Windows programs (the file names are kept, nothing else changes) and the folders of the work machine in their documents. Their ZIP files and `SHA256SUMS` were replaced.
+- edax_runner 5.3.0+nikque.10 (separate release): the libraries of this version. A `book.dat` that could not be read is now kept as `book.dat.damaged` (with `edax_book_keep_unread_file`), and a second edax_runner started in the same folder stops.
+
+Checks (one logical CPU):
+
+- fforum-20-39 with 1 thread: the 5 Windows programs give the same depths, moves, scores, node counts (77,639,567) and principal variations as those of v4.5.5-nikque.17. Cassio: 7 cases. The 3 DLLs: 204 API checks, 0 failures. `book-reproducible`: the books of suite F are those of v4.5.5-nikque.17.
+- Linux (WSL, gcc 11.4, built as the release binaries workflow does): the 4 programs give the same rows as the Windows programs of v4.5.5-nikque.17 (77,639,567 nodes); the 3 libraries: 204 API checks, 0 failures. No build folder in them, nor in the Android programs (NDK r27d).
+- Speed (CPU cycles, 12 pairs in alternating order, against v4.5.5-nikque.17): 0.976 to 1.000.
+- Size: -3,072 to +512 bytes. The strings of the error messages are about 800 bytes shorter; the code of a PGO build changes by a few hundred bytes from a build to the next (the same source built twice: -512 to 0 bytes).
+
 ## v4.5.5-nikque.17
 
 Two new settings make a book the same from a run to the next. **The default behaviour (without the settings) gives the same books, speed and memory as v4.5.5-nikque.16.** `eval.dat`, the book file format and the search are unchanged.
