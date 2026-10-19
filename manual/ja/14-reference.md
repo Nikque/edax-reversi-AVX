@@ -91,6 +91,7 @@ v4.5.5-nikque.13 の、全部のコマンドと設定です（ソースの一覧
 | `missing` | `id=N` ［`sq=`・`stage=`・`x= y=`・`n=`］ | 次の段階に足りない Leaf までの手順（裏で動く） | | [12.4](12-integration.md) |
 | `levels` | `id=N` ［`scope=all`］ | level ごとの局面の数（裏で動く） | | [12.4](12-integration.md) |
 | `bestlines` | `id=N` ［`loss=`・`depth=`・`solved=`・`file=`・`which=`］ | 最善の進行の数と、その端までの手順の書き出し（裏で動く） | 指定のファイル | [12.4](12-integration.md) |
+| `findline` | `id=N` `target=局面` ［`n=`］ | 今の局面から局面までの、book の局面だけを通る手順（裏で動く） | | [12.4](12-integration.md) |
 
 ## 14.3 base のコマンド
 

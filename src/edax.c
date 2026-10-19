@@ -264,7 +264,8 @@ void help_book(void)
 		"  missing id=<n> ...  the lines to the leaves missing for the next stage.\n"
 		"  levels id=<n> ...   the positions of each level after the current position.\n"
 		"  bestlines id=<n> ... the lines of best moves: counts, and a file of their ends.\n"
-		"  (these four commands run beside the others and only read the book;\n  \"stop id=<n>\" stops one of them.)\n");
+		"  findline id=<n> target=<position> ... the lines from the current position to\n  a position, through book positions only.\n"
+		"  (these five commands run beside the others and only read the book;\n  \"stop id=<n>\" stops one of them.)\n");
 }
 
 /**

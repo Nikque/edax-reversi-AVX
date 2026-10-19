@@ -8,6 +8,9 @@
  *   and the number of book positions after the move.
  * - book missing: the lines to the leaves that a deviate walk would expand.
  * - book levels: the number of positions of each level after the current position.
+ * - book bestlines: the lines of best moves (both sides) from the current position, counted and written.
+ * - book findline: the lines from the current position to a target position through book positions only, the
+ *   smallest sum of the changes of the book value (seen by black) along the line first.
  *
  * The analyses run in a thread of their own, one after the other, and only read the book: the commands
  * that change the book first stop them (book_analysis_quiesce). They can be stopped at any time with
@@ -82,7 +85,7 @@ static void ba_print(const char *format, ...)
 
 /* ------------------------------------------------------------------ state ------------------------------------------------------------------- */
 
-enum { BA_MOVEINFO, BA_MISSING, BA_LEVELS, BA_BESTLINES };
+enum { BA_MOVEINFO, BA_MISSING, BA_LEVELS, BA_BESTLINES, BA_FINDLINE };
 enum { BA_DEVIATE = 1, BA_DEVIATE2 = 2, BA_DEVIATE3 = 3 };
 enum { BA_UMI_OFF, BA_UMI_BEST, BA_UMI_LOSS, BA_UMI_RANGE };
 enum { BA_PART_STAGE = 1, BA_PART_UMI = 2, BA_PART_COUNT = 4 };
@@ -93,7 +96,7 @@ enum { BA_PART_STAGE = 1, BA_PART_UMI = 2, BA_PART_COUNT = 4 };
 typedef struct BaJob {
 	struct BaJob *next;
 	int id;                 /**< number given by the user interface */
-	int kind;               /**< BA_MOVEINFO, BA_MISSING or BA_LEVELS */
+	int kind;               /**< BA_MOVEINFO, BA_MISSING, BA_LEVELS, BA_BESTLINES or BA_FINDLINE */
 	char *param;            /**< words after the command */
 	char *line;             /**< moves of the game up to the current position (passes left out) */
 	Board board;            /**< current position */
@@ -149,12 +152,16 @@ typedef struct BaParams {
 	bool moves_pass;
 	int sq;                                     /**< first move (book missing), NOMOVE if none */
 	int stage;                                  /**< stage to reach (book missing), 0 if none */
-	long long n;                                /**< lines to show (book missing) */
+	long long n;                                /**< lines to show (book missing, book findline) */
+	bool n_set;
 	bool all;                                   /**< scope=all (book levels) */
 	int loss;                                   /**< largest loss of a move (book bestlines) */
 	bool follow_solved;                         /**< solved=follow: the lines go on after a solved position (book bestlines) */
 	bool incomplete_only;                       /**< which=incomplete: only the ends that are not solved are written (book bestlines) */
 	char file[512];                             /**< file the lines are written to, "" if none (book bestlines) */
+	Board target;                               /**< position to reach, side to move first (book findline) */
+	int target_color;                           /**< its side to move */
+	bool target_set;
 	char error[64];                             /**< first wrong word */
 } BaParams;
 
@@ -174,6 +181,29 @@ static void ba_square(const int x, char *s)
 	else if (A1 <= x && x <= H8) { s[0] = (char) ('a' + x % 8); s[1] = (char) ('1' + x / 8); }
 	else { s[0] = '-'; s[1] = '-'; }
 	s[2] = '\0';
+}
+
+/**
+ * @brief Read a position: 64 squares from a1 to h8 ('X' black, 'O' white, '-' empty), then the side to move ('X' or 'O').
+ * @return false if the word is not one.
+ */
+static bool ba_parse_target(const char *s, Board *board, int *color)
+{
+	unsigned long long black = 0, white = 0;
+	int i;
+
+	if (strlen(s) != 65) return false;
+	for (i = 0; i < 64; ++i) {
+		const int c = s[i] | 0x20;
+		if (c == 'x' || c == 'b' || s[i] == '*') black |= 1ULL << i;
+		else if (c == 'o' || c == 'w') white |= 1ULL << i;
+		else if (s[i] != '-' && s[i] != '.') return false;
+	}
+	i = s[64] | 0x20;
+	if (i == 'x' || i == 'b') { *color = BLACK; board->player = black; board->opponent = white; }
+	else if (i == 'o' || i == 'w') { *color = WHITE; board->player = white; board->opponent = black; }
+	else return false;
+	return true;
 }
 
 /** @return true if a whole word is a number (with a sign), read in *v. */
@@ -307,6 +337,7 @@ static bool ba_params_read(const char *param, BaParams *p)
 		} else if (strcmp(word, "n") == 0) {
 			if (!ba_parse_number(value, &v) || v < 0) goto wrong;
 			p->n = v;
+			p->n_set = true;
 		} else if (strcmp(word, "loss") == 0) {
 			if (!ba_parse_number(value, &v) || v < 0 || v > 129) goto wrong;
 			p->loss = v;
@@ -321,6 +352,9 @@ static bool ba_params_read(const char *param, BaParams *p)
 		} else if (strcmp(word, "file") == 0) {
 			if (*value == '\0' || strlen(value) >= sizeof p->file) goto wrong;
 			strcpy(p->file, value);
+		} else if (strcmp(word, "target") == 0) {
+			if (!ba_parse_target(value, &p->target, &p->target_color)) goto wrong;
+			p->target_set = true;
 		} else if (strcmp(word, "scope") == 0) {
 			if (strcmp(value, "all") == 0) p->all = true;
 			else if (strcmp(value, "from") == 0) p->all = false;
@@ -331,7 +365,7 @@ static bool ba_params_read(const char *param, BaParams *p)
 	return true;
 
 wrong:
-	snprintf(p->error, sizeof p->error, "%s", word);
+	snprintf(p->error, sizeof p->error, "%.63s", word); // (a long word is cut)
 	for (i = 0; p->error[i]; ++i) if (p->error[i] == ' ' || p->error[i] == '=') p->error[i] = '_';
 	return false;
 }
@@ -2577,6 +2611,313 @@ end:
 	return result;
 }
 
+/* ------------------------------------------------------------------ book findline ----------------------------------------------------------- */
+
+#define BA_FIND_N_MAX 100                   /**< lines of book findline */
+#define BA_FIND_BEST_MAX (1ULL << 26)       /**< costs kept by book findline (all its positions) */
+
+/** A position of the lines of book findline: the board as it is played from the current position (not its symmetry in the book). */
+typedef struct BaFNode {
+	Board board;                /**< side to move first */
+	unsigned long long paths;   /**< lines from the current position (at most ULLONG_MAX) */
+	unsigned int next;          /**< next node of the same slot of the hash table, UINT_MAX if none */
+	int value;                  /**< book value, seen by black */
+	unsigned short n_best;      /**< costs kept, the smallest first */
+	unsigned char color;        /**< side to move */
+} BaFNode;
+
+/** One of the smallest costs of the lines to a node, and where it comes from. */
+typedef struct BaFBest {
+	int cost;
+	unsigned int parent;        /**< previous node, UINT_MAX at the current position */
+	unsigned short rank;        /**< cost of the previous node that the line continues */
+	unsigned char move;         /**< move from the previous node */
+} BaFBest;
+
+typedef struct BaFind {
+	BaFNode *node;
+	unsigned int n_node, size_node;
+	BaFBest *best;              /**< n costs per node */
+	int n;
+	unsigned int *slot;         /**< hash table of the nodes (first node of a slot, UINT_MAX if none) */
+	unsigned int mask;
+	BaList layer[131];          /**< nodes by 2 * discs + (the side to move can move): a next position has a greater key */
+	bool too_large;
+} BaFind;
+
+static inline int ba_find_key(const Board *board)
+{
+	return 2 * (64 - board_count_empties(board)) + (can_move(board->player, board->opponent) ? 1 : 0);
+}
+
+static inline unsigned int ba_find_slot(const BaFind *f, const Board *board, const int color)
+{
+	return (unsigned int) (ba_hash(board_get_hash_code(board) ^ (unsigned long long) color) & f->mask);
+}
+
+static bool ba_find_rehash(BaFind *f)
+{
+	const unsigned int size = f->slot ? 2 * (f->mask + 1) : 4096;
+	unsigned int *slot = (unsigned int*) malloc((size_t) size * sizeof *slot);
+	unsigned int i;
+
+	if (slot == NULL) return false;
+	free(f->slot);
+	f->slot = slot;
+	f->mask = size - 1;
+	memset(slot, 0xff, (size_t) size * sizeof *slot);
+	for (i = 0; i < f->n_node; ++i) {
+		const unsigned int s = ba_find_slot(f, &f->node[i].board, f->node[i].color);
+		f->node[i].next = slot[s];
+		slot[s] = i;
+	}
+	return true;
+}
+
+/** @return the node of a board, UINT_MAX if there is none. */
+static unsigned int ba_find_get(const BaFind *f, const Board *board, const int color)
+{
+	unsigned int i;
+	if (f->slot == NULL) return UINT_MAX;
+	for (i = f->slot[ba_find_slot(f, board, color)]; i != UINT_MAX; i = f->node[i].next) {
+		if (f->node[i].color == color && board_equal(&f->node[i].board, board)) return i;
+	}
+	return UINT_MAX;
+}
+
+/** @brief Add a node (that is not there yet). @return its number, UINT_MAX if memory is exhausted or there are too many. */
+static unsigned int ba_find_add(BaFind *f, const Board *board, const int color, const int value)
+{
+	BaFNode *u;
+	unsigned int s;
+
+	if (f->n_node == BA_UMI_NODE_MAX || (unsigned long long) (f->n_node + 1) * (unsigned long long) f->n > BA_FIND_BEST_MAX) {
+		f->too_large = true;
+		return UINT_MAX;
+	}
+	if (f->n_node == f->size_node) {
+		const unsigned int size = f->size_node + f->size_node / 2 + 1024;
+		BaFNode *node = (BaFNode*) realloc(f->node, (size_t) size * sizeof *node);
+		BaFBest *best;
+		if (node == NULL) return UINT_MAX;
+		f->node = node;
+		best = (BaFBest*) realloc(f->best, (size_t) size * (size_t) f->n * sizeof *best);
+		if (best == NULL) return UINT_MAX;
+		f->best = best;
+		f->size_node = size;
+	}
+	if ((f->n_node + 1) * 2 > (f->slot ? f->mask + 1 : 0) && !ba_find_rehash(f)) return UINT_MAX;
+	u = f->node + f->n_node;
+	u->board = *board;
+	u->color = (unsigned char) color;
+	u->value = value;
+	u->paths = 0;
+	u->n_best = 0;
+	s = ba_find_slot(f, board, color);
+	u->next = f->slot[s];
+	f->slot[s] = f->n_node;
+	return f->n_node++;
+}
+
+/** @brief Keep a cost among the n smallest of a node (after the costs that are not greater). */
+static void ba_find_keep(BaFind *f, const unsigned int v, const BaFBest *x)
+{
+	BaFBest *b = f->best + (size_t) v * (size_t) f->n;
+	BaFNode *u = f->node + v;
+	int i;
+
+	if (u->n_best == f->n) {
+		if (x->cost >= b[f->n - 1].cost) return;
+		i = f->n - 1;
+	} else i = u->n_best++;
+	while (i > 0 && b[i - 1].cost > x->cost) { b[i] = b[i - 1]; --i; }
+	b[i] = *x;
+}
+
+/** A next position to look for in the book. */
+typedef struct BaFProbe {
+	Board next, unique;
+	unsigned long long bucket;
+	unsigned int u;             /**< node it comes from */
+	int x;                      /**< move */
+} BaFProbe;
+
+/**
+ * @brief Look for a batch of next positions in the book (their buckets were asked for, see BA_PROBE_BATCH), in their
+ * order; keep the costs of those in the book.
+ * @return false if memory is exhausted (or there are too many positions).
+ */
+static bool ba_find_batch(BaFind *f, const Book *book, const BaFProbe *probe, const int n)
+{
+	int i, j, k;
+
+	for (i = 0; i < n; ++i) {
+		const PositionArray *a = book->array + probe[i].bucket;
+		const char *s = (const char*) a->positions, *e = s + (size_t) a->n * sizeof (Position);
+		for (s -= (uintptr_t) s & 63; s < e; s += 64) PREFETCH(s);
+	}
+	for (i = 0; i < n; ++i) {
+		const BaFProbe *b = probe + i;
+		const PositionArray *a = book->array + b->bucket;
+		const Position *q = NULL;
+		const unsigned int u = b->u;
+		const int color = f->node[u].color;
+		unsigned int c;
+
+		for (j = 0; j < a->n; ++j) if (board_equal(&a->positions[j].board, &b->unique)) { q = a->positions + j; break; }
+		if (q == NULL) continue;
+		c = ba_find_get(f, &b->next, !color);
+		if (c == UINT_MAX) {
+			c = ba_find_add(f, &b->next, !color, color == BLACK ? -q->score.value : q->score.value);
+			if (c == UINT_MAX || !ba_list_push(&f->layer[ba_find_key(&b->next)], c)) return false;
+		}
+		{
+			const int e = abs(f->node[c].value - f->node[u].value);
+			const BaFBest *bu = f->best + (size_t) u * (size_t) f->n;
+			const BaFBest *last = f->best + (size_t) c * (size_t) f->n + (size_t) f->n - 1;
+			f->node[c].paths = ba_add_sat(f->node[c].paths, f->node[u].paths);
+			for (k = 0; k < f->node[u].n_best; ++k) {
+				const BaFBest y = {bu[k].cost + e, u, (unsigned short) k, (unsigned char) b->x};
+				if (f->node[c].n_best == f->n && y.cost >= last->cost) break; // (the next costs of u are not smaller)
+				ba_find_keep(f, c, &y);
+			}
+		}
+	}
+	return true;
+}
+
+static void ba_find_free(BaFind *f)
+{
+	int i;
+	free(f->node); free(f->best); free(f->slot);
+	for (i = 0; i < 131; ++i) free(f->layer[i].v);
+	memset(f, 0, sizeof *f);
+}
+
+/**
+ * @brief book findline: the lines from the current position to a target position, through book positions only
+ * (the current position, the target and every position between them in the book). A line only plays on squares
+ * that hold a disc in the target, and a pass ("pa") when the side to move has no move and the other side has one.
+ * The cost of a line is the sum of the changes of the book value seen by black from a position to the next, as the
+ * reverse book path of the original program: the n lines of smallest cost are written, the smallest first. As
+ * a next position has more discs (or the same discs after a pass), the positions are done by their number of discs:
+ * the n smallest costs of a position are known before its next positions get theirs.
+ */
+static int ba_findline(BaJob *job, const BaParams *prm)
+{
+	const long long t = real_clock();
+	const unsigned long long occupied = prm->target.player | prm->target.opponent;
+	const int key_target = ba_find_key(&prm->target);
+	BaWork w;
+	BaFind f;
+	Position *p;
+	unsigned int idx, v, start;
+	int key, k, count = 0, result = -1;
+
+	if (!prm->target_set) {
+		ba_print("@error id=%d word=target\n@end id=%d error=1\n", job->id, job->id);
+		return 0;
+	}
+	if (prm->n_set && (prm->n < 1 || prm->n > BA_FIND_N_MAX)) {
+		ba_print("@error id=%d word=n\n@end id=%d error=1\n", job->id, job->id);
+		return 0;
+	}
+	memset(&w, 0, sizeof w); // (ba_probe only reads the book)
+	w.job = job;
+	w.book = job->book;
+	w.prm = prm;
+	if (ba_probe(&w, &prm->target, &idx) == NULL) {
+		ba_print("@end id=%d count=0 paths=0 positions=0 notinbook=1 ms=%lld\n", job->id, real_clock() - t);
+		return 0;
+	}
+	if ((p = ba_probe(&w, &job->board, &idx)) == NULL) {
+		ba_print("@end id=%d count=0 paths=0 positions=0 startnotinbook=1 ms=%lld\n", job->id, real_clock() - t);
+		return 0;
+	}
+
+	memset(&f, 0, sizeof f);
+	f.n = prm->n_set ? (int) prm->n : 1;
+	start = ba_find_add(&f, &job->board, job->player, job->player == BLACK ? p->score.value : -p->score.value);
+	if (start == UINT_MAX) goto end;
+	{
+		const BaFBest b0 = {0, UINT_MAX, 0, NOMOVE};
+		ba_find_keep(&f, start, &b0);
+		f.node[start].paths = 1;
+	}
+	if (!ba_list_push(&f.layer[ba_find_key(&job->board)], start)) goto end;
+
+	for (key = ba_find_key(&job->board); key <= key_target; ++key) {
+		BaFProbe probe[BA_PROBE_BATCH + MAX_MOVE];
+		long long j;
+		int n = 0;
+		for (j = 0; j < f.layer[key].n; ++j) {
+			const unsigned int u = (unsigned int) f.layer[key].v[j];
+			const Board board = f.node[u].board;
+			unsigned long long moves = get_moves(board.player, board.opponent);
+			bool pass = false;
+
+			if (job->cancel) goto end;
+			if (moves == 0) pass = can_move(board.opponent, board.player);
+			else moves &= occupied & ~(board.player | board.opponent);
+			while (moves || pass) {
+				BaFProbe *b = probe + n;
+				if (pass) {
+					b->x = PASS;
+					pass = false;
+					b->next.player = board.opponent;
+					b->next.opponent = board.player;
+					if (ba_find_key(&b->next) > key_target) continue;
+				} else {
+					b->x = (int) first_bit(moves);
+					moves &= moves - 1;
+					board_next(&board, b->x, &b->next);
+				}
+				b->u = u;
+				board_unique(&b->next, &b->unique);
+				b->bucket = board_get_hash_code(&b->unique) & (unsigned long long) (job->book->n - 1);
+				PREFETCH(job->book->array + b->bucket);
+				++n;
+			}
+			if (n >= BA_PROBE_BATCH) {
+				if (!ba_find_batch(&f, job->book, probe, n)) goto end;
+				n = 0;
+			}
+		}
+		if (n && !ba_find_batch(&f, job->book, probe, n)) goto end; // (the next layer needs every cost of this one)
+	}
+
+	v = ba_find_get(&f, &prm->target, prm->target_color);
+	if (v != UINT_MAX) {
+		for (k = 0; k < f.node[v].n_best && !job->cancel; ++k) {
+			char s[2 * 128 + 1];
+			unsigned char chain[128];
+			unsigned int a = v;
+			int r = k, n = 0, i;
+			while (f.best[(size_t) a * (size_t) f.n + (size_t) r].parent != UINT_MAX && n < 128) {
+				const BaFBest *b = f.best + (size_t) a * (size_t) f.n + (size_t) r;
+				chain[n++] = b->move;
+				a = b->parent;
+				r = b->rank;
+			}
+			for (i = 0; i < n; ++i) ba_square(chain[n - 1 - i], s + 2 * i);
+			s[2 * n] = '\0';
+			ba_print("@line id=%d moves=%s cost=%d\n", job->id, s, f.best[(size_t) v * (size_t) f.n + (size_t) k].cost);
+			++count;
+		}
+	}
+	if (!job->cancel) {
+		ba_print("@end id=%d count=%d paths=%llu positions=%u ms=%lld\n", job->id, count, v == UINT_MAX ? 0ULL : f.node[v].paths, f.n_node, real_clock() - t);
+		result = 0;
+	}
+end:
+	if (result < 0 && f.too_large && !job->cancel) {
+		ba_print("@error id=%d size=1\n@end id=%d error=1\n", job->id, job->id);
+		result = 0;
+	}
+	ba_find_free(&f);
+	return result;
+}
+
 /* ------------------------------------------------------------------ thread -------------------------------------------------------------------- */
 
 /** @brief Free an analysis. */
@@ -2607,6 +2948,7 @@ static void ba_run(BaJob *job)
 	if (job->kind == BA_MOVEINFO) r = ba_moveinfo(job, &prm);
 	else if (job->kind == BA_MISSING) r = ba_missing(job, &prm);
 	else if (job->kind == BA_BESTLINES) r = ba_bestlines(job, &prm);
+	else if (job->kind == BA_FINDLINE) r = ba_findline(job, &prm);
 	else r = ba_levels(job, &prm);
 	if (r < 0) {
 		if (job->cancel) ba_print("@cancel id=%d\n", job->id);
@@ -2638,7 +2980,7 @@ static void* ba_thread(void *v)
 }
 
 /**
- * @brief Read a command "book moveinfo|missing|levels|bestlines ..." and give it to the analysis thread.
+ * @brief Read a command "book moveinfo|missing|levels|bestlines|findline ..." and give it to the analysis thread.
  *
  * @param book Opening book.
  * @param param Words after "book".
@@ -2663,6 +3005,7 @@ bool book_analysis_command(Book *book, const char *param, const Board *board, co
 	else if (strcmp(word, "missing") == 0) kind = BA_MISSING;
 	else if (strcmp(word, "levels") == 0) kind = BA_LEVELS;
 	else if (strcmp(word, "bestlines") == 0) kind = BA_BESTLINES;
+	else if (strcmp(word, "findline") == 0) kind = BA_FINDLINE;
 	else return false;
 
 	book_analysis_init();

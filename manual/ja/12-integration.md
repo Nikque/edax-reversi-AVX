@@ -180,6 +180,7 @@ GUI のソフトが、book をたどって数える計算を Edax に任せる�
 | `book missing id=N` ［`sq=手`］ | 次の段階に足りない Leaf までの手順の一覧（`sq=` を書くと、その手の後から） |
 | `book levels id=N` | 今の局面から先の局面の、level ごとの数（`scope=all` は book 全体） |
 | `book bestlines id=N` | 両方が最善の手（`loss=` の石損までなら次善の手も）だけを打つ進行の数。`file=` を書くと、進行の端までの手順を書き出す |
+| `book findline id=N target=局面` ［`n=`］ | 今の局面から `target` の局面までの、book の局面だけを通る手順（評価値の変わり方がいちばん小さいものから `n` 本、既定は 1 本） |
 | `stop id=N` | 解析 N を止める（ほかの解析と、待っている命令は残る） |
 
 **精度の段階**（`stage=`）
@@ -215,6 +216,7 @@ GUI のソフトが、book をたどって数える計算を Edax に任せる�
 
 - `book moveinfo` は、book にない手、精度の段階、うみがめ数（`part=umi`）、局面の数（`part=count`）の順に答えます。大きな book の序盤では局面の数に時間がかかるので、`parts=stage,umi` のように一部だけを頼むこともできます。`lines=` は、book に書かれた終わっていない進行の数です（すぐ出ます。合流は進行ごとに数えます）。
 - `book bestlines` の答えは `@end id=N lines=… ends=… incomplete=… incomplete_ends=… positions=… written=…` の 1 行です。`lines` は進行ごと、`ends` は端の局面ごとの数、`incomplete` は完全読みに届かない端の数です。`file=` のファイルには、端の局面ごとに 1 行、今の局面までの手順から端までの手順を書きます（`which=incomplete` は完全読みに届かない端だけ）。
+- `book findline` の `target=` は、a1〜h8 の 64 マス（`X` 黒・`O` 白・`-` 空き、`setboard` と同じ）の後に手番（`X` か `O`）を続けた 65 文字です。今の局面と `target`、その間の局面がすべて book にある手順を探します（`target` の石のあるマスにだけ打ち、打てる手がなく相手が打てるときはパス `pa`）。手順の順は、各手で book の評価値（黒から見た値）が変わった幅の合計の小さい順です。答えは手順ごとに `@line id=N moves=f5d6c3… cost=…`、最後に `@end id=N count=… paths=… positions=…` です（`paths` は手順の全部の数、`positions` はたどった局面の数）。`target` が book にないときは `notinbook=1`、今の局面が book にないときは `startnotinbook=1` が付き、`count=0` です。`n=` は 1〜100 です。
 - 引数の誤りには `@error id=N word=…` と `@end id=N error=1`、止めた解析には `@cancel id=N` と答えます。
 - **このマニュアルの作成で確かめたこと**：小さな試験の book（自分で作ったもの、最大 1,914 万局面）で、答えを別に書いた計算と照らし合わせ、精度の段階は実際に `book deviate` を打って確かめました。GUI のソフトそのものとの接続は、試していません。
 
