@@ -296,6 +296,26 @@ void help_test(void)
 
 
 /**
+ * @brief Moves of the game up to the current position, passes left out ("f5d6c3...").
+ * @param play Play.
+ * @param s Moves (out, 2 * PLAY_GAME_SIZE + 1 characters).
+ * @return s.
+ */
+static const char* game_moves(const Play *play, char *s)
+{
+	int i, n = 0;
+	for (i = 0; i < play->i_game && i < PLAY_GAME_SIZE; ++i) {
+		const int x = play->game[i].x;
+		if (A1 <= x && x <= H8) {
+			s[n++] = (char) ('a' + x % 8);
+			s[n++] = (char) ('1' + x / 8);
+		}
+	}
+	s[n] = '\0';
+	return s;
+}
+
+/**
  * @brief Loop event.
  * @param ui user interface.
  */
@@ -312,6 +332,7 @@ void ui_loop_edax(UI *ui)
 	char *cmd = NULL, *param = NULL;
 	Play *play = ui->play;
 	char book_file[FILENAME_MAX];
+	char game_line[2 * PLAY_GAME_SIZE + 1]; // (moves of the game, for book bestlines)
 	unsigned long long histogram[129][65];
 	int repeat = options.repeat;
 
@@ -640,7 +661,7 @@ void ui_loop_edax(UI *ui)
 				puts(name); 
 
 			// book analyses for a user interface (book moveinfo, missing, levels): done by a thread of their own
-			} else if ((strcmp(cmd, "book") == 0 || strcmp(cmd, "b") == 0) && book_analysis_command(play->book, param, &play->board, play->player)) {
+			} else if ((strcmp(cmd, "book") == 0 || strcmp(cmd, "b") == 0) && book_analysis_command(play->book, param, &play->board, play->player, game_moves(play, game_line))) {
 
 			// opening book commands
 			} else if (strcmp(cmd, "book") == 0 || strcmp(cmd, "b") == 0) {
