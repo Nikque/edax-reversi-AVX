@@ -1,0 +1,2538 @@
+/**
+ * @file book_analyze.c
+ *
+ * Book analysis for a user interface (included at the end of book.c, which it needs the positions of).
+ *
+ * - book moveinfo: for every legal move, the book value and level, the precision stage, the leaves missing
+ *   to reach the next stage, the memorization numbers (umigame numbers, a transposition counted once)
+ *   and the number of book positions after the move.
+ * - book missing: the lines to the leaves that a deviate walk would expand.
+ * - book levels: the number of positions of each level after the current position.
+ *
+ * The analyses run in a thread of their own, one after the other, and only read the book: the commands
+ * that change the book first stop them (book_analysis_quiesce). They can be stopped at any time with
+ * "stop id=<n>". Their answers are whole lines that start with '@', of words "key=value".
+ *
+ * Precision stage of a move (the position after it is the root):
+ * - 0: the position is not in the book;
+ * - 1: in the book, but no line of best moves (both sides) reaches a position solved exactly;
+ * - 2: a line of best moves reaches a solved position;
+ * - 3 to 2 + n: "book deviate x y" (or deviate2, deviate3) with the n ranges of the stages, from the narrowest,
+ *   would expand no leaf (the selection walks of book_deviate, book_deviate2 and book_deviate3, without
+ *   their expansion).
+ *
+ * Umigame number (memorization number) of a side: the smallest number of line ends that this side has to
+ * learn to play every line of the condition (best moves only by default): at its turn it chooses one move,
+ * at the other side's turn it has to know every move. The same position reached by different lines is
+ * learnt once (its ends are counted once): the exact minimum is computed with expressions of shared
+ * positions (an end count plus a set of shared positions), see ba_umi_count.
+ */
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
+/* ------------------------------------------------------------------ output ------------------------------------------------------------------ */
+
+/** The lines of the analyses and the lines of the main thread are written whole, one after the other. */
+static struct {
+	Lock lock;
+	bool init;   /**< the lock is ready (edax protocol) */
+	bool open;   /**< the last characters written by the main thread do not end the line (the prompt) */
+} ba_output;
+
+/** @brief Take the output (the lines of the main thread are written between ui_output_lock and ui_output_unlock). */
+void ui_output_lock(void)
+{
+	if (ba_output.init) lock(&ba_output);
+}
+
+/**
+ * @brief Give the output back.
+ * @param line_open true if the characters written do not end the line.
+ */
+void ui_output_unlock(const bool line_open)
+{
+	if (ba_output.init) {
+		ba_output.open = line_open;
+		unlock(&ba_output);
+	}
+}
+
+/** @brief Write a line of an analysis (format ends with a new line). */
+static void ba_print(const char *format, ...)
+{
+	char s[8192];
+	va_list args;
+
+	va_start(args, format);
+	vsnprintf(s, sizeof s, format, args);
+	va_end(args);
+	ui_output_lock();
+	if (ba_output.open) putchar('\n');
+	fputs(s, stdout);
+	fflush(stdout);
+	ui_output_unlock(false);
+}
+
+/* ------------------------------------------------------------------ state ------------------------------------------------------------------- */
+
+enum { BA_MOVEINFO, BA_MISSING, BA_LEVELS };
+enum { BA_DEVIATE = 1, BA_DEVIATE2 = 2, BA_DEVIATE3 = 3 };
+enum { BA_UMI_OFF, BA_UMI_BEST, BA_UMI_LOSS, BA_UMI_RANGE };
+enum { BA_PART_STAGE = 1, BA_PART_UMI = 2, BA_PART_COUNT = 4 };
+
+#define BA_MAX_STAGES 8
+
+/** An analysis to do. */
+typedef struct BaJob {
+	struct BaJob *next;
+	int id;                 /**< number given by the user interface */
+	int kind;               /**< BA_MOVEINFO, BA_MISSING or BA_LEVELS */
+	char *param;            /**< words after the command */
+	Board board;            /**< current position */
+	int player;             /**< side to move (BLACK or WHITE) */
+	Book *book;
+	volatile bool cancel;   /**< stop asked */
+} BaJob;
+
+/** Place of each bucket in the numbering of the positions (bucket, then place in the bucket). */
+typedef struct BaIndex {
+	unsigned int *first;    /**< number of the first position of each bucket */
+	int n_bucket;
+	unsigned long long n;   /**< positions */
+} BaIndex;
+
+static struct {
+	Lock lock;
+	Condition cond;
+	Thread thread;
+	bool init, started, quit;
+	BaJob *head, *tail;     /**< analyses waiting */
+	BaJob *current;         /**< analysis being done */
+	BaIndex index;          /**< numbering of the positions of the book (kept while the book does not change) */
+	const Book *index_book;
+	long long dense_bytes;  /**< memory of the dense marks in use */
+} ba;
+
+/** @brief Prepare the analyses (edax protocol). */
+void book_analysis_init(void)
+{
+	if (ba.init) return;
+	lock_init(&ba);
+	condition_init(&ba);
+	lock_init(&ba_output);
+	ba_output.init = true;
+	ba.init = true;
+}
+
+/* ------------------------------------------------------------------ parameters -------------------------------------------------------------- */
+
+typedef struct BaParams {
+	int base;                                   /**< BA_DEVIATE, BA_DEVIATE2, BA_DEVIATE3 */
+	int n_stage;                                /**< ranges of the stages 3 and above */
+	int stage_x[BA_MAX_STAGES], stage_y[BA_MAX_STAGES];
+	int umi;                                    /**< BA_UMI_* */
+	int x, y;                                   /**< loss limits (umi=loss; book missing) */
+	bool xy_set;
+	int lo, hi;                                 /**< value range, for the side to move at the current position (umi=range) */
+	int depth;                                  /**< last move number followed by the umigame numbers */
+	int parts;                                  /**< BA_PART_* (book moveinfo) */
+	bool moves_set;                             /**< only some moves (book moveinfo) */
+	unsigned long long moves;
+	bool moves_pass;
+	int sq;                                     /**< first move (book missing), NOMOVE if none */
+	int stage;                                  /**< stage to reach (book missing), 0 if none */
+	long long n;                                /**< lines to show (book missing) */
+	bool all;                                   /**< scope=all (book levels) */
+	char error[64];                             /**< first wrong word */
+} BaParams;
+
+/** @return the square of a word ("a1" to "h8", "pa" or "ps" for a pass), NOMOVE if it is none. */
+static int ba_parse_square(const char *s)
+{
+	const int c = (s[0] | 0x20), r = s[1];
+	if ((c == 'p') && ((s[1] | 0x20) == 'a' || (s[1] | 0x20) == 's')) return PASS;
+	if ('a' <= c && c <= 'h' && '1' <= r && r <= '8') return (r - '1') * 8 + (c - 'a');
+	return NOMOVE;
+}
+
+/** @brief Write a square ("pa" for a pass). */
+static void ba_square(const int x, char *s)
+{
+	if (x == PASS) { s[0] = 'p'; s[1] = 'a'; }
+	else if (A1 <= x && x <= H8) { s[0] = (char) ('a' + x % 8); s[1] = (char) ('1' + x / 8); }
+	else { s[0] = '-'; s[1] = '-'; }
+	s[2] = '\0';
+}
+
+/** @return true if a whole word is a number (with a sign), read in *v. */
+static bool ba_parse_number(const char *s, int *v)
+{
+	char *end;
+	long x;
+	if (*s == '\0') return false;
+	x = strtol(s, &end, 10);
+	if (*end != '\0' || x < -100000 || x > 100000) return false;
+	*v = (int) x;
+	return true;
+}
+
+static void ba_params_default(BaParams *p)
+{
+	int i;
+	memset(p, 0, sizeof *p);
+	p->base = BA_DEVIATE;
+	p->n_stage = 5;
+	for (i = 0; i < 5; ++i) p->stage_x[i] = p->stage_y[i] = i + 1;
+	p->umi = BA_UMI_BEST;
+	p->x = 2; p->y = 4;
+	p->lo = -SCORE_MAX; p->hi = SCORE_MAX;
+	p->depth = 60;
+	p->parts = BA_PART_STAGE | BA_PART_UMI | BA_PART_COUNT;
+	p->sq = NOMOVE;
+	p->n = 100;
+}
+
+/**
+ * @brief Read the words "key=value" of an analysis.
+ * @return false on a wrong word (p->error).
+ */
+static bool ba_params_read(const char *param, BaParams *p)
+{
+	char word[512], *value;
+	const char *s = param;
+	int i, v;
+
+	ba_params_default(p);
+	for (;;) {
+		while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
+		if (*s == '\0') break;
+		for (i = 0; *s && *s != ' ' && *s != '\t' && *s != '\r' && *s != '\n'; ++s) if (i < (int) sizeof word - 1) word[i++] = *s;
+		word[i] = '\0';
+		for (i = 0; word[i] && word[i] != '='; ++i) word[i] = (char) (('A' <= word[i] && word[i] <= 'Z') ? word[i] + 32 : word[i]);
+		value = strchr(word, '=');
+		if (value == NULL) goto wrong;
+		*value++ = '\0';
+
+		if (strcmp(word, "id") == 0) {
+			if (!ba_parse_number(value, &v)) goto wrong;
+		} else if (strcmp(word, "base") == 0) {
+			if (strcmp(value, "deviate") == 0) p->base = BA_DEVIATE;
+			else if (strcmp(value, "deviate2") == 0) p->base = BA_DEVIATE2;
+			else if (strcmp(value, "deviate3") == 0) p->base = BA_DEVIATE3;
+			else goto wrong;
+		} else if (strcmp(word, "stages") == 0) {
+			const char *t = value;
+			p->n_stage = 0;
+			while (*t) {
+				char *end;
+				long a, b;
+				if (p->n_stage == BA_MAX_STAGES) goto wrong;
+				a = strtol(t, &end, 10);
+				if (end == t || *end != '/') goto wrong;
+				t = end + 1;
+				b = strtol(t, &end, 10);
+				if (end == t || (*end != ',' && *end != '\0')) goto wrong;
+				t = (*end == ',') ? end + 1 : end;
+				if (a < 0 || a > 129 || b < 0 || b > 254) goto wrong;
+				p->stage_x[p->n_stage] = (int) a;
+				p->stage_y[p->n_stage] = (int) b;
+				++p->n_stage;
+			}
+			if (p->n_stage == 0) goto wrong;
+		} else if (strcmp(word, "umi") == 0) {
+			if (strcmp(value, "best") == 0) p->umi = BA_UMI_BEST;
+			else if (strcmp(value, "loss") == 0) p->umi = BA_UMI_LOSS;
+			else if (strcmp(value, "range") == 0) p->umi = BA_UMI_RANGE;
+			else if (strcmp(value, "off") == 0) p->umi = BA_UMI_OFF;
+			else goto wrong;
+		} else if (strcmp(word, "x") == 0) {
+			if (!ba_parse_number(value, &v) || v < 0 || v > 129) goto wrong;
+			p->x = v; p->xy_set = true;
+		} else if (strcmp(word, "y") == 0) {
+			if (!ba_parse_number(value, &v) || v < 0 || v > 254) goto wrong;
+			p->y = v; p->xy_set = true;
+		} else if (strcmp(word, "lo") == 0) {
+			if (!ba_parse_number(value, &v) || v < -SCORE_MAX || v > SCORE_MAX) goto wrong;
+			p->lo = v;
+		} else if (strcmp(word, "hi") == 0) {
+			if (!ba_parse_number(value, &v) || v < -SCORE_MAX || v > SCORE_MAX) goto wrong;
+			p->hi = v;
+		} else if (strcmp(word, "depth") == 0) {
+			if (!ba_parse_number(value, &v) || v < 1 || v > 60) goto wrong;
+			p->depth = v;
+		} else if (strcmp(word, "parts") == 0) {
+			const char *t = value;
+			p->parts = 0;
+			while (*t) {
+				if (strncmp(t, "stage", 5) == 0) { p->parts |= BA_PART_STAGE; t += 5; }
+				else if (strncmp(t, "umi", 3) == 0) { p->parts |= BA_PART_UMI; t += 3; }
+				else if (strncmp(t, "count", 5) == 0) { p->parts |= BA_PART_COUNT; t += 5; }
+				else goto wrong;
+				if (*t == ',') ++t;
+				else if (*t) goto wrong;
+			}
+		} else if (strcmp(word, "moves") == 0) {
+			const char *t = value;
+			p->moves_set = true;
+			while (*t) {
+				const int x = ba_parse_square(t);
+				if (x == NOMOVE || t[1] == '\0') goto wrong;
+				if (x == PASS) p->moves_pass = true; else p->moves |= 1ULL << x;
+				t += 2;
+				if (*t == ',') ++t;
+			}
+		} else if (strcmp(word, "sq") == 0) {
+			if ((p->sq = ba_parse_square(value)) == NOMOVE || value[1] == '\0' || value[2] != '\0') goto wrong;
+		} else if (strcmp(word, "stage") == 0) {
+			if (!ba_parse_number(value, &v) || v < 2 || v > 2 + BA_MAX_STAGES) goto wrong;
+			p->stage = v;
+		} else if (strcmp(word, "n") == 0) {
+			if (!ba_parse_number(value, &v) || v < 0) goto wrong;
+			p->n = v;
+		} else if (strcmp(word, "scope") == 0) {
+			if (strcmp(value, "all") == 0) p->all = true;
+			else if (strcmp(value, "from") == 0) p->all = false;
+			else goto wrong;
+		} else goto wrong;
+	}
+	if (p->stage > 2 + p->n_stage) { snprintf(p->error, sizeof p->error, "stage"); return false; }
+	return true;
+
+wrong:
+	snprintf(p->error, sizeof p->error, "%s", word);
+	for (i = 0; p->error[i]; ++i) if (p->error[i] == ' ' || p->error[i] == '=') p->error[i] = '_';
+	return false;
+}
+
+/** @return the number after "id=" in the words of a command, 0 if none. */
+static int ba_read_id(const char *param, bool *found)
+{
+	const char *s = param;
+	*found = false;
+	while ((s = strstr(s, "id=")) != NULL) {
+		if (s == param || s[-1] == ' ' || s[-1] == '\t') {
+			*found = true;
+			return atoi(s + 3);
+		}
+		s += 3;
+	}
+	return 0;
+}
+
+/* ------------------------------------------------------------------ book access ------------------------------------------------------------- */
+
+/** @brief Number the positions of the book (as book_visit_init does), unless they are numbered already. */
+static bool ba_index_get(const Book *book)
+{
+	unsigned int i, n = 0;
+
+	if (ba.index.first && ba.index_book == book && ba.index.n_bucket == book->n) return true;
+	free(ba.index.first);
+	ba.index.first = (unsigned int*) malloc((size_t) book->n * sizeof *ba.index.first);
+	if (ba.index.first == NULL) return false;
+	for (i = 0; i < (unsigned int) book->n; ++i) {
+		ba.index.first[i] = n;
+		n += (unsigned int) book->array[i].n;
+	}
+	ba.index.n_bucket = book->n;
+	ba.index.n = n;
+	ba.index_book = book;
+	return true;
+}
+
+static inline unsigned long long ba_hash(const unsigned long long);
+
+/* results kept while the book does not change (going back to a position gives them at once) */
+enum { BA_CACHE_STAGE = 1, BA_CACHE_UMI = 2, BA_CACHE_COUNT = 3 };
+#define BA_CACHE_SIZE (1 << 15)
+#define BA_CACHE_PROBE 16
+
+typedef struct BaCacheEntry {
+	unsigned long long key;     /**< number of the position << 8 | kind << 1 | side; 0: empty */
+	unsigned long long cond;    /**< hash of the parameters the result depends on */
+	long long a, b;
+	int c;
+} BaCacheEntry;
+
+static BaCacheEntry *ba_cache;
+
+static inline unsigned long long ba_cache_key(const unsigned int idx, const int kind, const int color)
+{
+	return (((unsigned long long) idx + 1) << 8) | ((unsigned long long) kind << 1) | (unsigned long long) color;
+}
+
+/** @return true if a result is kept (lock held by the caller: no). */
+static bool ba_cache_get(const unsigned long long key, const unsigned long long cond, long long *a, long long *b, int *c)
+{
+	bool found = false;
+	int i;
+	lock(&ba);
+	if (ba_cache) for (i = 0; i < BA_CACHE_PROBE; ++i) {
+		const BaCacheEntry *e = ba_cache + ((ba_hash(key ^ cond) + (unsigned long long) i) & (BA_CACHE_SIZE - 1));
+		if (e->key == 0) break;
+		if (e->key == key && e->cond == cond) { *a = e->a; *b = e->b; *c = e->c; found = true; break; }
+	}
+	unlock(&ba);
+	return found;
+}
+
+static void ba_cache_put(const unsigned long long key, const unsigned long long cond, const long long a, const long long b, const int c)
+{
+	int i;
+	lock(&ba);
+	if (ba_cache == NULL) ba_cache = (BaCacheEntry*) calloc(BA_CACHE_SIZE, sizeof *ba_cache);
+	if (ba_cache) {
+		for (i = 0; i < BA_CACHE_PROBE; ++i) {
+			BaCacheEntry *e = ba_cache + ((ba_hash(key ^ cond) + (unsigned long long) i) & (BA_CACHE_SIZE - 1));
+			if (e->key == 0 || (e->key == key && e->cond == cond)) { e->key = key; e->cond = cond; e->a = a; e->b = b; e->c = c; break; }
+		}
+		if (i == BA_CACHE_PROBE) memset(ba_cache, 0, BA_CACHE_SIZE * sizeof *ba_cache); // (full: start again)
+	}
+	unlock(&ba);
+}
+
+static unsigned long long ba_mix(unsigned long long h, const long long x)
+{
+	return (h ^ (unsigned long long) x) * 0x100000001B3ULL;
+}
+
+/** @return the hash of the parameters of the stages. */
+static unsigned long long ba_cond_stage(const BaParams *p)
+{
+	unsigned long long h = ba_mix(0xcbf29ce484222325ULL, p->base);
+	int k;
+	h = ba_mix(h, p->n_stage);
+	for (k = 0; k < p->n_stage; ++k) h = ba_mix(ba_mix(h, p->stage_x[k]), p->stage_y[k]);
+	return h;
+}
+
+/** @return the hash of the parameters of the umigame numbers. */
+static unsigned long long ba_cond_umi(const BaParams *p)
+{
+	unsigned long long h = ba_mix(0xcbf29ce484222325ULL, p->umi);
+	h = ba_mix(ba_mix(h, p->x), p->y);
+	h = ba_mix(ba_mix(h, p->lo), p->hi);
+	return ba_mix(h, p->depth);
+}
+
+/** @brief Forget the numbering of the positions (the book may change). */
+static void ba_index_free(void)
+{
+	free(ba_cache);
+	ba_cache = NULL;
+	free(ba.index.first);
+	ba.index.first = NULL;
+	ba.index_book = NULL;
+	ba.index.n = 0;
+	ba.index.n_bucket = 0;
+}
+
+/* walk state of a thread */
+typedef struct BaWork BaWork;
+
+/** Marks of the positions of a walk: a small hash table, or one byte per position of the book when many are marked. */
+typedef struct BaVisit {
+	unsigned long long *slot;   /**< (number + 1) << 8 | mark; 0: empty */
+	unsigned long long mask;    /**< slots - 1 */
+	unsigned long long n;       /**< marked positions */
+	unsigned char *dense;       /**< one mark per position (NULL: hash table) */
+	unsigned long long n_index; /**< positions of the book */
+} BaVisit;
+
+/** @return true if memory for dense marks may be used (at most 6 bytes per position of the book for all the walks). */
+static bool ba_dense_reserve(const unsigned long long n)
+{
+	bool ok;
+	lock(&ba);
+	ok = (unsigned long long) ba.dense_bytes + n <= 6 * ba.index.n + (1u << 20);
+	if (ok) ba.dense_bytes += (long long) n;
+	unlock(&ba);
+	return ok;
+}
+
+static void ba_dense_release(const unsigned long long n)
+{
+	lock(&ba);
+	ba.dense_bytes -= (long long) n;
+	unlock(&ba);
+}
+
+static void ba_visit_init(BaVisit *v, const unsigned long long n_index)
+{
+	memset(v, 0, sizeof *v);
+	v->n_index = n_index;
+}
+
+static void ba_visit_free(BaVisit *v)
+{
+	free(v->slot);
+	if (v->dense) { free(v->dense); ba_dense_release(v->n_index); }
+	memset(v, 0, sizeof *v);
+}
+
+/** @brief Remove all the marks (the memory is kept). */
+static void ba_visit_clear(BaVisit *v)
+{
+	if (v->dense) memset(v->dense, 0, (size_t) v->n_index);
+	else if (v->slot) {
+		if (v->mask >= 65536 && v->n * 16 < v->mask) { free(v->slot); v->slot = NULL; v->mask = 0; } // (a large table almost empty)
+		else memset(v->slot, 0, (size_t) (v->mask + 1) * sizeof *v->slot);
+	}
+	v->n = 0;
+}
+
+static inline unsigned long long ba_hash(const unsigned long long i)
+{
+	unsigned long long h = (i + 1) * 0x9E3779B97F4A7C15ULL;
+	return h ^ (h >> 29);
+}
+
+/** @return the mark of a position (0: none). */
+static inline unsigned char ba_visit_get(const BaVisit *v, const unsigned int i)
+{
+	unsigned long long k, s;
+	if (v->dense) return v->dense[i];
+	if (v->slot == NULL) return 0;
+	for (k = ba_hash(i) & v->mask; (s = v->slot[k]) != 0; k = (k + 1) & v->mask) {
+		if ((s >> 8) == (unsigned long long) i + 1) return (unsigned char) s;
+	}
+	return 0;
+}
+
+/** @brief Put marks in a new table. */
+static bool ba_visit_grow(BaVisit *v)
+{
+	const unsigned long long size = v->slot ? 2 * (v->mask + 1) : 1024;
+	unsigned long long *slot, k, j;
+
+	if (v->slot && v->n > v->n_index / 16 && ba_dense_reserve(v->n_index)) { // as many marks as positions / 16: one byte per position
+		unsigned char *dense = (unsigned char*) calloc((size_t) v->n_index + 1, 1);
+		if (dense) {
+			for (k = 0; k <= v->mask; ++k) if (v->slot[k]) dense[(v->slot[k] >> 8) - 1] = (unsigned char) v->slot[k];
+			free(v->slot); v->slot = NULL; v->mask = 0;
+			v->dense = dense;
+			return true;
+		}
+		ba_dense_release(v->n_index);
+	}
+	slot = (unsigned long long*) calloc((size_t) size, sizeof *slot);
+	if (slot == NULL) return false;
+	if (v->slot) {
+		for (k = 0; k <= v->mask; ++k) if (v->slot[k]) {
+			for (j = ba_hash((v->slot[k] >> 8) - 1) & (size - 1); slot[j]; j = (j + 1) & (size - 1)) ;
+			slot[j] = v->slot[k];
+		}
+		free(v->slot);
+	}
+	v->slot = slot;
+	v->mask = size - 1;
+	return true;
+}
+
+/** @brief Set the mark of a position (1 to 255; 0 removes it). @return false if memory is exhausted. */
+static bool ba_visit_set(BaVisit *v, const unsigned int i, const unsigned char mark)
+{
+	unsigned long long k, s;
+
+	if (v->dense) {
+		if (v->dense[i] == 0 && mark) ++v->n;
+		v->dense[i] = mark;
+		return true;
+	}
+	if ((v->n + 1) * 2 > (v->slot ? v->mask + 1 : 0)) {
+		if (!ba_visit_grow(v)) return false;
+		if (v->dense) return ba_visit_set(v, i, mark);
+	}
+	for (k = ba_hash(i) & v->mask; (s = v->slot[k]) != 0; k = (k + 1) & v->mask) {
+		if ((s >> 8) == (unsigned long long) i + 1) { v->slot[k] = (s & ~0xffULL) | mark; return true; }
+	}
+	v->slot[k] = (((unsigned long long) i + 1) << 8) | mark;
+	++v->n;
+	return true;
+}
+
+/** A position reached by a walk. */
+typedef struct BaItem {
+	Position *p;
+	unsigned int idx;       /**< number of the position */
+	int parent;             /**< item of the previous position, -1 for the root */
+	unsigned char move;     /**< move (on the board of the previous position) */
+	unsigned char depth;    /**< moves from the root */
+	unsigned short loss;    /**< accumulated loss (deviate2, deviate3) */
+} BaItem;
+
+typedef struct BaQueue {
+	BaItem *item;
+	long long n, size;
+} BaQueue;
+
+static bool ba_push(BaQueue *q, Position *p, const unsigned int idx, const long long parent, const int move, const int depth, const int loss)
+{
+	if (q->n == q->size) {
+		const long long size = q->size + q->size / 2 + 1024;
+		BaItem *item = (BaItem*) realloc(q->item, (size_t) size * sizeof *item);
+		if (item == NULL || parent > INT_MAX) { if (item) q->item = item; return false; }
+		q->item = item; q->size = size;
+	}
+	q->item[q->n].p = p;
+	q->item[q->n].idx = idx;
+	q->item[q->n].parent = (int) parent;
+	q->item[q->n].move = (unsigned char) move;
+	q->item[q->n].depth = (unsigned char) (depth > 255 ? 255 : depth);
+	q->item[q->n].loss = (unsigned short) loss;
+	++q->n;
+	return true;
+}
+
+/** A list of numbers. */
+typedef struct BaList {
+	long long *v;
+	long long n, size;
+} BaList;
+
+static bool ba_list_push(BaList *l, const long long x)
+{
+	if (l->n == l->size) {
+		const long long size = l->size + l->size / 2 + 256;
+		long long *v = (long long*) realloc(l->v, (size_t) size * sizeof *v);
+		if (v == NULL) return false;
+		l->v = v; l->size = size;
+	}
+	l->v[l->n++] = x;
+	return true;
+}
+
+/** Positions whose leaf a walk would expand. */
+typedef struct BaTodo {
+	BaVisit seen;
+	long long n;        /**< distinct positions with a leaf move */
+	bool keep;          /**< keep the lines */
+	BaList ref;         /**< lines: queue << 40 | item */
+	BaList added;       /**< numbers of the positions found, in order (the positions of a stopped walk are forgotten) */
+} BaTodo;
+
+/* ------------------------------------------------------------------ umigame (shared positions) ---------------------------------------------- */
+
+/** A position of the lines of an umigame number. */
+typedef struct BaUNode {
+	Position *p;
+	unsigned int idx;
+	unsigned int edge;      /**< first next position (in edge) */
+	unsigned int n_edge;
+	unsigned int indeg;     /**< lines that lead to it */
+	unsigned int alias;     /**< node of the same end (loss condition), else itself */
+	unsigned short loss;
+	unsigned char color;    /**< side to move */
+	unsigned char key;      /**< 2 * discs + (side to move can move): the next positions have a greater key */
+	bool end;               /**< end of the lines */
+} BaUNode;
+
+/** A term of an expression: c ends plus the ends of a set of shared positions (counted once). */
+typedef struct BaTerm {
+	unsigned long long c;
+	unsigned int off, len;  /**< set (in the pool), increasing ranks */
+} BaTerm;
+
+/** The terms (alternatives) of an expression: its value is the smallest of them. */
+typedef struct BaTerms {
+	BaTerm *t;
+	int n, size;
+} BaTerms;
+
+/** Hash table: key -> number. */
+typedef struct BaMap {
+	unsigned long long *key; /**< key + 1, 0: empty */
+	unsigned int *val;
+	unsigned long long mask, n;
+} BaMap;
+
+/* ------------------------------------------------------------------ walk state ------------------------------------------------------------ */
+
+struct BaWork {
+	BaJob *job;
+	Book *book;
+	const BaParams *prm;
+	BaVisit visit;
+	BaTodo todo;
+	BaQueue q[2];
+	BaList *bucket;         /**< deviate2/3: items per accumulated loss */
+	int n_bucket;
+	bool oom;
+
+	/* umigame */
+	BaUNode *node;
+	unsigned int n_node, size_node;
+	unsigned int *edge;
+	unsigned long long n_edge, size_edge;
+	BaMap map, end_map;
+	unsigned int *order;    /**< nodes, the next positions first */
+	unsigned int *rank;     /**< place of each node in order */
+	BaTerms *rep;           /**< expression of each node seen from the previous positions */
+	BaTerms *def;           /**< expression of each shared node */
+	long long *g;           /**< value of each shared node, -1 if not computed */
+	int *uses;              /**< expressions that use each shared node (by rank) */
+	unsigned int *remain;    /**< previous positions of each node not done yet */
+	unsigned int *stamp, *found, stamp_now; /**< (shared nodes of an expression, each once) */
+	unsigned int *pool;     /**< sets of the terms */
+	unsigned long long n_pool, size_pool;
+	unsigned long long pool_kept;  /**< numbers in the pool after the last ba_pool_compact */
+	bool inexact;           /**< terms were dropped: the value may be too large */
+	bool too_large;
+};
+
+#define BA_TERM_MAX 128                     /**< terms kept in an expression (more: the value is an upper bound, that a choice of moves reaches) */
+#define BA_POOL_MAX (1ULL << 27)            /**< numbers in the sets of the terms */
+#define BA_UMI_NODE_MAX (1u << 24)          /**< positions of the lines of an umigame number */
+
+static void ba_work_init(BaWork *w, BaJob *job, const BaParams *prm)
+{
+	memset(w, 0, sizeof *w);
+	w->job = job;
+	w->book = job->book;
+	w->prm = prm;
+	ba_visit_init(&w->visit, ba.index.n);
+	ba_visit_init(&w->todo.seen, ba.index.n);
+}
+
+static void ba_map_free(BaMap *m)
+{
+	free(m->key); free(m->val);
+	memset(m, 0, sizeof *m);
+}
+
+static void ba_umi_free(BaWork *w)
+{
+	unsigned int i;
+	if (w->rep) for (i = 0; i < w->n_node; ++i) free(w->rep[i].t);
+	if (w->def) for (i = 0; i < w->n_node; ++i) free(w->def[i].t);
+	free(w->rep); free(w->def); free(w->g); w->rep = w->def = NULL; w->g = NULL;
+	free(w->uses); free(w->remain); free(w->stamp); free(w->found);
+	w->uses = NULL; w->remain = w->stamp = w->found = NULL;
+	free(w->node); free(w->edge); free(w->order); free(w->rank); free(w->pool);
+	w->node = NULL; w->edge = NULL; w->order = w->rank = NULL; w->pool = NULL;
+	w->n_node = w->size_node = 0; w->n_edge = w->size_edge = 0; w->n_pool = w->size_pool = 0;
+	ba_map_free(&w->map); ba_map_free(&w->end_map);
+}
+
+static void ba_work_free(BaWork *w)
+{
+	int i;
+	ba_visit_free(&w->visit);
+	ba_visit_free(&w->todo.seen);
+	free(w->todo.ref.v);
+	free(w->todo.added.v);
+	free(w->q[0].item); free(w->q[1].item);
+	for (i = 0; i < w->n_bucket; ++i) free(w->bucket[i].v);
+	free(w->bucket);
+	ba_umi_free(w);
+	memset(w, 0, sizeof *w);
+}
+
+/**
+ * @brief Find a position in the book, with its number.
+ * @param w Walk.
+ * @param board Board (any symetry).
+ * @param index Number of the position (out).
+ * @return the position, NULL if it is not in the book.
+ */
+static Position* ba_probe(const BaWork *w, const Board *board, unsigned int *index)
+{
+	Board unique;
+	const PositionArray *a;
+	unsigned long long b;
+	int i;
+
+	board_unique(board, &unique);
+	b = board_get_hash_code(&unique) & (unsigned long long) (w->book->n - 1);
+	a = w->book->array + b;
+	for (i = 0; i < a->n; ++i) {
+		if (board_equal(&a->positions[i].board, &unique)) {
+			*index = ba.index.first[b] + (unsigned int) i;
+			return a->positions + i;
+		}
+	}
+	return NULL;
+}
+
+static void ba_todo_reset(BaTodo *t, const bool keep)
+{
+	ba_visit_clear(&t->seen);
+	t->n = 0;
+	t->keep = keep;
+	t->ref.n = 0;
+	t->added.n = 0;
+}
+
+/** @brief A walk would expand the leaf of a position. @return false if memory is exhausted. */
+static bool ba_todo_add(BaTodo *t, const Position *p, const unsigned int idx, const int which, const long long item)
+{
+	if (p->leaf.move == NOMOVE || ba_visit_get(&t->seen, idx)) return true; // (book_expand does nothing without a leaf move)
+	if (!ba_visit_set(&t->seen, idx, 1)) return false;
+	++t->n;
+	if (!ba_list_push(&t->added, idx)) return false;
+	return !t->keep || ba_list_push(&t->ref, ((long long) which << 40) | item);
+}
+
+static inline bool ba_walkable(const Book *book, const Position *p)
+{
+	return board_count_empties(&p->board) >= book->options.n_empties && !board_is_game_over(&p->board);
+}
+
+/* ------------------------------------------------------------------ deviate walks --------------------------------------------------------- */
+
+/**
+ * @brief One walk of book deviate (as book_deviate_by_depth, ply by ply, without threads).
+ * @return 0: done, 1: a position is reached with both ply parities (the recursive walk decides), -1: stopped.
+ */
+static int ba_walk_deviate(BaWork *w, const int which, Position *root, const unsigned int root_idx, const int a, const int b, const int lower, const int upper)
+{
+	BaQueue *q = w->q + which;
+	const Book *book = w->book;
+	long long start = 0, end, i;
+	int depth;
+
+	ba_visit_clear(&w->visit);
+	q->n = 0;
+	if (!ba_push(q, root, root_idx, -1, NOMOVE, 0, 0)) return -1;
+	for (depth = 0; start < q->n; ++depth) {
+		const int parity = depth & 1;
+		const int deviation = parity ? b : a;
+		const int lo = parity ? -upper : lower, up = parity ? -lower : upper;
+		const unsigned char mark = (unsigned char) (parity + 1), child_mark = (unsigned char) ((parity ^ 1) + 1);
+
+		end = q->n;
+		for (i = start; i < end; ++i) {
+			Position *p = q->item[i].p;
+			const unsigned int idx = q->item[i].idx;
+			const int v = p->score.value;
+			unsigned char m;
+			Link *l;
+
+			if (w->job->cancel) return -1;
+			if (!(lo <= v && v <= up && ba_walkable(book, p))) continue;
+			m = ba_visit_get(&w->visit, idx);
+			if (m) {
+				if (m != mark) return 1;
+				continue;
+			}
+			if (!ba_visit_set(&w->visit, idx, mark)) return -1;
+			foreach_link(l, p) {
+				if (v - l->score <= deviation && lo <= l->score && l->score <= up) {
+					Board target;
+					unsigned int ci;
+					Position *child;
+					board_next(&p->board, l->move, &target);
+					child = ba_probe(w, &target, &ci);
+					if (child && ba_visit_get(&w->visit, ci) != child_mark && !ba_push(q, child, ci, i, l->move, depth + 1, 0)) return -1;
+				}
+			}
+			if (v - p->leaf.score <= deviation && lo <= p->leaf.score && p->leaf.score <= up && !ba_todo_add(&w->todo, p, idx, which, i)) return -1;
+		}
+		start = end;
+		if (!w->todo.keep && start >= 65536) { // (the walked positions are not needed: the queue keeps the next ply only)
+			memmove(q->item, q->item + start, (size_t) (q->n - start) * sizeof *q->item);
+			q->n -= start;
+			start = 0;
+		}
+	}
+	return 0;
+}
+
+/** @brief One walk of book deviate, as position_deviate (the walk used when a position is reached with both parities). */
+static int ba_deviate_rec(BaWork *w, const int which, const long long item, const int player_deviation, const int opponent_deviation, const int lower, const int upper)
+{
+	BaQueue *q = w->q + which;
+	Position *p = q->item[item].p;
+	const unsigned int idx = q->item[item].idx;
+	const int depth = q->item[item].depth;
+	const int v = p->score.value;
+	Link *l;
+
+	if (w->job->cancel) return -1;
+	if (!ba_visit_get(&w->visit, idx) && lower <= v && v <= upper && ba_walkable(w->book, p)) {
+		if (!ba_visit_set(&w->visit, idx, 1)) return -1;
+		foreach_link(l, p) {
+			if (v - l->score <= player_deviation && lower <= l->score && l->score <= upper) {
+				Board target;
+				unsigned int ci;
+				Position *child;
+				board_next(&p->board, l->move, &target);
+				child = ba_probe(w, &target, &ci);
+				if (child) {
+					if (!ba_push(q, child, ci, item, l->move, depth + 1, 0)) return -1;
+					if (ba_deviate_rec(w, which, q->n - 1, opponent_deviation, player_deviation, -upper, -lower) < 0) return -1;
+				}
+			}
+		}
+		if (v - p->leaf.score <= player_deviation && lower <= p->leaf.score && p->leaf.score <= upper && !ba_todo_add(&w->todo, p, idx, which, item)) return -1;
+	}
+	return 0;
+}
+
+/**
+ * @brief One walk of book deviate from a root: ply by ply, or recursive when a position is reached with both
+ * ply parities (as book_select_deviate). The positions found by the stopped ply walk are forgotten first.
+ * @return 0: done, -1: stopped.
+ */
+static int ba_deviate_pass(BaWork *w, const int which, Position *root, const unsigned int root_idx, const int a, const int b, const int lower, const int upper)
+{
+	BaTodo *t = &w->todo;
+	const long long n_added = t->added.n, n_ref = t->ref.n;
+	long long k;
+	const int r = ba_walk_deviate(w, which, root, root_idx, a, b, lower, upper);
+
+	if (r != 1) return r;
+	for (k = n_added; k < t->added.n; ++k) if (!ba_visit_set(&t->seen, (unsigned int) t->added.v[k], 0)) return -1;
+	t->n -= t->added.n - n_added;
+	t->added.n = n_added;
+	t->ref.n = n_ref;
+	ba_visit_clear(&w->visit);
+	w->q[which].n = 0;
+	if (!ba_push(w->q + which, root, root_idx, -1, NOMOVE, 0, 0)) return -1;
+	return ba_deviate_rec(w, which, 0, a, b, lower, upper);
+}
+
+/**
+ * @brief One walk of book deviate2 / deviate3 (as book_deviate_total_by_loss, without threads).
+ * @return 0: done, -1: stopped.
+ */
+static int ba_walk_total(BaWork *w, const int which, Position *root, const unsigned int root_idx, const int mode, const int move_loss, const int total_loss)
+{
+	BaQueue *q = w->q + which;
+	const Book *book = w->book;
+	int L, i;
+
+	if (w->n_bucket < total_loss + 1) {
+		BaList *bucket = (BaList*) realloc(w->bucket, (size_t) (total_loss + 1) * sizeof *bucket);
+		if (bucket == NULL) return -1;
+		for (i = w->n_bucket; i <= total_loss; ++i) memset(bucket + i, 0, sizeof bucket[i]);
+		w->bucket = bucket; w->n_bucket = total_loss + 1;
+	}
+	for (i = 0; i <= total_loss; ++i) w->bucket[i].n = 0;
+	ba_visit_clear(&w->visit);
+	q->n = 0;
+	if (ba_walkable(book, root)) {
+		if (!ba_visit_set(&w->visit, root_idx, 1) || !ba_push(q, root, root_idx, -1, NOMOVE, 0, 0) || !ba_list_push(w->bucket, 0)) return -1;
+	}
+	for (L = 0; L <= total_loss; ++L) {
+		BaList *cur = w->bucket + L;
+		long long k;
+		for (k = 0; k < cur->n; ++k) { // (positions reached with the same loss are added while the list is read)
+			const long long item = cur->v[k];
+			Position *p = q->item[item].p;
+			const unsigned int idx = q->item[item].idx;
+			const int depth = q->item[item].depth;
+			const int v = p->score.value;
+			int move_error;
+			Link *l;
+
+			if (w->job->cancel) return -1;
+			if (ba_visit_get(&w->visit, idx) != L + 1) continue; // reached later with a smaller loss
+			foreach_link(l, p) {
+				move_error = v - l->score;
+				if (0 <= move_error && move_error <= move_loss && L + move_error <= total_loss) {
+					Board target;
+					unsigned int ci;
+					Position *child;
+					unsigned char old;
+					board_next(&p->board, l->move, &target);
+					child = ba_probe(w, &target, &ci);
+					if (child == NULL || !ba_walkable(book, child)) continue;
+					old = ba_visit_get(&w->visit, ci);
+					if (old && old <= L + move_error + 1) continue;
+					if (!ba_visit_set(&w->visit, ci, (unsigned char) (L + move_error + 1))
+					 || !ba_push(q, child, ci, item, l->move, depth + 1, L + move_error)
+					 || !ba_list_push(w->bucket + L + move_error, q->n - 1)) return -1;
+					cur = w->bucket + L; // (the list may have moved)
+				}
+			}
+			if (mode == BA_DEVIATE2 && position_is_solved(p)) continue;
+			move_error = v - p->leaf.score;
+			if (p->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && L + move_error <= total_loss && !ba_todo_add(&w->todo, p, idx, which, item)) return -1;
+		}
+	}
+	return 0;
+}
+
+/**
+ * @brief Positions whose leaf "book deviate x y" (deviate2, deviate3) started from a root would expand in its first round.
+ * @return their number, -1 if stopped.
+ */
+static long long ba_expansions(BaWork *w, Position *root, const unsigned int root_idx, const int base, const int x, const int y, const bool keep)
+{
+	ba_todo_reset(&w->todo, keep);
+	if (base == BA_DEVIATE) {
+		// book_deviate: the deviations of the side to move at the root, then those of the other side
+		// (when the first walk expands nothing, the second walk sees the same book)
+		const int s = root->score.value;
+		if (ba_deviate_pass(w, 0, root, root_idx, x, 0, s - y, s + y) < 0) return -1;
+		if (ba_deviate_pass(w, 1, root, root_idx, 0, x, s - y, s + y) < 0) return -1;
+	} else {
+		if (ba_walk_total(w, 0, root, root_idx, base, x, y) < 0) return -1;
+	}
+	return w->todo.n;
+}
+
+/**
+ * @brief Lines of best moves of both sides from a root.
+ * @param found true if one reaches a position solved exactly (out).
+ * @return the number of their ends that are not solved (positions without a best move in the book), -1 if stopped.
+ */
+static long long ba_best_lines(BaWork *w, Position *root, const unsigned int root_idx, bool *found, const bool keep)
+{
+	BaQueue *q = w->q;
+	long long i, ends = 0;
+
+	*found = false;
+	ba_todo_reset(&w->todo, keep);
+	ba_visit_clear(&w->visit);
+	q->n = 0;
+	if (!ba_visit_set(&w->visit, root_idx, 1) || !ba_push(q, root, root_idx, -1, NOMOVE, 0, 0)) return -1;
+	for (i = 0; i < q->n; ++i) {
+		Position *p = q->item[i].p;
+		const int v = p->score.value, depth = q->item[i].depth;
+		bool next = false;
+		Link *l;
+
+		if (w->job->cancel) return -1;
+		if (board_is_game_over(&p->board) || position_is_solved(p)) { *found = true; continue; }
+		foreach_link(l, p) {
+			if (l->score == v) {
+				Board target;
+				unsigned int ci;
+				Position *child;
+				board_next(&p->board, l->move, &target);
+				child = ba_probe(w, &target, &ci);
+				if (child) {
+					next = true;
+					if (!ba_visit_get(&w->visit, ci) && (!ba_visit_set(&w->visit, ci, 1) || !ba_push(q, child, ci, i, l->move, depth + 1, 0))) return -1;
+				}
+			}
+		}
+		if (!next) {
+			++ends;
+			if (keep && !ba_list_push(&w->todo.ref, i)) return -1;
+		}
+	}
+	return ends;
+}
+
+/** @return true if the stages of deviate2 / deviate3 can be found by one walk (see ba_stage_total). */
+static bool ba_stage_total_ok(const BaParams *prm)
+{
+	int k;
+	if (prm->base == BA_DEVIATE) return false;
+	for (k = 0; k < prm->n_stage; ++k) {
+		if (prm->stage_x[k] < prm->stage_y[k]) return false;
+		if (k > 0 && prm->stage_y[k] < prm->stage_y[k - 1]) return false;
+	}
+	return true;
+}
+
+/**
+ * @brief Stage of deviate2 / deviate3 with one walk, when each range allows a move loss as large as its total loss
+ * (the default ranges 1/1 to 5/5).
+ *
+ * A path whose total loss is at most y has no move loss above y, so with x >= y the positions walked by
+ * "deviate2 x y" are those whose smallest accumulated loss d is at most y, and the leaf of such a position is
+ * expanded if d + e <= y (e: loss of the leaf move). The walk of the widest range thus gives every stage:
+ * the first stage whose y reaches the smallest d + e is the first one that is not complete. The positions
+ * are walked by increasing d, up to the y of that stage only.
+ *
+ * @return the stage (2 to 2 + n_stage), -1 if stopped.
+ */
+static int ba_stage_total(BaWork *w, Position *root, const unsigned int root_idx, long long *missing)
+{
+	const BaParams *prm = w->prm;
+	const Book *book = w->book;
+	BaQueue *q = w->q;
+	const int y_max = prm->stage_y[prm->n_stage - 1];
+	int limit = y_max, best = INT_MAX, L, i, k;
+	BaList found = {NULL, 0, 0}; // d + e of the leaves (one per position)
+
+	if (w->n_bucket < y_max + 1) {
+		BaList *bucket = (BaList*) realloc(w->bucket, (size_t) (y_max + 1) * sizeof *bucket);
+		if (bucket == NULL) return -1;
+		for (i = w->n_bucket; i <= y_max; ++i) memset(bucket + i, 0, sizeof bucket[i]);
+		w->bucket = bucket; w->n_bucket = y_max + 1;
+	}
+	for (i = 0; i <= y_max; ++i) w->bucket[i].n = 0;
+	ba_visit_clear(&w->visit);
+	q->n = 0;
+	if (ba_walkable(book, root)) {
+		if (!ba_visit_set(&w->visit, root_idx, 1) || !ba_push(q, root, root_idx, -1, NOMOVE, 0, 0) || !ba_list_push(w->bucket, 0)) goto stop;
+	}
+	for (L = 0; L <= limit; ++L) {
+		long long j;
+		for (j = 0; j < w->bucket[L].n; ++j) {
+			const long long item = w->bucket[L].v[j];
+			Position *p = q->item[item].p;
+			const int v = p->score.value, depth = q->item[item].depth;
+			int e;
+			Link *l;
+
+			if (w->job->cancel) goto stop;
+			if (ba_visit_get(&w->visit, q->item[item].idx) != L + 1) continue; // reached later with a smaller loss
+			foreach_link(l, p) {
+				e = v - l->score;
+				if (0 <= e && L + e <= limit) {
+					Board target;
+					unsigned int ci;
+					Position *child;
+					unsigned char old;
+					board_next(&p->board, l->move, &target);
+					child = ba_probe(w, &target, &ci);
+					if (child == NULL || !ba_walkable(book, child)) continue;
+					old = ba_visit_get(&w->visit, ci);
+					if (old && old <= L + e + 1) continue;
+					if (!ba_visit_set(&w->visit, ci, (unsigned char) (L + e + 1))
+					 || !ba_push(q, child, ci, item, l->move, depth + 1, L + e)
+					 || !ba_list_push(w->bucket + L + e, q->n - 1)) goto stop;
+				}
+			}
+			if (prm->base == BA_DEVIATE2 && position_is_solved(p)) continue;
+			e = v - p->leaf.score;
+			if (p->leaf.move != NOMOVE && 0 <= e && L + e <= limit) {
+				if (!ba_list_push(&found, L + e)) goto stop;
+				if (L + e < best) { // the first stage that is not complete, and how far to walk for its leaves
+					best = L + e;
+					for (k = 0; k < prm->n_stage && prm->stage_y[k] < best; ++k) ;
+					limit = prm->stage_y[k];
+				}
+			}
+		}
+	}
+	for (k = 0; k < prm->n_stage && prm->stage_y[k] < best; ++k) ;
+	*missing = 0;
+	if (k < prm->n_stage) {
+		long long j;
+		for (j = 0; j < found.n; ++j) if (found.v[j] <= prm->stage_y[k]) ++*missing;
+	}
+	free(found.v);
+	return 2 + k;
+
+stop:
+	free(found.v);
+	return -1;
+}
+
+/**
+ * @brief Precision stage of a position.
+ * @param missing leaves to expand for the next stage (out).
+ * @return the stage (1 to 2 + n_stage), -1 if stopped.
+ */
+static int ba_stage(BaWork *w, Position *root, const unsigned int root_idx, long long *missing)
+{
+	const BaParams *prm = w->prm;
+	bool found;
+	long long n;
+	int k;
+
+	n = ba_best_lines(w, root, root_idx, &found, false);
+	if (n < 0) return -1;
+	if ((root->score.value & 1) || !found) { // (an odd value is not the value of a solved position)
+		*missing = n;
+		return 1;
+	}
+	if (ba_stage_total_ok(prm)) return ba_stage_total(w, root, root_idx, missing);
+	for (k = 0; k < prm->n_stage; ++k) {
+		n = ba_expansions(w, root, root_idx, prm->base, prm->stage_x[k], prm->stage_y[k], false);
+		if (n < 0) return -1;
+		if (n > 0) {
+			*missing = n;
+			return 2 + k;
+		}
+	}
+	*missing = 0;
+	return 2 + prm->n_stage;
+}
+
+/* ------------------------------------------------------------------ positions after a position ------------------------------------------ */
+
+typedef struct BaReachThread {
+	BaWork *w;
+	const Position **cur;
+	long long first, last;
+	BaList next;                    /**< (Position*) */
+	long long n, hist[61];
+	volatile unsigned int *bits;
+	bool oom;
+} BaReachThread;
+
+static inline bool ba_bit_set(volatile unsigned int *bits, const unsigned int i)
+{
+	const unsigned int m = 1u << (i & 31);
+	volatile unsigned int *word = bits + (i >> 5);
+	if (*word & m) return false;
+#if defined(_MSC_VER)
+	return (_InterlockedOr((volatile long*) word, (long) m) & (long) m) == 0;
+#else
+	return (__atomic_fetch_or(word, m, __ATOMIC_RELAXED) & m) == 0;
+#endif
+}
+
+/** Positions looked for together: their places in the book are asked for (prefetch) before they are read. */
+#define BA_PROBE_BATCH 64
+
+typedef struct BaProbe {
+	Board unique;
+	unsigned long long bucket;
+} BaProbe;
+
+/** @brief Look for a batch of positions (see BA_PROBE_BATCH) and keep those not reached yet. */
+static void ba_reach_batch(BaReachThread *t, BaProbe *probe, const int n)
+{
+	const Book *book = t->w->book;
+	int i, j;
+
+	for (i = 0; i < n; ++i) { // (the arrays of the buckets are in memory: ask for their positions)
+		const PositionArray *a = book->array + probe[i].bucket;
+		const char *s = (const char*) a->positions, *e = s + (size_t) a->n * sizeof (Position);
+		for (s -= (uintptr_t) s & 63; s < e; s += 64) PREFETCH(s); // (every cache line of the positions, the last one too)
+	}
+	for (i = 0; i < n; ++i) {
+		const PositionArray *a = book->array + probe[i].bucket;
+		for (j = 0; j < a->n; ++j) {
+			if (board_equal(&a->positions[j].board, &probe[i].unique)) {
+				const unsigned int ci = ba.index.first[probe[i].bucket] + (unsigned int) j;
+				if (ba_bit_set(t->bits, ci)) {
+					Position *child = a->positions + j;
+					++t->n;
+					++t->hist[child->level];
+					if (!ba_list_push(&t->next, (long long) (intptr_t) child)) t->oom = true;
+				}
+				break;
+			}
+		}
+	}
+}
+
+static void* ba_reach_run(void *v)
+{
+	BaReachThread *t = (BaReachThread*) v;
+	const Book *book = t->w->book;
+	BaProbe probe[BA_PROBE_BATCH + MAX_MOVE];
+	long long k;
+	int n = 0;
+
+	for (k = t->first; k < t->last && !t->w->job->cancel; ++k) {
+		Position *p = (Position*) t->cur[k];
+		Link *l;
+		foreach_link(l, p) {
+			Board target;
+			board_next(&p->board, l->move, &target);
+			board_unique(&target, &probe[n].unique);
+			probe[n].bucket = board_get_hash_code(&probe[n].unique) & (unsigned long long) (book->n - 1);
+			PREFETCH(book->array + probe[n].bucket);
+			++n;
+		}
+		if (n >= BA_PROBE_BATCH) { ba_reach_batch(t, probe, n); n = 0; }
+	}
+	if (n) ba_reach_batch(t, probe, n);
+	return NULL;
+}
+
+/**
+ * @brief Number of book positions reached from a root through the links (the root included), and their levels.
+ * @return the number, -1 if stopped.
+ */
+static long long ba_reach(BaWork *w, Position *root, const unsigned int root_idx, long long hist[61])
+{
+	BaReachThread t[MAX_THREADS];
+	BaList cur = {NULL, 0, 0};
+	volatile unsigned int *bits = (volatile unsigned int*) calloc((size_t) (ba.index.n / 32 + 1), sizeof (unsigned int));
+	int n_thread = options.n_task < 1 ? 1 : (options.n_task > MAX_THREADS ? MAX_THREADS : options.n_task);
+	long long n = 1;
+	int i;
+
+	if (bits == NULL) return -1;
+	memset(t, 0, sizeof t);
+	for (i = 0; i < 61; ++i) hist[i] = 0;
+	ba_bit_set(bits, root_idx);
+	++hist[root->level];
+	if (!ba_list_push(&cur, (long long) (intptr_t) root)) { free((void*) bits); return -1; }
+	while (cur.n > 0 && !w->job->cancel) {
+		const int m = cur.n < 4096 ? 1 : n_thread; // (a small ply is not worth threads)
+		bool oom = false;
+		for (i = 0; i < m; ++i) {
+			t[i].w = w;
+			t[i].cur = (const Position**) cur.v;
+			t[i].first = cur.n * i / m;
+			t[i].last = cur.n * (i + 1) / m;
+			t[i].next.n = 0;
+			t[i].n = 0;
+			t[i].bits = bits;
+		}
+		thread_run_workers(ba_reach_run, t, sizeof *t, m, true, false);
+		cur.n = 0;
+		for (i = 0; i < m; ++i) {
+			long long k;
+			if (t[i].oom) oom = true;
+			n += t[i].n;
+			for (k = 0; k <= 60; ++k) { hist[k] += t[i].hist[k]; t[i].hist[k] = 0; }
+			for (k = 0; k < t[i].next.n && !oom; ++k) if (!ba_list_push(&cur, t[i].next.v[k])) oom = true;
+		}
+		if (oom) { n = -1; break; }
+	}
+	for (i = 0; i < MAX_THREADS; ++i) free(t[i].next.v);
+	free(cur.v);
+	free((void*) bits);
+	return w->job->cancel ? -1 : n;
+}
+
+/* ------------------------------------------------------------------ umigame numbers --------------------------------------------------------- */
+
+static bool ba_map_grow(BaMap *m)
+{
+	const unsigned long long size = m->key ? 2 * (m->mask + 1) : 4096;
+	unsigned long long *key = (unsigned long long*) calloc((size_t) size, sizeof *key);
+	unsigned int *val = (unsigned int*) malloc((size_t) size * sizeof *val);
+	unsigned long long k, j;
+
+	if (key == NULL || val == NULL) { free(key); free(val); return false; }
+	if (m->key) {
+		for (k = 0; k <= m->mask; ++k) if (m->key[k]) {
+			for (j = ba_hash(m->key[k]) & (size - 1); key[j]; j = (j + 1) & (size - 1)) ;
+			key[j] = m->key[k];
+			val[j] = m->val[k];
+		}
+	}
+	free(m->key); free(m->val);
+	m->key = key; m->val = val; m->mask = size - 1;
+	return true;
+}
+
+/**
+ * @brief Find a key, or add it with a value.
+ * @return the value of the key; *added tells if it was added. UINT_MAX if memory is exhausted.
+ */
+static unsigned int ba_map_find(BaMap *m, const unsigned long long key, const unsigned int value, bool *added)
+{
+	unsigned long long k;
+	*added = false;
+	if ((m->n + 1) * 2 > (m->key ? m->mask + 1 : 0) && !ba_map_grow(m)) return UINT_MAX;
+	for (k = ba_hash(key + 1) & m->mask; m->key[k]; k = (k + 1) & m->mask) {
+		if (m->key[k] == key + 1) return m->val[k];
+	}
+	m->key[k] = key + 1;
+	m->val[k] = value;
+	++m->n;
+	*added = true;
+	return value;
+}
+
+/** @return the key of a node of the lines (the loss only matters for the loss condition). */
+static inline unsigned long long ba_umi_key(const unsigned int idx, const int color, const int loss)
+{
+	return ((unsigned long long) idx << 9) | ((unsigned long long) color << 8) | (unsigned long long) loss;
+}
+
+static unsigned int ba_umi_node(BaWork *w, Position *p, const unsigned int idx, const int color, const int loss, bool *added)
+{
+	const unsigned long long key = ba_umi_key(idx, color, w->prm->umi == BA_UMI_LOSS ? loss : 0);
+	const unsigned int i = ba_map_find(&w->map, key, w->n_node, added);
+	BaUNode *u;
+
+	if (i == UINT_MAX || !*added) return i;
+	if (w->n_node == BA_UMI_NODE_MAX) { w->too_large = true; return UINT_MAX; }
+	if (w->n_node == w->size_node) {
+		const unsigned int size = w->size_node + w->size_node / 2 + 1024;
+		BaUNode *node = (BaUNode*) realloc(w->node, (size_t) size * sizeof *node);
+		if (node == NULL) return UINT_MAX;
+		w->node = node; w->size_node = size;
+	}
+	u = w->node + w->n_node;
+	memset(u, 0, sizeof *u);
+	u->p = p;
+	u->idx = idx;
+	u->color = (unsigned char) color;
+	u->loss = (unsigned short) loss;
+	u->alias = w->n_node;
+	u->key = (unsigned char) (2 * (64 - board_count_empties(&p->board)) + (can_move(p->board.player, p->board.opponent) ? 1 : 0));
+	return w->n_node++;
+}
+
+static bool ba_edge_push(BaWork *w, const unsigned int child)
+{
+	if (w->n_edge == w->size_edge) {
+		const unsigned long long size = w->size_edge + w->size_edge / 2 + 4096;
+		unsigned int *edge;
+		if (size > UINT_MAX) { w->too_large = true; return false; }
+		edge = (unsigned int*) realloc(w->edge, (size_t) size * sizeof *edge);
+		if (edge == NULL) return false;
+		w->edge = edge; w->size_edge = size;
+	}
+	w->edge[w->n_edge++] = child;
+	return true;
+}
+
+/**
+ * @brief Positions of the lines of an umigame number (the root is the position after the move).
+ * @param gui_color Side to move at the current position (the values of the range are seen by it).
+ * @return 0: done, 1: the root is out of the range, -1: stopped (or memory, or too large).
+ */
+static int ba_umi_build(BaWork *w, Position *root, const unsigned int root_idx, const int root_color, const int gui_color)
+{
+	const BaParams *prm = w->prm;
+	unsigned int i;
+	bool added;
+
+	ba_umi_free(w);
+	w->too_large = false;
+	if (prm->umi == BA_UMI_RANGE) {
+		const int v = (root_color == gui_color) ? root->score.value : -root->score.value;
+		if (v < prm->lo || v > prm->hi) return 1;
+	}
+	if (ba_umi_node(w, root, root_idx, root_color, 0, &added) == UINT_MAX) return -1;
+
+	for (i = 0; i < w->n_node; ++i) { // (the nodes are added while they are read)
+		Position *p = w->node[i].p;
+		const int color = w->node[i].color, loss = w->node[i].loss;
+		const int v = p->score.value;
+		const unsigned long long first = w->n_edge;
+		Link *l;
+
+		if (w->job->cancel) return -1;
+		if (60 - board_count_empties(&p->board) < prm->depth) {
+			foreach_link(l, p) {
+				int child_loss = 0;
+				Board target;
+				unsigned int ci, c;
+				Position *child;
+
+				if (prm->umi == BA_UMI_BEST) {
+					if (l->score != v) continue;
+				} else if (prm->umi == BA_UMI_LOSS) {
+					const int e = v - l->score;
+					if (e < 0 || e > prm->x || loss + e > prm->y) continue;
+					child_loss = loss + e;
+				} else {
+					const int s = (color == gui_color) ? l->score : -l->score;
+					if (s < prm->lo || s > prm->hi) continue;
+				}
+				board_next(&p->board, l->move, &target);
+				child = ba_probe(w, &target, &ci);
+				if (child == NULL) continue;
+				c = ba_umi_node(w, child, ci, !color, child_loss, &added);
+				if (c == UINT_MAX || !ba_edge_push(w, c)) return -1;
+			}
+		}
+		w->node[i].edge = (unsigned int) first;
+		w->node[i].n_edge = (unsigned int) (w->n_edge - first);
+		if (w->node[i].n_edge == 0) {
+			w->node[i].end = true;
+			if (prm->umi == BA_UMI_LOSS) { // the same end (position and side to move) reached with different losses is one end
+				const unsigned int e = ba_map_find(&w->end_map, ba_umi_key(w->node[i].idx, color, 0), i, &added);
+				if (e == UINT_MAX) return -1;
+				w->node[i].alias = e;
+			}
+		}
+	}
+
+	// lines leading to each node, and an order where the next positions come first
+	{
+		unsigned int count[131], start[131];
+		unsigned long long k;
+		memset(count, 0, sizeof count);
+		for (i = 0; i < w->n_node; ++i) {
+			for (k = w->node[i].edge; k < (unsigned long long) w->node[i].edge + w->node[i].n_edge; ++k) {
+				w->edge[k] = w->node[w->edge[k]].alias;
+				++w->node[w->edge[k]].indeg;
+			}
+			++count[w->node[i].key];
+		}
+		w->order = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->order);
+		w->rank = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->rank);
+		if (w->order == NULL || w->rank == NULL) return -1;
+		start[130] = 0;
+		for (i = 130; i-- > 0;) start[i] = start[i + 1] + count[i + 1];
+		for (i = 0; i < w->n_node; ++i) {
+			const unsigned int r = start[w->node[i].key]++;
+			w->order[r] = i;
+			w->rank[i] = r;
+		}
+	}
+	return 0;
+}
+
+/* expressions */
+
+static bool ba_pool_reserve(BaWork *w, const unsigned long long n)
+{
+	if (w->n_pool + n > w->size_pool) {
+		unsigned long long size = w->size_pool + w->size_pool / 2 + 65536;
+		unsigned int *pool;
+		if (size < w->n_pool + n) size = w->n_pool + n;
+		if (size > BA_POOL_MAX) { w->too_large = true; return false; }
+		pool = (unsigned int*) realloc(w->pool, (size_t) size * sizeof *pool);
+		if (pool == NULL) return false;
+		w->pool = pool; w->size_pool = size;
+	}
+	return true;
+}
+
+static bool ba_terms_push(BaTerms *e, const unsigned long long c, const unsigned int off, const unsigned int len)
+{
+	if (e->n == e->size) {
+		const int size = e->size + e->size / 2 + 4;
+		BaTerm *t = (BaTerm*) realloc(e->t, (size_t) size * sizeof *t);
+		if (t == NULL) return false;
+		e->t = t; e->size = size;
+	}
+	e->t[e->n].c = c;
+	e->t[e->n].off = off;
+	e->t[e->n].len = len;
+	++e->n;
+	return true;
+}
+
+static long long ba_umi_value(BaWork *w, const unsigned int v, const int counter);
+
+/** @return true if the set of a is in the set of b. */
+static bool ba_subset(const unsigned int *pool, const BaTerm *a, const BaTerm *b)
+{
+	unsigned int i = 0, j = 0;
+	if (a->len > b->len) return false;
+	while (i < a->len) {
+		if (b->len - j < a->len - i) return false;
+		if (pool[a->off + i] == pool[b->off + j]) ++i, ++j;
+		else if (pool[a->off + i] > pool[b->off + j]) ++j;
+		else return false;
+	}
+	return true;
+}
+
+/**
+ * @brief Tell if a term is never worse than another, whatever the other parts of the expression are:
+ * a.c plus the values of the shared positions of a that b does not have is at most b.c
+ * (the ends of these shared positions, chosen alone, cost at most their values).
+ * @return 1 if a is never worse, 0 if not, -1 if stopped.
+ */
+static int ba_dominates(BaWork *w, const BaTerm *a, const BaTerm *b, const int counter)
+{
+	unsigned long long extra = 0;
+	unsigned int i = 0, j = 0;
+
+	if (a->c > b->c) return 0;
+	if (ba_subset(w->pool, a, b)) return 1;
+	if (a->c == b->c) return 0;
+	while (i < a->len) {
+		const unsigned int x = w->pool[a->off + i];
+		if (j < b->len && w->pool[b->off + j] < x) { ++j; continue; }
+		if (j < b->len && w->pool[b->off + j] == x) { ++i; ++j; continue; }
+		{
+			const long long g = ba_umi_value(w, w->order[x], counter); // (the pool may move)
+			if (g < 0) return -1;
+			extra += (unsigned long long) g;
+			if (a->c + extra > b->c) return 0;
+		}
+		++i;
+	}
+	return 1;
+}
+
+static int ba_term_cmp(const void *x, const void *y)
+{
+	const BaTerm *a = (const BaTerm*) x, *b = (const BaTerm*) y;
+	if (a->c != b->c) return a->c < b->c ? -1 : 1;
+	return (a->len > b->len) - (a->len < b->len);
+}
+
+typedef struct BaBound { unsigned long long lb, ub; int i; } BaBound;
+
+static int ba_bound_cmp(const void *x, const void *y)
+{
+	const BaBound *a = (const BaBound*) x, *b = (const BaBound*) y;
+	if (a->lb != b->lb) return a->lb < b->lb ? -1 : 1;
+	return (a->ub > b->ub) - (a->ub < b->ub);
+}
+
+/**
+ * @brief Remove the terms that cannot be the smallest: a term with more ends and more shared positions than another,
+ * and, with bound, a term whose lower bound is above the upper bound of another. Keep BA_TERM_MAX terms at most
+ * (the value is then inexact).
+ *
+ * The bounds only hold for an expression whose value is wanted (the root, a shared position): the expression of
+ * a position is a part of the expressions of the previous positions, where a term that is not the smallest alone
+ * may share positions with the other parts and give the smallest sum.
+ * @return false if stopped.
+ */
+static bool ba_prune(BaWork *w, BaTerms *e, const int counter, const bool bound)
+{
+	int i, j, n;
+	bool vars = false;
+
+	if (e->n <= 1) return true;
+	qsort(e->t, (size_t) e->n, sizeof *e->t, ba_term_cmp);
+	for (n = 0, j = 0; j < e->n; ++j) {
+		int dominated = 0;
+		for (i = 0; i < n && dominated == 0; ++i) dominated = ba_dominates(w, e->t + i, e->t + j, counter); // (e->t[i].c <= e->t[j].c)
+		if (dominated < 0) return false;
+		if (!dominated) {
+			e->t[n++] = e->t[j];
+			if (e->t[j].len) vars = true;
+		}
+	}
+	e->n = n;
+	if (bound && vars && n > 1) {
+		BaBound *b = (BaBound*) malloc((size_t) n * sizeof *b);
+		unsigned long long best = ULLONG_MAX;
+		if (b == NULL) return false;
+		for (i = 0; i < n; ++i) {
+			unsigned long long lb = 0, ub = 0;
+			unsigned int k;
+			for (k = 0; k < e->t[i].len; ++k) {
+				const long long g = ba_umi_value(w, w->order[w->pool[e->t[i].off + k]], counter);
+				if (g < 0) { free(b); return false; }
+				if ((unsigned long long) g > lb) lb = (unsigned long long) g;
+				ub += (unsigned long long) g;
+			}
+			b[i].lb = e->t[i].c + lb;
+			b[i].ub = e->t[i].c + ub;
+			b[i].i = i;
+			if (b[i].ub < best) best = b[i].ub;
+		}
+		qsort(b, (size_t) n, sizeof *b, ba_bound_cmp);
+		for (j = 0; j < n && b[j].lb <= best; ++j) ;
+		if (j > BA_TERM_MAX) { j = BA_TERM_MAX; w->inexact = true; }
+		{
+			BaTerm *t = (BaTerm*) malloc((size_t) j * sizeof *t);
+			if (t == NULL) { free(b); return false; }
+			for (i = 0; i < j; ++i) t[i] = e->t[b[i].i];
+			memcpy(e->t, t, (size_t) j * sizeof *t);
+			free(t);
+		}
+		e->n = j;
+		free(b);
+	} else if (n > BA_TERM_MAX) {
+		e->n = BA_TERM_MAX;
+		w->inexact = true;
+	}
+	return !w->job->cancel;
+}
+
+/** @brief out = a + b (the ends of both, the shared positions counted once). */
+static bool ba_sum(BaWork *w, const BaTerms *a, const BaTerms *b, BaTerms *out, const int counter, const bool bound)
+{
+	int i, j;
+
+	out->n = 0;
+	if (a->n == 1 && a->t[0].len == 0) {
+		for (j = 0; j < b->n; ++j) if (!ba_terms_push(out, a->t[0].c + b->t[j].c, b->t[j].off, b->t[j].len)) return false;
+		return true;
+	}
+	if (b->n == 1 && b->t[0].len == 0) {
+		for (i = 0; i < a->n; ++i) if (!ba_terms_push(out, a->t[i].c + b->t[0].c, a->t[i].off, a->t[i].len)) return false;
+		return true;
+	}
+	for (i = 0; i < a->n; ++i) for (j = 0; j < b->n; ++j) {
+		const BaTerm *x = a->t + i, *y = b->t + j;
+		unsigned int p = 0, q = 0, off;
+		if (!ba_pool_reserve(w, (unsigned long long) x->len + y->len)) return false;
+		off = (unsigned int) w->n_pool;
+		while (p < x->len || q < y->len) { // union of two increasing lists
+			unsigned int z;
+			if (q == y->len || (p < x->len && w->pool[x->off + p] < w->pool[y->off + q])) z = w->pool[x->off + p++];
+			else if (p == x->len || w->pool[y->off + q] < w->pool[x->off + p]) z = w->pool[y->off + q++];
+			else { z = w->pool[x->off + p]; ++p; ++q; }
+			w->pool[w->n_pool++] = z;
+		}
+		if (!ba_terms_push(out, x->c + y->c, off, (unsigned int) (w->n_pool - off))) return false;
+		if (out->n >= 2 * BA_TERM_MAX && !ba_prune(w, out, counter, bound)) return false;
+	}
+	return ba_prune(w, out, counter, bound);
+}
+
+/** @brief Replace the shared positions of an expression by their own expressions, the latest first, and give its value. */
+static long long ba_resolve(BaWork *w, const BaTerms *e, const int counter)
+{
+	BaTerms cur = {NULL, 0, 0}, next = {NULL, 0, 0}, part = {NULL, 0, 0}, one = {NULL, 0, 0};
+	long long value = -1;
+	int i, k;
+
+	for (i = 0; i < e->n; ++i) if (!ba_terms_push(&cur, e->t[i].c, e->t[i].off, e->t[i].len)) goto end;
+	for (;;) {
+		unsigned int top = 0;
+		bool any = false;
+		const BaTerms *d;
+		for (i = 0; i < cur.n; ++i) if (cur.t[i].len) {
+			const unsigned int last = w->pool[cur.t[i].off + cur.t[i].len - 1];
+			if (!any || last > top) top = last;
+			any = true;
+		}
+		if (!any) break;
+		d = w->def + w->order[top];
+		next.n = 0;
+		for (i = 0; i < cur.n; ++i) {
+			if (cur.t[i].len && w->pool[cur.t[i].off + cur.t[i].len - 1] == top) {
+				one.n = 0;
+				if (!ba_terms_push(&one, cur.t[i].c, cur.t[i].off, cur.t[i].len - 1) || !ba_sum(w, &one, d, &part, counter, true)) goto end;
+				for (k = 0; k < part.n; ++k) if (!ba_terms_push(&next, part.t[k].c, part.t[k].off, part.t[k].len)) goto end;
+			} else if (!ba_terms_push(&next, cur.t[i].c, cur.t[i].off, cur.t[i].len)) goto end;
+		}
+		if (!ba_prune(w, &next, counter, true)) goto end;
+		{ BaTerms t = cur; cur = next; next = t; }
+	}
+	for (i = 0; i < cur.n; ++i) if (value < 0 || cur.t[i].c < (unsigned long long) value) value = (long long) cur.t[i].c;
+end:
+	free(cur.t); free(next.t); free(part.t); free(one.t);
+	return value;
+}
+
+/** @return the value of a shared node (computed once), -1 if stopped. */
+static long long ba_umi_value(BaWork *w, const unsigned int v, const int counter)
+{
+	if (w->g[v] < 0) w->g[v] = ba_resolve(w, w->def + v, counter);
+	return w->g[v];
+}
+
+/** @brief Copy the sets of the expressions kept (the sets of the terms removed are left behind). @return false if memory is exhausted. */
+static bool ba_pool_compact(BaWork *w)
+{
+	unsigned long long n = 0, m = 0;
+	unsigned int *pool;
+	unsigned int v;
+	int i, s;
+
+	for (v = 0; v < w->n_node; ++v) for (s = 0; s < 2; ++s) {
+		const BaTerms *e = s ? w->def + v : w->rep + v;
+		for (i = 0; i < e->n; ++i) n += e->t[i].len;
+	}
+	pool = (unsigned int*) malloc((size_t) (n + 65536) * sizeof *pool);
+	if (pool == NULL) return false;
+	for (v = 0; v < w->n_node; ++v) for (s = 0; s < 2; ++s) {
+		BaTerms *e = s ? w->def + v : w->rep + v;
+		for (i = 0; i < e->n; ++i) {
+			memcpy(pool + m, w->pool + e->t[i].off, e->t[i].len * sizeof *pool);
+			e->t[i].off = (unsigned int) m;
+			m += e->t[i].len;
+		}
+	}
+	free(w->pool);
+	w->pool = pool;
+	w->n_pool = m;
+	w->size_pool = n + 65536;
+	w->pool_kept = m;
+	return true;
+}
+
+/**
+ * @brief Add delta to the uses of the shared positions of an expression (each counted once).
+ * @param n If not NULL, the shared positions are also listed in w->found (*n of them).
+ */
+static void ba_uses(BaWork *w, const BaTerms *e, const int delta, unsigned int *n)
+{
+	int i;
+	unsigned int k;
+	if (++w->stamp_now == 0) { memset(w->stamp, 0, w->n_node * sizeof *w->stamp); w->stamp_now = 1; }
+	if (n) *n = 0;
+	for (i = 0; i < e->n; ++i) for (k = 0; k < e->t[i].len; ++k) {
+		const unsigned int x = w->pool[e->t[i].off + k];
+		if (w->stamp[x] != w->stamp_now) {
+			w->stamp[x] = w->stamp_now;
+			w->uses[x] += delta;
+			if (n) w->found[(*n)++] = x;
+		}
+	}
+}
+
+/** @brief Replace a shared position (rank x) of an expression by its own expression. @return false if stopped. */
+static bool ba_substitute(BaWork *w, BaTerms *e, const unsigned int x, const int counter)
+{
+	BaTerms out = {NULL, 0, 0}, one = {NULL, 0, 0}, part = {NULL, 0, 0};
+	const BaTerms *d = w->def + w->order[x];
+	bool ok = true;
+	int i, k;
+
+	for (i = 0; i < e->n && ok; ++i) {
+		const BaTerm t = e->t[i];
+		unsigned int j, at = t.len;
+		for (j = 0; j < t.len; ++j) if (w->pool[t.off + j] == x) { at = j; break; }
+		if (at == t.len) { ok = ba_terms_push(&out, t.c, t.off, t.len); continue; }
+		// the term without x
+		if (!ba_pool_reserve(w, t.len)) { ok = false; break; }
+		{
+			const unsigned int off = (unsigned int) w->n_pool;
+			for (j = 0; j < t.len; ++j) if (j != at) w->pool[w->n_pool++] = w->pool[t.off + j];
+			one.n = 0;
+			ok = ba_terms_push(&one, t.c, off, t.len - 1) && ba_sum(w, &one, d, &part, counter, false);
+		}
+		for (k = 0; k < part.n && ok; ++k) ok = ba_terms_push(&out, part.t[k].c, part.t[k].off, part.t[k].len);
+	}
+	if (ok) ok = ba_prune(w, &out, counter, false);
+	free(one.t); free(part.t);
+	if (!ok) { free(out.t); return false; }
+	free(e->t);
+	*e = out;
+	return true;
+}
+
+/**
+ * @brief Replace the shared positions of an expression that no other expression uses any more
+ * (all the positions before them are done): the value cannot change, and the expressions stay small.
+ * @return false if stopped.
+ */
+static bool ba_eliminate(BaWork *w, BaTerms *e, const int counter)
+{
+	for (;;) {
+		unsigned int n, i, x = UINT_MAX;
+		ba_uses(w, e, 0, &n);
+		for (i = 0; i < n; ++i) {
+			const unsigned int y = w->found[i];
+			if (w->remain[w->order[y]] == 0 && w->uses[y] == 1) { x = y; break; }
+		}
+		if (x == UINT_MAX) return true;
+		ba_uses(w, e, -1, NULL);
+		ba_uses(w, w->def + w->order[x], -1, NULL);
+		if (!ba_substitute(w, e, x, counter)) return false;
+		ba_uses(w, e, 1, NULL);
+		w->uses[x] = 0;
+		free(w->def[w->order[x]].t);
+		memset(w->def + w->order[x], 0, sizeof w->def[0]);
+	}
+}
+
+/**
+ * @brief Umigame number of a side, the shared positions counted once.
+ *
+ * The positions are done from the last ones. The expression of a position is a list of terms (alternatives):
+ * c ends plus the ends of a set of shared positions, counted once. A shared position (several lines lead to
+ * it) is seen from the previous positions as its own name; its name is replaced by its expression as soon as
+ * one expression only uses it (see ba_eliminate), and the names left are replaced at the end (ba_resolve).
+ *
+ * @param counter Side that learns the lines.
+ * @return the number, -1 if stopped.
+ */
+static long long ba_umi_count(BaWork *w, const int counter)
+{
+	unsigned int r, v;
+	unsigned long long k;
+	long long value = -1;
+
+	w->rep = (BaTerms*) calloc(w->n_node, sizeof *w->rep);
+	w->def = (BaTerms*) calloc(w->n_node, sizeof *w->def);
+	w->g = (long long*) malloc((size_t) w->n_node * sizeof *w->g);
+	w->uses = (int*) calloc(w->n_node, sizeof *w->uses);
+	w->remain = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->remain);
+	w->stamp = (unsigned int*) calloc(w->n_node, sizeof *w->stamp);
+	w->found = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->found);
+	if (w->rep == NULL || w->def == NULL || w->g == NULL || w->uses == NULL || w->remain == NULL || w->stamp == NULL || w->found == NULL) return -1;
+	for (v = 0; v < w->n_node; ++v) w->remain[v] = w->node[v].indeg;
+	w->stamp_now = 0;
+	w->n_pool = 0;
+	w->pool_kept = 0;
+	w->inexact = false;
+
+	for (r = 0; r < w->n_node; ++r) {
+		BaTerms e = {NULL, 0, 0}, sum = {NULL, 0, 0};
+		v = w->order[r];
+		w->g[v] = -1;
+		if (w->node[v].alias != v) continue;
+		if (w->job->cancel) return -1;
+		if (w->n_pool > (1u << 22) && w->n_pool > 2 * w->pool_kept && !ba_pool_compact(w)) return -1;
+		if (w->node[v].end) {
+			if (!ba_terms_push(&e, 1, 0, 0)) return -1;
+		} else {
+			const bool choice = (w->node[v].color == counter); // the side that learns chooses one move
+			for (k = w->node[v].edge; k < (unsigned long long) w->node[v].edge + w->node[v].n_edge; ++k) {
+				const unsigned int u = w->edge[k];
+				BaTerms *ru = w->rep + u;
+				if (k == w->node[v].edge) {
+					int i;
+					for (i = 0; i < ru->n; ++i) if (!ba_terms_push(&e, ru->t[i].c, ru->t[i].off, ru->t[i].len)) return -1;
+				} else if (choice) {
+					int i;
+					for (i = 0; i < ru->n; ++i) if (!ba_terms_push(&e, ru->t[i].c, ru->t[i].off, ru->t[i].len)) return -1;
+					if (!ba_prune(w, &e, counter, false)) { free(e.t); return -1; }
+				} else {
+					if (!ba_sum(w, &e, ru, &sum, counter, false)) { free(e.t); free(sum.t); return -1; }
+					{ BaTerms t = e; e = sum; sum = t; }
+				}
+				if (w->node[u].indeg <= 1 || --w->remain[u] == 0) { // (the expression of the next position is not used any more)
+					ba_uses(w, ru, -1, NULL);
+					free(ru->t); ru->t = NULL; ru->n = ru->size = 0;
+				}
+			}
+			free(sum.t);
+			if (choice && !ba_prune(w, &e, counter, false)) { free(e.t); return -1; }
+		}
+		ba_uses(w, &e, 1, NULL);
+		if (!ba_eliminate(w, &e, counter)) { free(e.t); return -1; }
+		if (w->node[v].indeg >= 2) { // shared: the previous positions see its own name
+			w->def[v] = e;
+			if (!ba_pool_reserve(w, 1)) return -1;
+			w->pool[w->n_pool] = r;
+			memset(&e, 0, sizeof e);
+			if (!ba_terms_push(&e, 0, (unsigned int) w->n_pool, 1)) return -1;
+			++w->n_pool;
+			w->uses[r] = 1;
+		}
+		w->rep[v] = e;
+	}
+	value = ba_resolve(w, w->rep, counter); // (the root is node 0)
+	return value;
+}
+
+#ifdef BOOK_ANALYZE_TEST
+/** @return the umigame number of a side without the shared positions (each line counted, test builds). */
+static unsigned long long ba_umi_tree(BaWork *w, const int counter)
+{
+	unsigned long long *n = (unsigned long long*) malloc((size_t) w->n_node * sizeof *n), result;
+	unsigned int r;
+	if (n == NULL) return 0;
+	for (r = 0; r < w->n_node; ++r) {
+		const unsigned int v = w->order[r];
+		unsigned long long k, x = 0;
+		if (w->node[v].alias != v) continue;
+		if (w->node[v].end) x = 1;
+		else if (w->node[v].color == counter) {
+			x = ULLONG_MAX;
+			for (k = w->node[v].edge; k < (unsigned long long) w->node[v].edge + w->node[v].n_edge; ++k) if (n[w->edge[k]] < x) x = n[w->edge[k]];
+		} else {
+			for (k = w->node[v].edge; k < (unsigned long long) w->node[v].edge + w->node[v].n_edge; ++k) x = (x > ULLONG_MAX - n[w->edge[k]]) ? ULLONG_MAX : x + n[w->edge[k]];
+		}
+		n[v] = x;
+	}
+	result = n[0];
+	free(n);
+	return result;
+}
+#endif
+
+/** @brief Forget the expressions of an umigame number (the lines are kept). */
+static void ba_umi_clear(BaWork *w)
+{
+	unsigned int i;
+	if (w->rep) for (i = 0; i < w->n_node; ++i) free(w->rep[i].t);
+	if (w->def) for (i = 0; i < w->n_node; ++i) free(w->def[i].t);
+	free(w->rep); free(w->def); free(w->g);
+	free(w->uses); free(w->remain); free(w->stamp); free(w->found);
+	w->uses = NULL; w->remain = w->stamp = w->found = NULL;
+	w->rep = w->def = NULL; w->g = NULL;
+	w->n_pool = 0;
+}
+
+/* ------------------------------------------------------------------ book moveinfo ----------------------------------------------------------- */
+
+/** A legal move of the current position. */
+typedef struct BaMove {
+	int x;                  /**< move */
+	char sq[3];
+	Position *p;            /**< position after the move, NULL if it is not in the book */
+	unsigned int idx;
+	bool has_value, leaf;   /**< value known (position after the move, or leaf of the current position); leaf move */
+	bool has_link;          /**< link of the current position */
+	int value, level;
+	int link;               /**< score of the link (it differs from the value when the current position was not negamaxed again) */
+	int stage;
+	long long missing;
+	long long umi[2];       /**< umigame numbers of black and white */
+	bool umi_exact;
+	int umi_state;          /**< 0: done, 1: the position is out of the range, 2: too many positions */
+	int same;               /**< an earlier move to the same position (a symetry): its results are given again; -1 if none */
+} BaMove;
+
+typedef struct BaTeam {
+	BaJob *job;
+	const BaParams *prm;
+	BaMove *move;
+	int n_move;
+	int next;               /**< next move to take */
+	int part;               /**< BA_PART_STAGE or BA_PART_UMI */
+	Lock lock;
+} BaTeam;
+
+typedef struct BaThread {
+	BaTeam *team;
+} BaThread;
+
+/** @return the unterminated lines of a position (counted by book negamax: a transposition is counted by each line). */
+static unsigned long long ba_lines(const Book *book, const Position *p)
+{
+	(void) book;
+	return p->n_lines;
+}
+
+/** @brief Write the line of a move: its book value, and its stage when with_stage. */
+static void ba_print_move(const BaJob *job, const BaMove *m, const bool with_stage)
+{
+	char stage[64] = "", link[32] = "";
+
+	if (m->p == NULL) {
+		if (m->has_value) ba_print("@move id=%d sq=%s book=0 leaf=1 value=%d level=%d%s\n", job->id, m->sq, m->value, m->level, with_stage ? " stage=0" : "");
+		else ba_print("@move id=%d sq=%s book=0%s\n", job->id, m->sq, with_stage ? " stage=0" : "");
+		return;
+	}
+	if (with_stage) snprintf(stage, sizeof stage, " stage=%d missing=%lld", m->stage, m->missing);
+	if (m->has_link && m->link != m->value) snprintf(link, sizeof link, " link=%d", m->link);
+	ba_print("@move id=%d sq=%s book=1 value=%d level=%d lines=%llu%s%s\n", job->id, m->sq, m->value, m->level, ba_lines(job->book, m->p), stage, link);
+}
+
+static void ba_print_stage(const BaJob *job, const BaMove *m)
+{
+	ba_print_move(job, m, true);
+}
+
+static void ba_print_umi(const BaJob *job, const BaMove *m)
+{
+	if (m->umi_state == 2) ba_print("@move id=%d sq=%s part=umi umi=none\n", job->id, m->sq);
+	else ba_print("@move id=%d sq=%s part=umi umi=%lld:%lld%s\n", job->id, m->sq, m->umi[BLACK], m->umi[WHITE], m->umi_exact ? "" : " exact=0");
+}
+
+static void* ba_team_run(void *v)
+{
+	BaTeam *team = ((BaThread*) v)->team;
+	BaJob *job = team->job;
+	BaWork w;
+	int i;
+
+	ba_work_init(&w, job, team->prm);
+	for (;;) {
+		BaMove *m;
+		lock(team);
+		i = team->next++;
+		unlock(team);
+		if (i >= team->n_move || job->cancel) break;
+		m = team->move + i;
+		if (m->p == NULL || m->same >= 0) continue;
+		if (team->part == BA_PART_STAGE) {
+			const unsigned long long key = ba_cache_key(m->idx, BA_CACHE_STAGE, 0), cond = ba_cond_stage(team->prm);
+			long long a, b;
+			int c;
+			if (ba_cache_get(key, cond, &a, &b, &c)) {
+				m->stage = (int) a;
+				m->missing = b;
+			} else {
+				m->stage = ba_stage(&w, m->p, m->idx, &m->missing);
+				if (m->stage < 0) { if (!job->cancel) m->stage = 0; break; }
+				ba_cache_put(key, cond, m->stage, m->missing, 0);
+			}
+			ba_print_stage(job, m);
+		} else {
+			const unsigned long long key = ba_cache_key(m->idx, BA_CACHE_UMI, !job->player), cond = ba_cond_umi(team->prm);
+			long long a, b;
+			int c;
+			if (ba_cache_get(key, cond, &a, &b, &c)) {
+				m->umi[BLACK] = a;
+				m->umi[WHITE] = b;
+				m->umi_state = c & 3;
+				m->umi_exact = (c & 4) != 0;
+			} else {
+				const int r = ba_umi_build(&w, m->p, m->idx, !job->player, job->player);
+				m->umi_state = 0;
+				if (r == 1) { // the position after the move is out of the range
+					m->umi_state = 1;
+					m->umi[0] = m->umi[1] = 0;
+					m->umi_exact = true;
+				} else if (r < 0) {
+					if (job->cancel) break;
+					m->umi_state = 2;
+				} else {
+					bool exact;
+					m->umi[BLACK] = ba_umi_count(&w, BLACK);
+					exact = !w.inexact;
+					ba_umi_clear(&w);
+					m->umi[WHITE] = (m->umi[BLACK] >= 0) ? ba_umi_count(&w, WHITE) : -1;
+					exact = exact && !w.inexact;
+					ba_umi_clear(&w);
+					if (job->cancel) break;
+					if (m->umi[BLACK] < 0 || m->umi[WHITE] < 0) m->umi_state = 2;
+					m->umi_exact = exact;
+				}
+				ba_umi_free(&w);
+				ba_cache_put(key, cond, m->umi[BLACK], m->umi[WHITE], m->umi_state | (m->umi_exact ? 4 : 0));
+			}
+			ba_print_umi(job, m);
+		}
+	}
+	ba_work_free(&w);
+	return NULL;
+}
+
+/** @brief Do a part for all the moves, with options.n_task threads. */
+static void ba_team(BaTeam *team)
+{
+	BaThread th[MAX_THREADS];
+	int i, n = options.n_task < 1 ? 1 : (options.n_task > MAX_THREADS ? MAX_THREADS : options.n_task), n_book = 0;
+
+	for (i = 0; i < team->n_move; ++i) if (team->move[i].p && team->move[i].same < 0) ++n_book;
+	if (n > n_book) n = n_book;
+	if (n < 1) n = 1;
+	team->next = 0;
+	for (i = 0; i < n; ++i) th[i].team = team;
+	thread_run_workers(ba_team_run, th, sizeof *th, n, true, false);
+}
+
+/** @brief Moves of the current position, with what the book holds of them. @return their number. */
+static int ba_moves(const BaJob *job, const BaParams *prm, BaWork *w, BaMove *move, Position **current)
+{
+	const Board *board = &job->board;
+	unsigned long long moves = get_moves(board->player, board->opponent);
+	MoveList movelist;
+	unsigned int idx;
+	Position *p = ba_probe(w, board, &idx);
+	int n = 0, x, sym = 0;
+
+	*current = p;
+	if (p) sym = position_get_moves(p, board, &movelist);
+	if (moves == 0 && can_move(board->opponent, board->player)) {
+		if (!prm->moves_set || prm->moves_pass) move[n++].x = PASS;
+	} else {
+		for (; moves; moves &= moves - 1) {
+			x = (int) first_bit(moves);
+			if (!prm->moves_set || (prm->moves & (1ULL << x))) move[n++].x = x;
+		}
+	}
+	for (x = 0; x < n; ++x) {
+		BaMove *m = move + x;
+		Board next;
+		const Move *mv;
+		board_next(board, m->x, &next);
+		ba_square(m->x, m->sq);
+		m->p = ba_probe(w, &next, &m->idx);
+		m->has_value = m->leaf = m->has_link = false;
+		m->level = 0;
+		if (p) foreach_move(mv, movelist) if (mv->x == m->x) {
+			m->leaf = (p->leaf.move == PASS) ? (m->x == PASS) : (p->leaf.move != NOMOVE && symetry(p->leaf.move, sym) == m->x);
+			if (m->leaf) {
+				m->has_value = true;
+				m->value = mv->score;
+				m->level = p->level;
+			} else {
+				m->has_link = true;
+				m->link = mv->score;
+			}
+		}
+		if (m->p) { // (the value of the position after the move: up to date after a deviate started from it)
+			m->has_value = true;
+			m->value = -m->p->score.value;
+			m->level = m->p->level;
+		}
+		m->stage = 0;
+		m->missing = 0;
+		m->same = -1;
+		if (m->p) {
+			int i;
+			for (i = 0; i < x; ++i) if (move[i].p && move[i].idx == m->idx) { m->same = i; break; }
+		}
+	}
+	return n;
+}
+
+static int ba_moveinfo(BaJob *job, const BaParams *prm)
+{
+	const long long t = real_clock();
+	BaMove move[MAX_MOVE + 1];
+	BaTeam team;
+	BaWork w;
+	Position *current;
+	int i, n;
+
+	memset(move, 0, sizeof move);
+	ba_work_init(&w, job, prm);
+	n = ba_moves(job, prm, &w, move, &current);
+	ba_print("@begin id=%d ply=%d turn=%s moves=%d book=%d\n", job->id, 60 - board_count_empties(&job->board), job->player == BLACK ? "black" : "white", n, current != NULL);
+
+	memset(&team, 0, sizeof team);
+	team.job = job;
+	team.prm = prm;
+	team.move = move;
+	team.n_move = n;
+	lock_init(&team);
+	// the moves out of the book first, then the precision of the others
+	for (i = 0; i < n; ++i) if (move[i].p == NULL || !(prm->parts & BA_PART_STAGE)) {
+		if (move[i].p == NULL) ba_print_stage(job, move + i);
+		else ba_print_move(job, move + i, false);
+	}
+	if ((prm->parts & BA_PART_STAGE) && !job->cancel) {
+		team.part = BA_PART_STAGE;
+		ba_team(&team);
+		for (i = 0; i < n && !job->cancel; ++i) if (move[i].p && move[i].same >= 0) {
+			move[i].stage = move[move[i].same].stage;
+			move[i].missing = move[move[i].same].missing;
+			ba_print_stage(job, move + i);
+		}
+	}
+	if ((prm->parts & BA_PART_UMI) && prm->umi != BA_UMI_OFF && !job->cancel) {
+		team.part = BA_PART_UMI;
+		ba_team(&team);
+		for (i = 0; i < n && !job->cancel; ++i) if (move[i].p && move[i].same >= 0) {
+			const BaMove *s = move + move[i].same;
+			move[i].umi[0] = s->umi[0];
+			move[i].umi[1] = s->umi[1];
+			move[i].umi_state = s->umi_state;
+			move[i].umi_exact = s->umi_exact;
+			ba_print_umi(job, move + i);
+		}
+	}
+	lock_free(&team);
+	if ((prm->parts & BA_PART_COUNT) && !job->cancel) {
+		long long hist[61];
+		for (i = 0; i < n && !job->cancel; ++i) if (move[i].p) {
+			const unsigned long long key = ba_cache_key(move[i].idx, BA_CACHE_COUNT, 0);
+			long long k, b;
+			int c;
+			if (!ba_cache_get(key, 0, &k, &b, &c)) {
+				k = ba_reach(&w, move[i].p, move[i].idx, hist);
+				if (k < 0) break;
+				ba_cache_put(key, 0, k, 0, 0);
+			}
+			ba_print("@move id=%d sq=%s part=count positions=%lld\n", job->id, move[i].sq, k);
+		}
+	}
+	ba_work_free(&w);
+	if (job->cancel) return -1;
+	ba_print("@end id=%d ms=%lld\n", job->id, real_clock() - t);
+	return 0;
+}
+
+/* ------------------------------------------------------------------ book missing ------------------------------------------------------------ */
+
+/**
+ * @brief Moves of a line of a walk, on the board of the user interface.
+ * @param q Queue of the walk.
+ * @param item Last position of the line.
+ * @param board Board of the root (out: board of the last position).
+ * @param s Moves (out).
+ * @return the last position.
+ */
+static Position* ba_line(const BaQueue *q, long long item, Board *board, char *s)
+{
+	long long chain[512];
+	int n = 0, k, sym;
+	Position *p = q->item[item].p;
+
+	while (item >= 0 && n < 512) { chain[n++] = item; item = q->item[item].parent; }
+	*s = '\0';
+	for (k = n - 2; k >= 0; --k) { // (chain[n - 1] is the root)
+		const BaItem *parent = q->item + q->item[chain[k]].parent;
+		const int x = q->item[chain[k]].move;
+		Board t, next;
+		int real = x;
+		if (x != PASS) for (sym = 0; sym < 8; ++sym) {
+			board_symetry(&parent->p->board, sym, &t);
+			if (board_equal(&t, board)) { real = symetry(x, sym); break; }
+		}
+		ba_square(real, s); s += 2;
+		board_next(board, real, &next);
+		*board = next;
+	}
+	return p;
+}
+
+/** @return the leaf move of a position, on a board of the user interface. */
+static int ba_leaf_move(const Position *p, const Board *board)
+{
+	Board t;
+	int sym;
+	if (p->leaf.move == PASS || p->leaf.move == NOMOVE) return p->leaf.move;
+	for (sym = 0; sym < 8; ++sym) {
+		board_symetry(&p->board, sym, &t);
+		if (board_equal(&t, board)) return symetry(p->leaf.move, sym);
+	}
+	return NOMOVE;
+}
+
+static int ba_missing(BaJob *job, const BaParams *prm)
+{
+	const long long t = real_clock();
+	BaWork w;
+	Board root_board = job->board;
+	char prefix[3] = "";
+	Position *root;
+	unsigned int root_idx;
+	int stage = prm->stage, x = prm->x, y = prm->y, root_stage = -1, ply0 = 0;
+	long long count = 0, shown = 0, i;
+	bool best = false;
+
+	ba_work_init(&w, job, prm);
+	if (prm->sq != NOMOVE) {
+		const unsigned long long moves = get_moves(root_board.player, root_board.opponent);
+		Board next;
+		const bool legal = (prm->sq == PASS) ? (moves == 0 && can_move(root_board.opponent, root_board.player)) : ((moves >> prm->sq) & 1) != 0;
+		if (!legal) {
+			ba_work_free(&w);
+			ba_print("@error id=%d word=sq\n@end id=%d error=1\n", job->id, job->id);
+			return 0;
+		}
+		board_next(&root_board, prm->sq, &next);
+		root_board = next;
+		ba_square(prm->sq, prefix);
+		ply0 = 1;
+	}
+	root = ba_probe(&w, &root_board, &root_idx);
+	if (root == NULL) {
+		ba_work_free(&w);
+		ba_print("@end id=%d count=0 shown=0 stage=0 ms=%lld\n", job->id, real_clock() - t);
+		return 0;
+	}
+	if (stage == 0 && !prm->xy_set) { // the leaves missing for the next stage
+		long long missing;
+		root_stage = ba_stage(&w, root, root_idx, &missing);
+		if (root_stage < 0) { ba_work_free(&w); return -1; }
+		stage = root_stage + 1;
+		if (stage > 2 + prm->n_stage) {
+			ba_work_free(&w);
+			ba_print("@end id=%d count=0 shown=0 stage=%d ms=%lld\n", job->id, root_stage, real_clock() - t);
+			return 0;
+		}
+	}
+	if (stage == 2) {
+		bool found;
+		best = true;
+		count = ba_best_lines(&w, root, root_idx, &found, true);
+	} else {
+		if (stage >= 3) { x = prm->stage_x[stage - 3]; y = prm->stage_y[stage - 3]; }
+		count = ba_expansions(&w, root, root_idx, prm->base, x, y, true);
+	}
+	if (count < 0) { ba_work_free(&w); return -1; }
+
+	for (i = 0; i < w.todo.ref.n && shown < prm->n && !job->cancel; ++i) {
+		const long long ref = w.todo.ref.v[i];
+		const int which = (int) (ref >> 40);
+		const long long item = ref & ((1LL << 40) - 1);
+		const BaItem *it = w.q[which].item + item;
+		char line[2 * 512 + 3], leaf[3];
+		Board board = root_board;
+		Position *p;
+		int sign;
+
+		strcpy(line, prefix);
+		p = ba_line(w.q + which, item, &board, line + strlen(line));
+		sign = ((ply0 + it->depth) & 1) ? -1 : 1; // (values seen by the side to move at the current position)
+		ba_square(ba_leaf_move(p, &board), leaf);
+		if (best) {
+			ba_print("@line id=%d moves=%s leaf=%s value=%d empties=%d\n", job->id, line, leaf, sign * p->score.value, board_count_empties(&board));
+		} else if (prm->base == BA_DEVIATE) {
+			ba_print("@line id=%d moves=%s leaf=%s value=%d empties=%d\n", job->id, line, leaf, sign * p->leaf.score, board_count_empties(&board));
+		} else {
+			ba_print("@line id=%d moves=%s leaf=%s value=%d empties=%d loss=%d\n", job->id, line, leaf, sign * p->leaf.score, board_count_empties(&board), it->loss + p->score.value - p->leaf.score);
+		}
+		++shown;
+	}
+	ba_work_free(&w);
+	if (job->cancel) return -1;
+	if (root_stage >= 0) ba_print("@end id=%d count=%lld shown=%lld stage=%d ms=%lld\n", job->id, count, shown, root_stage, real_clock() - t);
+	else ba_print("@end id=%d count=%lld shown=%lld ms=%lld\n", job->id, count, shown, real_clock() - t);
+	return 0;
+}
+
+/* ------------------------------------------------------------------ book levels ------------------------------------------------------------- */
+
+static int ba_levels(BaJob *job, const BaParams *prm)
+{
+	const long long t = real_clock();
+	long long hist[61], n = 0;
+	int i;
+
+	memset(hist, 0, sizeof hist);
+	if (prm->all) {
+		const Book *book = job->book;
+		for (i = 0; i < book->n && !job->cancel; ++i) {
+			const PositionArray *a = book->array + i;
+			int k;
+			for (k = 0; k < a->n; ++k) ++hist[a->positions[k].level];
+			n += a->n;
+		}
+	} else {
+		BaWork w;
+		unsigned int idx;
+		Position *root;
+		ba_work_init(&w, job, prm);
+		root = ba_probe(&w, &job->board, &idx);
+		if (root) n = ba_reach(&w, root, idx, hist);
+		ba_work_free(&w);
+		if (n < 0) return -1;
+	}
+	if (job->cancel) return -1;
+	for (i = 0; i <= 60; ++i) if (hist[i]) ba_print("@level id=%d level=%d count=%lld\n", job->id, i, hist[i]);
+	ba_print("@end id=%d positions=%lld ms=%lld\n", job->id, n, real_clock() - t);
+	return 0;
+}
+
+/* ------------------------------------------------------------------ thread -------------------------------------------------------------------- */
+
+static void ba_run(BaJob *job)
+{
+	BaParams prm;
+	bool ok;
+	int r = 0;
+
+	if (!ba_params_read(job->param, &prm)) {
+		ba_print("@error id=%d word=%s\n@end id=%d error=1\n", job->id, prm.error, job->id);
+		return;
+	}
+	lock(&ba);
+	ok = ba_index_get(job->book);
+	unlock(&ba);
+	if (!ok) {
+		ba_print("@error id=%d memory=1\n@end id=%d error=1\n", job->id, job->id);
+		return;
+	}
+	if (job->kind == BA_MOVEINFO) r = ba_moveinfo(job, &prm);
+	else if (job->kind == BA_MISSING) r = ba_missing(job, &prm);
+	else r = ba_levels(job, &prm);
+	if (r < 0) {
+		if (job->cancel) ba_print("@cancel id=%d\n", job->id);
+		else ba_print("@error id=%d memory=1\n@end id=%d error=1\n", job->id, job->id);
+	}
+}
+
+static void* ba_thread(void *v)
+{
+	(void) v;
+	lock(&ba);
+	for (;;) {
+		BaJob *job;
+		while (!ba.quit && ba.head == NULL) condition_wait(&ba);
+		if (ba.quit) break;
+		job = ba.head;
+		ba.head = job->next;
+		if (ba.head == NULL) ba.tail = NULL;
+		ba.current = job;
+		unlock(&ba);
+		ba_run(job);
+		lock(&ba);
+		ba.current = NULL;
+		free(job->param);
+		free(job);
+		condition_broadcast(&ba);
+	}
+	unlock(&ba);
+	return NULL;
+}
+
+/**
+ * @brief Read a command "book moveinfo|missing|levels ..." and give it to the analysis thread.
+ *
+ * @param book Opening book.
+ * @param param Words after "book".
+ * @param board Current position.
+ * @param player Side to move.
+ * @return false if the command is another book command.
+ */
+bool book_analysis_command(Book *book, const char *param, const Board *board, const int player)
+{
+	char word[16];
+	const char *s = param;
+	int i, kind;
+	bool found;
+	BaJob *job;
+
+	while (*s == ' ' || *s == '\t') ++s;
+	for (i = 0; *s && *s != ' ' && *s != '\t' && i < (int) sizeof word - 1; ++s) word[i++] = (char) (('A' <= *s && *s <= 'Z') ? *s + 32 : *s);
+	word[i] = '\0';
+	if (*s && *s != ' ' && *s != '\t') return false;
+	if (strcmp(word, "moveinfo") == 0) kind = BA_MOVEINFO;
+	else if (strcmp(word, "missing") == 0) kind = BA_MISSING;
+	else if (strcmp(word, "levels") == 0) kind = BA_LEVELS;
+	else return false;
+
+	book_analysis_init();
+	job = (BaJob*) calloc(1, sizeof *job);
+	if (job == NULL) return true;
+	job->param = string_duplicate(s);
+	if (job->param == NULL) { free(job); return true; }
+	job->id = ba_read_id(s, &found);
+	job->kind = kind;
+	job->board = *board;
+	job->player = player;
+	job->book = book;
+
+	lock(&ba);
+	if (!ba.started) {
+		ba.quit = false;
+		ba.started = thread_create(&ba.thread, ba_thread, NULL);
+	}
+	if (!ba.started) {
+		ba.current = job;
+		unlock(&ba);
+		ba_run(job); // (without a thread: at once)
+		lock(&ba);
+		ba.current = NULL;
+		unlock(&ba);
+		free(job->param); free(job);
+		return true;
+	}
+	if (ba.tail) ba.tail->next = job; else ba.head = job;
+	ba.tail = job;
+	condition_broadcast(&ba);
+	unlock(&ba);
+	return true;
+}
+
+/** @brief Stop the analyses waiting (lock held): each one answers "@cancel". */
+static void ba_cancel_waiting(const bool all, const int id, bool *found)
+{
+	BaJob **j = &ba.head, *job;
+	ba.tail = NULL;
+	while ((job = *j) != NULL) {
+		if (all || job->id == id) {
+			*j = job->next;
+			ba_print("@cancel id=%d\n", job->id);
+			*found = true;
+			free(job->param); free(job);
+		} else {
+			ba.tail = job;
+			j = &job->next;
+		}
+	}
+}
+
+/**
+ * @brief Stop analyses ("stop" read by the input thread).
+ * @param param Words after "stop": "id=<n>" stops one analysis, nothing stops them all.
+ * @return true if the words named an analysis ("stop" then has no other effect).
+ */
+bool book_analysis_stop(const char *param)
+{
+	bool has_id, found = false;
+	const int id = ba_read_id(param, &has_id);
+
+	if (!ba.init) {
+		if (has_id) ba_print("@cancel id=%d state=none\n", id);
+		return has_id;
+	}
+	lock(&ba);
+	if (ba.current && (!has_id || ba.current->id == id)) {
+		ba.current->cancel = true; // (the analysis answers "@cancel" when it stops)
+		found = true;
+	}
+	ba_cancel_waiting(!has_id, id, &found);
+	unlock(&ba);
+	if (has_id && !found) ba_print("@cancel id=%d state=none\n", id);
+	return has_id;
+}
+
+/** @brief Stop all the analyses and wait for the end of the current one (before a command that may change the book). */
+void book_analysis_quiesce(void)
+{
+	bool found = false;
+	if (!ba.init) return;
+	lock(&ba);
+	ba_cancel_waiting(true, 0, &found);
+	if (ba.current) ba.current->cancel = true;
+	while (ba.current) condition_wait(&ba);
+	ba_index_free();
+	unlock(&ba);
+}
+
+/** @brief End the analysis thread. */
+void book_analysis_end(void)
+{
+	if (!ba.init) return;
+	book_analysis_quiesce();
+	lock(&ba);
+	ba.quit = true;
+	condition_broadcast(&ba);
+	unlock(&ba);
+	if (ba.started) thread_join(ba.thread);
+	ba.started = false;
+}

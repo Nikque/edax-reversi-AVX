@@ -132,7 +132,9 @@ void bench(void);
  */
 static void edax_observer(Result *result)
 {
+	ui_output_lock(); // (whole lines, between the lines of the book analyses)
 	search_observer(result);
+	ui_output_unlock(false);
 	if (log_is_open(edax_log)) {
 		result_print(result, edax_log->f);
 		putc('\n', edax_log->f);
@@ -148,6 +150,7 @@ void ui_init_edax(UI *ui)
 	Play *play = ui->play;
 
 	book_verbose = true;
+	book_analysis_init();
 	play_init(play, &ui->book);
 	ui->book.search = &play->search;
 	book_load_at_startup(&ui->book);
@@ -165,6 +168,7 @@ void ui_init_edax(UI *ui)
  */
 void ui_free_edax(UI *ui)
 {
+	book_analysis_end();
 	if (ui->book.need_saving) book_save_to_book_file(&ui->book); // (a book file replaced by "book new" is kept under another name)
 	book_free(&ui->book);
 	play_free(ui->play);
@@ -327,7 +331,7 @@ void ui_loop_edax(UI *ui)
 		if (!ui_event_exist(ui) && !play_is_game_over(play) && (ui->mode == !play->player || ui->mode == 2)) {
 			putchar('\n');
 			play_go(play, true);
-			printf("\nEdax plays "); move_print(play_get_last_move(play)->x, 0, stdout); putchar('\n');
+			ui_output_lock(); printf("\nEdax plays "); move_print(play_get_last_move(play)->x, 0, stdout); putchar('\n'); ui_output_unlock(false);
 			if (ui->mode != 2) play_ponder(play);
 
 		// proceed by reading a command
@@ -335,7 +339,10 @@ void ui_loop_edax(UI *ui)
 
 			/* automatic rules after a game over*/
 			if (play_is_game_over(play)) {
-				if (options.auto_store) play_store(play);
+				if (options.auto_store) {
+					book_analysis_quiesce(); // (the book changes)
+					play_store(play);
+				}
 				if (options.auto_swap && ui->mode < 2) ui->mode = !ui->mode;
 				if (options.repeat && repeat > 1) {
 					--repeat;
@@ -351,10 +358,10 @@ void ui_loop_edax(UI *ui)
 				}
 			}
 
-			putchar('>'); fflush(stdout);
+			ui_output_lock(); putchar('>'); fflush(stdout); ui_output_unlock(true);
 			ui_event_wait(ui, &cmd, &param);
 			log_print(edax_log, "cmd=\"%s\" ; param=\"%s\"\n", cmd, param);
-			putchar('\n');
+			ui_output_lock(); putchar('\n'); ui_output_unlock(false);
 
 			if (cmd == NULL) {
 				warn("unexpected null command?\n");
@@ -572,7 +579,7 @@ void ui_loop_edax(UI *ui)
 				if (play_is_game_over(play)) printf("\n*** Game Over ***\n");
 				else {
 					play_go(play, true);
-					printf("\nEdax plays "); move_print(play_get_last_move(play)->x, 0, stdout); putchar('\n');
+					ui_output_lock(); printf("\nEdax plays "); move_print(play_get_last_move(play)->x, 0, stdout); putchar('\n'); ui_output_unlock(false);
 				}
 
 			// hint for [n] moves
@@ -590,7 +597,7 @@ void ui_loop_edax(UI *ui)
 
 			// user move
 			} else if (play_user_move(play, cmd)) {
-				printf("\nYou play "); move_print(play_get_last_move(play)->x, 0, stdout); putchar('\n');
+				ui_output_lock(); printf("\nYou play "); move_print(play_get_last_move(play)->x, 0, stdout); putchar('\n'); ui_output_unlock(false);
 
 			// debug pv
 			} else if (strcmp(cmd, "debug-pv") == 0) {
@@ -632,12 +639,22 @@ void ui_loop_edax(UI *ui)
 				if (name == NULL) name = "?";
 				puts(name); 
 
+			// book analyses for a user interface (book moveinfo, missing, levels): done by a thread of their own
+			} else if ((strcmp(cmd, "book") == 0 || strcmp(cmd, "b") == 0) && book_analysis_command(play->book, param, &play->board, play->player)) {
+
 			// opening book commands
 			} else if (strcmp(cmd, "book") == 0 || strcmp(cmd, "b") == 0) {
 				char book_cmd[FILENAME_MAX + 1], *book_param;
 				int val_1, val_2;
 				Book *book = play->book;
 
+				{ // the analyses only read the book: they are stopped before a command that may change it
+					char word[16];
+					parse_word(param, word, 15);
+					string_to_lowercase(word);
+					if (strcmp(word, "on") != 0 && strcmp(word, "off") != 0 && strcmp(word, "randomness") != 0
+					 && strcmp(word, "show") != 0 && strcmp(word, "info") != 0 && strcmp(word, "stats") != 0) book_analysis_quiesce();
+				}
 				play_no_stop(play, true); // the word "stop" does not cut the searches of a book command short (see play_stop)
 				book->search = &play->search;
 				book->search->options.verbosity = book->options.verbosity;
