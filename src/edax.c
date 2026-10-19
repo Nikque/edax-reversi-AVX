@@ -259,7 +259,12 @@ void help_book(void)
 		"  leaf expand [n1 n2] expand the leaves better than every link of their\n  position; with <n1> <n2>, only in the walk of deviate3 <n1> <n2>.\n"
 		"  prune               remove unreachable positions.\n"
 		"  subtree             only keep positions from the current position.\n"
-		"  add [file]          add positions from a game base file (txt, ggf, sgf or\n  wthor format).\n");
+		"  add [file]          add positions from a game base file (txt, ggf, sgf or\n  wthor format).\n"
+		"  moveinfo id=<n> ... for every legal move: book value, precision stage, missing\n  leaves, umigame numbers, positions (answers: lines starting with '@').\n"
+		"  missing id=<n> ...  the lines to the leaves missing for the next stage.\n"
+		"  levels id=<n> ...   the positions of each level after the current position.\n"
+		"  bestlines id=<n> ... the lines of best moves: counts, and a file of their ends.\n"
+		"  (these four commands run beside the others and only read the book;\n  \"stop id=<n>\" stops one of them.)\n");
 }
 
 /**
