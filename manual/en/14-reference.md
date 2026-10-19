@@ -91,6 +91,7 @@ They are written after `book` (or `b`). The word that follows may be in upper ca
 | `missing` | `id=N` [`sq=`, `stage=`, `x= y=`, `n=`] | The lines to the leaves missing for the next stage (in the background) | | [12.4](12-integration.md) |
 | `levels` | `id=N` [`scope=all`] | The positions per level (in the background) | | [12.4](12-integration.md) |
 | `bestlines` | `id=N` [`loss=`, `depth=`, `solved=`, `file=`, `which=`] | The number of lines of best moves, and a file of the moves to their ends (in the background) | The file given | [12.4](12-integration.md) |
+| `findline` | `id=N` `target=position` [`n=`] | The lines from the current position to a position, through book positions only (in the background) | | [12.4](12-integration.md) |
 
 ## 14.3 Base commands
 
