@@ -22,7 +22,7 @@ v4.5.5-nikque.13 の、全部のコマンドと設定です（ソースの一覧
 | `force` | | 手順、または定石の名前 | Edax に決まった序盤を打たせる | [3.7](03-playing.md) |
 | `go` | | | Edax に 1 手打たせる | [3.1](03-playing.md) |
 | `hint` | | ［1〜60］（省くと 1） | 良い手を表示 | [3.4](03-playing.md) |
-| `stop` | | | 考えるのを止める（`mode 3` になる） | [3.1](03-playing.md) |
+| `stop` | ［`id=N`］ | | 考えるのを止める（`mode 3` になる）。待っている命令は消える。`id=N` を書くと、book の解析 N だけを止める（ほかは変わらない） | [3.1](03-playing.md)・[12.4](12-integration.md) |
 | `analyze` | `a`、`analyse` | ［手数］（省くと全部） | 棋譜の最後の n 手を振り返る | [3.4](03-playing.md) |
 | `setboard` | | 盤 手番 | 局面を作る | [3.5](03-playing.md) |
 | `vmirror`・`hmirror` | | | 上下・左右を入れ替える | [3.5](03-playing.md) |
@@ -87,6 +87,10 @@ v4.5.5-nikque.13 の、全部のコマンドと設定です（ソースの一覧
 | `extract` | ファイル | 最善の手順を棋譜に書き出す | | [8.8](08-book-maintenance.md) |
 | `problem` | ［空き］（24） ［個数］（10） | 局面を問題の形で表示 | | [8.8](08-book-maintenance.md) |
 | `feed-hash` | | book の値をハッシュ表に入れる | | [8.7](08-book-maintenance.md) |
+| `moveinfo` | `id=N` ［`base=`・`stages=`・`umi=`・`parts=` など］ | 全部の合法手の book の評価値・精度の段階・足りない Leaf の数・うみがめ数・局面の数（裏で動く。答えは `@` の行） | | [12.4](12-integration.md) |
+| `missing` | `id=N` ［`sq=`・`stage=`・`x= y=`・`n=`］ | 次の段階に足りない Leaf までの手順（裏で動く） | | [12.4](12-integration.md) |
+| `levels` | `id=N` ［`scope=all`］ | level ごとの局面の数（裏で動く） | | [12.4](12-integration.md) |
+| `bestlines` | `id=N` ［`loss=`・`depth=`・`solved=`・`file=`・`which=`］ | 最善の進行の数と、その端までの手順の書き出し（裏で動く） | 指定のファイル | [12.4](12-integration.md) |
 
 ## 14.3 base のコマンド
 

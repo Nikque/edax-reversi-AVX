@@ -23,7 +23,7 @@ Edax は、オセロ（リバーシ）の対局・解析・終盤の完全読み
 | [9. 大きな book を扱う](09-large-books.md) | 数千万〜数億局面の book でのメモリ・時間・設定・注意 |
 | [10. 棋譜と問題のファイル](10-files.md) | 棋譜の形式、`base` のコマンド、問題集（OBF）の形式 |
 | [11. 問題を解く・速さを測る](11-solve-bench.md) | `-solve`、`bench`、局面の数え上げ |
-| [12. ほかのプログラムから使う](12-integration.md) | GUI とつなぐ（GTP・NBoard・XBoard など）、ライブラリ（libedax）、edax_runner |
+| [12. ほかのプログラムから使う](12-integration.md) | GUI とつなぐ（GTP・NBoard・XBoard など）、ライブラリ（libedax）、edax_runner、GUI のための book の解析の命令 |
 | [13. 困ったときは](13-troubleshooting.md) | よく出る表示と、その意味・対処 |
 | [14. コマンドと設定の一覧](14-reference.md) | 全コマンド・全設定・ファイルの拡張子・level の表 |
 | [15. 用語集](15-glossary.md) | このマニュアルで使う言葉 |
