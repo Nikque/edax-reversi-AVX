@@ -318,9 +318,11 @@ void play_go(Play *play, const bool update)
 			} else {
 				if (search->options.header) puts(search->options.header);
 				if (search->options.separator) puts(search->options.separator);
+				ui_output_lock(); // (whole lines, between the lines of the book analyses)
 				printf("book    %+02d                                          ", move.score);
 				line_print(&play->result.pv, options.width - 54, " ", stdout);
 				putchar('\n');
+				ui_output_unlock(false);
 				if (search->options.separator) puts(search->options.separator);
 			} 
 		}
@@ -456,8 +458,10 @@ void play_hint(Play *play, int n)
 				printf("book "); line_print(&pv, 10, NULL, stdout);
 				printf(" %d %llu %d\n", m->score, stat.n_lines, play->book->options.level);
 			} else {
+				ui_output_lock(); // (whole lines, between the lines of the book analyses)
 				printf("book    %+02d                                          ", m->score);
 				line_print(&pv, options.width - 54, " ", stdout); putchar('\n');
+				ui_output_unlock(false);
 			}
 		}
 	}

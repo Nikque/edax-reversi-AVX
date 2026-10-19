@@ -8625,3 +8625,6 @@ void book_test_pick_count(Book *book, Board *board, const int move_loss, const i
 	}
 }
 #endif
+
+/* analyses for a user interface (book moveinfo, book missing, book levels) */
+#include "book_analyze.c"
