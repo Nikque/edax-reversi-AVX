@@ -22,7 +22,7 @@ All the commands and settings of v4.5.5-nikque.13 (made from the lists in the so
 | `force` | | moves, or the name of an opening | Make Edax play a given opening | [3.7](03-playing.md) |
 | `go` | | | Make Edax play one move | [3.1](03-playing.md) |
 | `hint` | | [1 to 60] (1 if left out) | Show the best moves | [3.4](03-playing.md) |
-| `stop` | | | Stop thinking (the mode becomes `mode 3`) | [3.1](03-playing.md) |
+| `stop` | [`id=N`] | | Stop thinking (the mode becomes `mode 3`); the commands waiting are dropped. With `id=N`, only the book analysis N stops (nothing else changes) | [3.1](03-playing.md), [12.4](12-integration.md) |
 | `analyze` | `a`, `analyse` | [number of moves] (all if left out) | Look back at the last n moves of the game | [3.4](03-playing.md) |
 | `setboard` | | board side | Set up a position | [3.5](03-playing.md) |
 | `vmirror`, `hmirror` | | | Swap top and bottom, left and right | [3.5](03-playing.md) |
@@ -87,6 +87,10 @@ They are written after `book` (or `b`). The word that follows may be in upper ca
 | `extract` | file | Write the best lines as games | | [8.8](08-book-maintenance.md) |
 | `problem` | [empties] (24) [count] (10) | Show positions as problems | | [8.8](08-book-maintenance.md) |
 | `feed-hash` | | Put the values of the book into the hash table | | [8.7](08-book-maintenance.md) |
+| `moveinfo` | `id=N` [`base=`, `stages=`, `umi=`, `parts=`, …] | Book value, precision stage, missing leaves, umigame numbers and positions of every legal move (in the background; answers: `@` lines) | | [12.4](12-integration.md) |
+| `missing` | `id=N` [`sq=`, `stage=`, `x= y=`, `n=`] | The lines to the leaves missing for the next stage (in the background) | | [12.4](12-integration.md) |
+| `levels` | `id=N` [`scope=all`] | The positions per level (in the background) | | [12.4](12-integration.md) |
+| `bestlines` | `id=N` [`loss=`, `depth=`, `solved=`, `file=`, `which=`] | The number of lines of best moves, and a file of the moves to their ends (in the background) | The file given | [12.4](12-integration.md) |
 
 ## 14.3 Base commands
 

@@ -23,7 +23,7 @@ If you are new, read chapters 1, 2 and 3 in order. If you want to build a book, 
 | [9. Large books](09-large-books.md) | Memory, time, settings and cautions for books of tens to hundreds of millions of positions |
 | [10. Game and problem files](10-files.md) | Game formats, the `base` commands, the problem format (OBF) |
 | [11. Solving problems and measuring speed](11-solve-bench.md) | `-solve`, `bench`, counting positions |
-| [12. Using Edax from other programs](12-integration.md) | Connecting a GUI (GTP, NBoard, XBoard, …), the library (libedax), edax_runner |
+| [12. Using Edax from other programs](12-integration.md) | Connecting a GUI (GTP, NBoard, XBoard, …), the library (libedax), edax_runner, the book analysis commands for a GUI |
 | [13. Troubleshooting](13-troubleshooting.md) | Common messages, what they mean and what to do |
 | [14. Reference](14-reference.md) | All commands, all settings, file extensions, the table of levels |
 | [15. Glossary](15-glossary.md) | The words used in this manual |

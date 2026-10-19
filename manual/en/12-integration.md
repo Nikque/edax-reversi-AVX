@@ -9,6 +9,7 @@ Edax is operated with text, but it can also serve as the "brain" (the engine) of
 | **Connecting a GUI program** (12.1) | You want to see the board as a picture and play or analyse with the mouse |
 | **Calling the library (libedax)** (12.2) | You write your own program and want to use what Edax can do |
 | **Using edax_runner** (12.3) | You want to write the lines to learn in a list and have the book grown automatically |
+| **The book analysis commands** (12.4) | You want a GUI program to have Edax count the precision stages, umigame numbers, positions… of the book |
 
 ## 12.1 Connecting a GUI program
 
@@ -164,5 +165,57 @@ How to write `learning_list.txt`:
 - A second edax_runner started in the same folder stops without doing anything (since 5.3.0+nikque.10).
 - When the setting `book-store-tasks` is not 1 (the default `auto` included), the "one game Edax against Edax" lines are grouped by that number and learned at the same time.
 - The rest of this section, and the behaviour of edax_runner itself, were not checked again for this manual (edax_runner is tested separately). For details see the `README.md` of edax_runner.
+
+## 12.4 The book analysis commands for a GUI
+
+These commands let a GUI program leave to Edax the counts that walk the book (since v4.5.5-nikque.19).
+
+- They all run in the background, beside the other commands: during an analysis, Edax still reads `hint`, the moves and the other commands.
+- They only read the book. Before a command that may change the book (`book store`, …), Edax stops them.
+- Each one is sent with a number `id=…`. The answers are whole lines that start with `@`; they are not mixed with the other output. The values are disc differences seen by the side to move at the current position.
+
+| Command | Answer |
+|---|---|
+| `book moveinfo id=N` | For every legal move: the book value and level, the precision stage, the leaves missing for the next stage, the umigame numbers, the book positions reached after the move |
+| `book missing id=N` [`sq=move`] | The lines to the leaves missing for the next stage (with `sq=`, after that move) |
+| `book levels id=N` | The positions after the current position, per level (`scope=all`: the whole book) |
+| `book bestlines id=N` | The number of lines where both sides play best moves only (or moves losing at most `loss=` discs); with `file=`, the moves to their ends are written |
+| `stop id=N` | Stop the analysis N (the other analyses and the commands waiting are kept) |
+
+**Precision stage** (`stage=`)
+
+| Stage | Meaning |
+|---|---|
+| 0 | The position after the move is not in the book |
+| 1 | It is, but the lines of best moves of both sides do not reach a solved position |
+| 2 | One does, but the range of stage 3 is not complete |
+| 3 to 7 | `book deviate 1 1` to `book deviate 5 5` from the position after the move would add nothing |
+
+- The command of reference can be changed to `base=deviate2` or `base=deviate3`, and the ranges with `stages=1/1,2/2,3/3,4/4,5/5`.
+
+**Umigame numbers** (`umi=black:white`)
+
+- For black and for white: the smallest number of line ends to learn to know every line of the condition after the move. At its own turn, the side that learns chooses one move; at the other side's turn, it has to know every move.
+- A position reached by different lines is counted once, with what follows it.
+- By default the condition is the best moves of both sides; `umi=loss x=… y=…` (loss of one move, total loss) and `umi=range lo=… hi=…` (range of values) can be used too. With a wide range, a number that may not be the smallest gets `exact=0`.
+
+Example (a test book):
+
+```
+>book moveinfo id=1
+@begin id=1 ply=0 turn=black moves=4 book=1
+@move id=1 sq=d3 book=1 value=-2 level=4 lines=505 stage=1 missing=1
+...
+@move id=1 sq=d3 part=umi umi=1:1
+...
+@move id=1 sq=d3 part=count positions=1546
+...
+@end id=1 ms=0
+```
+
+- `book moveinfo` answers the moves out of the book, then the precision stages, the umigame numbers (`part=umi`) and the numbers of positions (`part=count`). Near the start of a large book, the numbers of positions take time; a part can be asked alone, as `parts=stage,umi`. `lines=` is the number of unterminated lines written in the book (at once; a transposition is counted by each line).
+- `book bestlines` answers one line `@end id=N lines=… ends=… incomplete=… incomplete_ends=… positions=… written=…`: `lines` counts the lines, `ends` the end positions, `incomplete` the ends that do not reach a solved position. The file of `file=` gets one line per end position: the moves of the game up to the current position, then the moves to the end (`which=incomplete`: only the ends that do not reach a solved position).
+- A wrong word is answered by `@error id=N word=…` and `@end id=N error=1`, a stopped analysis by `@cancel id=N`.
+- **What was checked for this manual**: on small test books (made for the tests, up to 19 million positions), the answers were compared with computations written apart, and the precision stages by running `book deviate`. A connection to a GUI program itself was not tried.
 
 Next: [13. Troubleshooting](13-troubleshooting.md)
