@@ -82,7 +82,7 @@ static void ba_print(const char *format, ...)
 
 /* ------------------------------------------------------------------ state ------------------------------------------------------------------- */
 
-enum { BA_MOVEINFO, BA_MISSING, BA_LEVELS };
+enum { BA_MOVEINFO, BA_MISSING, BA_LEVELS, BA_BESTLINES };
 enum { BA_DEVIATE = 1, BA_DEVIATE2 = 2, BA_DEVIATE3 = 3 };
 enum { BA_UMI_OFF, BA_UMI_BEST, BA_UMI_LOSS, BA_UMI_RANGE };
 enum { BA_PART_STAGE = 1, BA_PART_UMI = 2, BA_PART_COUNT = 4 };
@@ -95,6 +95,7 @@ typedef struct BaJob {
 	int id;                 /**< number given by the user interface */
 	int kind;               /**< BA_MOVEINFO, BA_MISSING or BA_LEVELS */
 	char *param;            /**< words after the command */
+	char *line;             /**< moves of the game up to the current position (passes left out) */
 	Board board;            /**< current position */
 	int player;             /**< side to move (BLACK or WHITE) */
 	Book *book;
@@ -150,6 +151,10 @@ typedef struct BaParams {
 	int stage;                                  /**< stage to reach (book missing), 0 if none */
 	long long n;                                /**< lines to show (book missing) */
 	bool all;                                   /**< scope=all (book levels) */
+	int loss;                                   /**< largest loss of a move (book bestlines) */
+	bool follow_solved;                         /**< solved=follow: the lines go on after a solved position (book bestlines) */
+	bool incomplete_only;                       /**< which=incomplete: only the ends that are not solved are written (book bestlines) */
+	char file[512];                             /**< file the lines are written to, "" if none (book bestlines) */
 	char error[64];                             /**< first wrong word */
 } BaParams;
 
@@ -213,7 +218,13 @@ static bool ba_params_read(const char *param, BaParams *p)
 	for (;;) {
 		while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
 		if (*s == '\0') break;
-		for (i = 0; *s && *s != ' ' && *s != '\t' && *s != '\r' && *s != '\n'; ++s) if (i < (int) sizeof word - 1) word[i++] = *s;
+		{ // (a value between double quotes may hold spaces: file="C:\a b\lines.txt")
+			bool quoted = false;
+			for (i = 0; *s && (quoted || (*s != ' ' && *s != '\t' && *s != '\r' && *s != '\n')); ++s) {
+				if (*s == '"') { quoted = !quoted; continue; }
+				if (i < (int) sizeof word - 1) word[i++] = *s;
+			}
+		}
 		word[i] = '\0';
 		for (i = 0; word[i] && word[i] != '='; ++i) word[i] = (char) (('A' <= word[i] && word[i] <= 'Z') ? word[i] + 32 : word[i]);
 		value = strchr(word, '=');
@@ -296,6 +307,20 @@ static bool ba_params_read(const char *param, BaParams *p)
 		} else if (strcmp(word, "n") == 0) {
 			if (!ba_parse_number(value, &v) || v < 0) goto wrong;
 			p->n = v;
+		} else if (strcmp(word, "loss") == 0) {
+			if (!ba_parse_number(value, &v) || v < 0 || v > 129) goto wrong;
+			p->loss = v;
+		} else if (strcmp(word, "solved") == 0) {
+			if (strcmp(value, "stop") == 0) p->follow_solved = false;
+			else if (strcmp(value, "follow") == 0) p->follow_solved = true;
+			else goto wrong;
+		} else if (strcmp(word, "which") == 0) {
+			if (strcmp(value, "all") == 0) p->incomplete_only = false;
+			else if (strcmp(value, "incomplete") == 0) p->incomplete_only = true;
+			else goto wrong;
+		} else if (strcmp(word, "file") == 0) {
+			if (*value == '\0' || strlen(value) >= sizeof p->file) goto wrong;
+			strcpy(p->file, value);
 		} else if (strcmp(word, "scope") == 0) {
 			if (strcmp(value, "all") == 0) p->all = true;
 			else if (strcmp(value, "from") == 0) p->all = false;
@@ -2357,7 +2382,210 @@ static int ba_levels(BaJob *job, const BaParams *prm)
 	return 0;
 }
 
+/* ------------------------------------------------------------------ book bestlines ---------------------------------------------------------- */
+
+/** @return true if a line ends at a position that is not solved (the book needs more learning there). */
+static inline bool ba_end_incomplete(const Position *p)
+{
+	return !board_is_game_over(&p->board) && !position_is_solved(p);
+}
+
+/**
+ * @brief Lines of book bestlines: from a root, the links of both sides whose loss (the value of the position minus
+ * the score of the link) is at most prm->loss, up to the move number prm->depth; a solved position ends a line
+ * unless prm->follow_solved. A transposition is one node. parent and move keep, for each node, the node and the move
+ * it was first reached from (the nodes are added ply by ply: a shortest line).
+ * @return 0: done, -1: stopped or memory exhausted.
+ */
+static int ba_bestlines_build(BaWork *w, Position *root, const unsigned int root_idx, unsigned int **parent, unsigned char **move)
+{
+	const BaParams *prm = w->prm;
+	unsigned int i, size = 0;
+	bool added;
+
+	ba_umi_free(w);
+	*parent = NULL;
+	*move = NULL;
+	if (ba_umi_node(w, root, root_idx, 0, 0, &added) == UINT_MAX) return -1;
+	for (i = 0; i < w->n_node; ++i) { // (the nodes are added while they are read)
+		Position *p = w->node[i].p;
+		const int v = p->score.value;
+		const unsigned long long first = w->n_edge;
+		Link *l;
+
+		if (w->job->cancel) return -1;
+		if (60 - board_count_empties(&p->board) < prm->depth && (prm->follow_solved || !position_is_solved(p))) {
+			foreach_link(l, p) {
+				const int e = v - l->score;
+				Board target;
+				unsigned int ci, c;
+				Position *child;
+
+				if (e < 0 || e > prm->loss) continue;
+				board_next(&p->board, l->move, &target);
+				child = ba_probe(w, &target, &ci);
+				if (child == NULL) continue;
+				c = ba_umi_node(w, child, ci, 0, 0, &added);
+				if (c == UINT_MAX || !ba_edge_push(w, c)) return -1;
+				if (added) {
+					if (c >= size) {
+						const unsigned int n = size + size / 2 + 4096;
+						unsigned int *pa = (unsigned int*) realloc(*parent, (size_t) n * sizeof *pa);
+						unsigned char *mo;
+						if (pa == NULL) return -1;
+						*parent = pa;
+						mo = (unsigned char*) realloc(*move, (size_t) n);
+						if (mo == NULL) return -1;
+						*move = mo;
+						size = n;
+					}
+					(*parent)[c] = i;
+					(*move)[c] = l->move;
+				}
+			}
+		}
+		w->node[i].edge = (unsigned int) first;
+		w->node[i].n_edge = (unsigned int) (w->n_edge - first);
+		w->node[i].end = (w->node[i].n_edge == 0);
+	}
+	// an order where the next positions come first (as ba_umi_build)
+	{
+		unsigned int count[131], start[131];
+		memset(count, 0, sizeof count);
+		for (i = 0; i < w->n_node; ++i) ++count[w->node[i].key];
+		w->order = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->order);
+		if (w->order == NULL) return -1;
+		start[130] = 0;
+		for (i = 130; i-- > 0;) start[i] = start[i + 1] + count[i + 1];
+		for (i = 0; i < w->n_node; ++i) w->order[start[w->node[i].key]++] = i;
+	}
+	return 0;
+}
+
+/** @return a + b, at most ULLONG_MAX. */
+static inline unsigned long long ba_add_sat(const unsigned long long a, const unsigned long long b)
+{
+	return a > ULLONG_MAX - b ? ULLONG_MAX : a + b;
+}
+
+/**
+ * @brief book bestlines: the lines of best moves (and of moves losing at most loss) of both sides from the current
+ * position, counted by line (a transposition is counted by each line that reaches it, as the original count) and by
+ * end position; with file, one line per end position (the shortest one), the moves of the game first.
+ */
+static int ba_bestlines(BaJob *job, const BaParams *prm)
+{
+	const long long t = real_clock();
+	BaWork w;
+	Position *root;
+	unsigned int root_idx, *parent = NULL, r;
+	unsigned char *move = NULL;
+	unsigned long long *lines = NULL, *incomplete = NULL;
+	long long ends = 0, incomplete_ends = 0, written = 0;
+	FILE *f = NULL;
+	int result = -1;
+
+	ba_work_init(&w, job, prm);
+	root = ba_probe(&w, &job->board, &root_idx);
+	if (root == NULL) {
+		ba_work_free(&w);
+		ba_print("@end id=%d lines=0 ends=0 incomplete=0 incomplete_ends=0 positions=0 written=0 ms=%lld\n", job->id, real_clock() - t);
+		return 0;
+	}
+	if (prm->file[0] && (f = fopen(prm->file, "w")) == NULL) {
+		ba_work_free(&w);
+		ba_print("@error id=%d word=file\n@end id=%d error=1\n", job->id, job->id);
+		return 0;
+	}
+	if (ba_bestlines_build(&w, root, root_idx, &parent, &move) < 0) {
+		if (w.too_large && !job->cancel) { // (more positions than BA_UMI_NODE_MAX)
+			ba_print("@error id=%d size=1\n@end id=%d error=1\n", job->id, job->id);
+			result = 0;
+		}
+		goto end;
+	}
+	lines = (unsigned long long*) malloc((size_t) w.n_node * sizeof *lines);
+	incomplete = (unsigned long long*) malloc((size_t) w.n_node * sizeof *incomplete);
+	if (lines == NULL || incomplete == NULL) goto end;
+	for (r = 0; r < w.n_node; ++r) { // (the next positions first)
+		const unsigned int v = w.order[r];
+		const BaUNode *u = w.node + v;
+		if (u->end) {
+			const bool inc = ba_end_incomplete(u->p);
+			lines[v] = 1;
+			incomplete[v] = inc;
+			++ends;
+			incomplete_ends += inc;
+		} else {
+			unsigned long long k, a = 0, b = 0;
+			for (k = u->edge; k < (unsigned long long) u->edge + u->n_edge; ++k) {
+				a = ba_add_sat(a, lines[w.edge[k]]);
+				b = ba_add_sat(b, incomplete[w.edge[k]]);
+			}
+			lines[v] = a;
+			incomplete[v] = b;
+		}
+	}
+	if (f) {
+		static char buffer[1 << 20];
+		unsigned int v, chain[128];
+		setvbuf(f, buffer, _IOFBF, sizeof buffer);
+		for (v = 0; v < w.n_node && !job->cancel; ++v) {
+			const BaUNode *u = w.node + v;
+			char s[2 * 128 + 1];
+			Board board = job->board;
+			int n = 0, k, m = 0;
+			if (!u->end || (prm->incomplete_only && !ba_end_incomplete(u->p))) continue;
+			for (r = v; r != 0 && n < 128; r = parent[r]) chain[n++] = r; // (node 0 is the root)
+			for (k = n - 1; k >= 0; --k) {
+				const Position *p = w.node[parent[chain[k]]].p;
+				const int x = move[chain[k]];
+				int real = x, sym;
+				Board next;
+				if (x != PASS) for (sym = 0; sym < 8; ++sym) {
+					Board b;
+					board_symetry(&p->board, sym, &b);
+					if (board_equal(&b, &board)) { real = symetry(x, sym); break; }
+				}
+				if (real != PASS) { ba_square(real, s + m); m += 2; }
+				board_next(&board, real, &next);
+				board = next;
+			}
+			s[m] = '\0';
+			if (fprintf(f, "%s%s\n", job->line ? job->line : "", s) < 0) break;
+			++written;
+		}
+		{ // (the file is closed before the answer: the user interface may read it at once)
+			const bool failed = (ferror(f) != 0) | (fclose(f) != 0);
+			f = NULL;
+			if (!job->cancel && failed) {
+				ba_print("@error id=%d word=file\n@end id=%d error=1\n", job->id, job->id);
+				result = 0;
+				goto end;
+			}
+		}
+	}
+	if (!job->cancel) {
+		ba_print("@end id=%d lines=%llu ends=%lld incomplete=%llu incomplete_ends=%lld positions=%u written=%lld ms=%lld\n",
+			job->id, lines[0], ends, incomplete[0], incomplete_ends, w.n_node, written, real_clock() - t);
+		result = 0;
+	}
+end:
+	if (f) fclose(f); // (a file stopped half way is left as it is)
+	free(lines); free(incomplete); free(parent); free(move);
+	ba_work_free(&w);
+	return result;
+}
+
 /* ------------------------------------------------------------------ thread -------------------------------------------------------------------- */
+
+/** @brief Free an analysis. */
+static void ba_job_free(BaJob *job)
+{
+	free(job->param);
+	free(job->line);
+	free(job);
+}
 
 static void ba_run(BaJob *job)
 {
@@ -2378,6 +2606,7 @@ static void ba_run(BaJob *job)
 	}
 	if (job->kind == BA_MOVEINFO) r = ba_moveinfo(job, &prm);
 	else if (job->kind == BA_MISSING) r = ba_missing(job, &prm);
+	else if (job->kind == BA_BESTLINES) r = ba_bestlines(job, &prm);
 	else r = ba_levels(job, &prm);
 	if (r < 0) {
 		if (job->cancel) ba_print("@cancel id=%d\n", job->id);
@@ -2401,8 +2630,7 @@ static void* ba_thread(void *v)
 		ba_run(job);
 		lock(&ba);
 		ba.current = NULL;
-		free(job->param);
-		free(job);
+		ba_job_free(job);
 		condition_broadcast(&ba);
 	}
 	unlock(&ba);
@@ -2410,15 +2638,16 @@ static void* ba_thread(void *v)
 }
 
 /**
- * @brief Read a command "book moveinfo|missing|levels ..." and give it to the analysis thread.
+ * @brief Read a command "book moveinfo|missing|levels|bestlines ..." and give it to the analysis thread.
  *
  * @param book Opening book.
  * @param param Words after "book".
  * @param board Current position.
  * @param player Side to move.
+ * @param line Moves of the game up to the current position (book bestlines writes them first), or NULL.
  * @return false if the command is another book command.
  */
-bool book_analysis_command(Book *book, const char *param, const Board *board, const int player)
+bool book_analysis_command(Book *book, const char *param, const Board *board, const int player, const char *line)
 {
 	char word[16];
 	const char *s = param;
@@ -2433,6 +2662,7 @@ bool book_analysis_command(Book *book, const char *param, const Board *board, co
 	if (strcmp(word, "moveinfo") == 0) kind = BA_MOVEINFO;
 	else if (strcmp(word, "missing") == 0) kind = BA_MISSING;
 	else if (strcmp(word, "levels") == 0) kind = BA_LEVELS;
+	else if (strcmp(word, "bestlines") == 0) kind = BA_BESTLINES;
 	else return false;
 
 	book_analysis_init();
@@ -2445,6 +2675,7 @@ bool book_analysis_command(Book *book, const char *param, const Board *board, co
 	job->board = *board;
 	job->player = player;
 	job->book = book;
+	if (line && (job->line = string_duplicate(line)) == NULL) { ba_job_free(job); return true; }
 
 	lock(&ba);
 	if (!ba.started) {
@@ -2458,7 +2689,7 @@ bool book_analysis_command(Book *book, const char *param, const Board *board, co
 		lock(&ba);
 		ba.current = NULL;
 		unlock(&ba);
-		free(job->param); free(job);
+		ba_job_free(job);
 		return true;
 	}
 	if (ba.tail) ba.tail->next = job; else ba.head = job;
@@ -2478,7 +2709,7 @@ static void ba_cancel_waiting(const bool all, const int id, bool *found)
 			*j = job->next;
 			ba_print("@cancel id=%d\n", job->id);
 			*found = true;
-			free(job->param); free(job);
+			ba_job_free(job);
 		} else {
 			ba.tail = job;
 			j = &job->next;

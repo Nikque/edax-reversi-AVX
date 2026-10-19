@@ -142,7 +142,7 @@ void book_extract_positions(Book*, const int, const int);
 void book_feed_hash(const Book*, Board*, Search*);
 
 void book_analysis_init(void);
-bool book_analysis_command(Book*, const char*, const Board*, const int);
+bool book_analysis_command(Book*, const char*, const Board*, const int, const char*);
 bool book_analysis_stop(const char*);
 void book_analysis_quiesce(void);
 void book_analysis_end(void);
