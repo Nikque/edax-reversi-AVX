@@ -6,7 +6,7 @@ This chapter takes you from starting Edax to playing against it and quitting.
 
 ## 2.1 Preparation
 
-1. Download the ZIP from the Releases page (a name like `edax-4.5.5-nikque.13.zip`) and unpack it where you like. A folder with a short name, without spaces or non-ASCII characters (for example `C:\edax`), is recommended: when a book is saved, a name that is too long with its folders can make the save fail ([chapter 13](13-troubleshooting.md)).
+1. Download the ZIP from the Releases page (a name like `edax-4.5.5-nikque.19.zip`) and unpack it where you like. A folder with a short name, without spaces or non-ASCII characters (for example `C:\edax`), is recommended: when a book is saved, a name that is too long with its folders can make the save fail ([chapter 13](13-troubleshooting.md)).
 2. Open the `bin` folder of the unpacked package. Check that it holds the executables, `config.ini` and the `data` folder (with `eval.dat` and `book.dat`).
 
 **An important rule: start Edax from inside the `bin` folder.** Edax looks for `data/eval.dat` from the *current folder* at the time it starts. Started from another folder, it prints this and ends:

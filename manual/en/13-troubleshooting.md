@@ -42,6 +42,7 @@ Common messages and things that tend to happen, by situation. `WARNING:` means "
 | Message, or what happened | Meaning | What to do |
 |---|---|---|
 | `book show` prints nothing | The current position is not in the book | Normal. Add it with `book store` and the like |
+| `@error word=id` (one line without a number) | The `id=` of a book analysis command (`book moveinfo` and the others) or of `stop` is not an int. Nothing is done or stopped (since v4.5.5-nikque.19) | Write an int in `id=`. Put a file name holding `id=` in `"…"` ([12.4](12-integration.md)) |
 | `book deviate` (`deviate2`, …) ends at once without printing anything | The position on the board is not in the book | `init` to start from the initial position. To start from another position, `book store` first |
 | It ends with `Book deviate2 0 todo` | No leaf meets the condition (all were expanded already, or the numbers are too small) | Make the numbers (X, Y) larger. Check the depth of the book too (`Depth` of `book info`) |
 | `Cannot save book to ; existing book was not replaced` | With a version up to v4.5.5-nikque.12: `book save` was typed without a file name | Write the name, as in `book save data/my.dat` (since v4.5.5-nikque.13, leaving the name out saves to the file of `book-file`) |
