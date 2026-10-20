@@ -218,6 +218,18 @@ static bool ba_parse_number(const char *s, int *v)
 	return true;
 }
 
+/** @return true if a whole word is an int (with a sign), read in *v: the number of an analysis (a user interface counts them up). */
+static bool ba_parse_id(const char *s, int *v)
+{
+	char *end;
+	long long x;
+	if (*s == '\0') return false;
+	x = strtoll(s, &end, 10);
+	if (*end != '\0' || x < INT_MIN || x > INT_MAX) return false;
+	*v = (int) x;
+	return true;
+}
+
 static void ba_params_default(BaParams *p)
 {
 	int i;
@@ -262,7 +274,7 @@ static bool ba_params_read(const char *param, BaParams *p)
 		*value++ = '\0';
 
 		if (strcmp(word, "id") == 0) {
-			if (!ba_parse_number(value, &v)) goto wrong;
+			if (!ba_parse_id(value, &v)) goto wrong;
 		} else if (strcmp(word, "base") == 0) {
 			if (strcmp(value, "deviate") == 0) p->base = BA_DEVIATE;
 			else if (strcmp(value, "deviate2") == 0) p->base = BA_DEVIATE2;
@@ -377,8 +389,9 @@ static int ba_read_id(const char *param, bool *found)
 	*found = false;
 	while ((s = strstr(s, "id=")) != NULL) {
 		if (s == param || s[-1] == ' ' || s[-1] == '\t') {
+			const long long x = strtoll(s + 3, NULL, 10); // (an int, as ba_parse_id reads it)
 			*found = true;
-			return atoi(s + 3);
+			return x < INT_MIN ? INT_MIN : x > INT_MAX ? INT_MAX : (int) x;
 		}
 		s += 3;
 	}
