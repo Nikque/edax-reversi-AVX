@@ -247,6 +247,32 @@ static void ba_params_default(BaParams *p)
 }
 
 /**
+ * @brief Cut the next word "key=value" of a command: a value between double quotes may hold spaces
+ * (file="C:\a b\lines.txt"; the quotes are dropped), the key is in small letters.
+ * @param s The words (moved after the word).
+ * @param cut Set if the word is longer than size - 1 letters (it is cut).
+ * @return false at the end of the words.
+ */
+static bool ba_next_word(const char **s, char *word, const int size, bool *cut)
+{
+	const char *t = *s;
+	bool quoted = false;
+	int i;
+
+	while (*t == ' ' || *t == '\t' || *t == '\r' || *t == '\n') ++t;
+	if (*t == '\0') { *s = t; return false; }
+	*cut = false;
+	for (i = 0; *t && (quoted || (*t != ' ' && *t != '\t' && *t != '\r' && *t != '\n')); ++t) {
+		if (*t == '"') { quoted = !quoted; continue; }
+		if (i < size - 1) word[i++] = *t; else *cut = true;
+	}
+	word[i] = '\0';
+	for (i = 0; word[i] && word[i] != '='; ++i) word[i] = (char) (('A' <= word[i] && word[i] <= 'Z') ? word[i] + 32 : word[i]);
+	*s = t;
+	return true;
+}
+
+/**
  * @brief Read the words "key=value" of an analysis.
  * @return false on a wrong word (p->error).
  */
@@ -254,21 +280,11 @@ static bool ba_params_read(const char *param, BaParams *p)
 {
 	char word[512], *value;
 	const char *s = param;
+	bool cut;
 	int i, v;
 
 	ba_params_default(p);
-	for (;;) {
-		while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
-		if (*s == '\0') break;
-		{ // (a value between double quotes may hold spaces: file="C:\a b\lines.txt")
-			bool quoted = false;
-			for (i = 0; *s && (quoted || (*s != ' ' && *s != '\t' && *s != '\r' && *s != '\n')); ++s) {
-				if (*s == '"') { quoted = !quoted; continue; }
-				if (i < (int) sizeof word - 1) word[i++] = *s;
-			}
-		}
-		word[i] = '\0';
-		for (i = 0; word[i] && word[i] != '='; ++i) word[i] = (char) (('A' <= word[i] && word[i] <= 'Z') ? word[i] + 32 : word[i]);
+	while (ba_next_word(&s, word, (int) sizeof word, &cut)) {
 		value = strchr(word, '=');
 		if (value == NULL) goto wrong;
 		*value++ = '\0';
@@ -383,24 +399,19 @@ wrong:
 }
 
 /**
- * @brief Read the number after "id=" in the words of a command (the whole word, as ba_parse_id reads it).
+ * @brief Read the number of the word "id=" of a command (the words cut as ba_params_read cuts them; the whole
+ * value, of 31 letters at most, as ba_parse_id reads it).
  * @param id The number (0 if there is no "id=").
- * @return 1 if the word is an int, 0 if there is no "id=", -1 if the word is not an int.
+ * @return 1 if the value is an int, 0 if there is no "id=", -1 if the value is not an int.
  */
 static int ba_read_id(const char *param, int *id)
 {
-	const char *s = param;
+	char word[35]; // "id=" and 31 letters
+	bool cut;
+
 	*id = 0;
-	while ((s = strstr(s, "id=")) != NULL) {
-		if (s == param || s[-1] == ' ' || s[-1] == '\t') {
-			char word[32];
-			const size_t n = strcspn(s + 3, " \t\r\n");
-			if (n >= sizeof word) return -1;
-			memcpy(word, s + 3, n);
-			word[n] = '\0';
-			return ba_parse_id(word, id) ? 1 : -1;
-		}
-		s += 3;
+	while (ba_next_word(&param, word, (int) sizeof word, &cut)) {
+		if (strncmp(word, "id=", 3) == 0) return !cut && ba_parse_id(word + 3, id) ? 1 : -1;
 	}
 	return 0;
 }
