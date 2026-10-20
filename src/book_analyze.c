@@ -382,16 +382,23 @@ wrong:
 	return false;
 }
 
-/** @return the number after "id=" in the words of a command, 0 if none. */
-static int ba_read_id(const char *param, bool *found)
+/**
+ * @brief Read the number after "id=" in the words of a command (the whole word, as ba_parse_id reads it).
+ * @param id The number (0 if there is no "id=").
+ * @return 1 if the word is an int, 0 if there is no "id=", -1 if the word is not an int.
+ */
+static int ba_read_id(const char *param, int *id)
 {
 	const char *s = param;
-	*found = false;
+	*id = 0;
 	while ((s = strstr(s, "id=")) != NULL) {
 		if (s == param || s[-1] == ' ' || s[-1] == '\t') {
-			const long long x = strtoll(s + 3, NULL, 10); // (an int, as ba_parse_id reads it)
-			*found = true;
-			return x < INT_MIN ? INT_MIN : x > INT_MAX ? INT_MAX : (int) x;
+			char word[32];
+			const size_t n = strcspn(s + 3, " \t\r\n");
+			if (n >= sizeof word) return -1;
+			memcpy(word, s + 3, n);
+			word[n] = '\0';
+			return ba_parse_id(word, id) ? 1 : -1;
 		}
 		s += 3;
 	}
@@ -3006,8 +3013,7 @@ bool book_analysis_command(Book *book, const char *param, const Board *board, co
 {
 	char word[16];
 	const char *s = param;
-	int i, kind;
-	bool found;
+	int i, kind, id;
 	BaJob *job;
 
 	while (*s == ' ' || *s == '\t') ++s;
@@ -3022,11 +3028,15 @@ bool book_analysis_command(Book *book, const char *param, const Board *board, co
 	else return false;
 
 	book_analysis_init();
+	if (ba_read_id(s, &id) < 0) { // (no number to answer with)
+		ba_print("@error word=id\n");
+		return true;
+	}
 	job = (BaJob*) calloc(1, sizeof *job);
 	if (job == NULL) return true;
 	job->param = string_duplicate(s);
 	if (job->param == NULL) { free(job); return true; }
-	job->id = ba_read_id(s, &found);
+	job->id = id;
 	job->kind = kind;
 	job->board = *board;
 	job->player = player;
@@ -3080,9 +3090,15 @@ static void ba_cancel_waiting(const bool all, const int id, bool *found)
  */
 bool book_analysis_stop(const char *param)
 {
-	bool has_id, found = false;
-	const int id = ba_read_id(param, &has_id);
+	bool found = false;
+	int id;
+	const int read = ba_read_id(param, &id);
+	const bool has_id = read != 0;
 
+	if (read < 0) { // a wrong number stops nothing
+		ba_print("@error word=id\n");
+		return true;
+	}
 	if (!ba.init) {
 		if (has_id) ba_print("@cancel id=%d state=none\n", id);
 		return has_id;
