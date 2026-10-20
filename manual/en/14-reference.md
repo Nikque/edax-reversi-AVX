@@ -2,7 +2,7 @@
 
 [Contents](README.md) | Previous: [13. Troubleshooting](13-troubleshooting.md) | Next: [15. Glossary](15-glossary.md)
 
-All the commands and settings of v4.5.5-nikque.13 (made from the lists in the source). Where the "Chapter" column is empty, the item is for development and testing and is not explained in this manual.
+All the commands and settings of v4.5.5-nikque.19 (made from the lists in the source). Where the "Chapter" column is empty, the item is for development and testing and is not explained in this manual.
 
 ## 14.1 Commands for playing and analysing
 
