@@ -2,6 +2,47 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.19
+
+Book analysis commands for a GUI program. **The search, `eval.dat`, the book file format and the results are the same as v4.5.5-nikque.18.**
+
+New commands (each runs in a background thread and only reads the book; the answers are lines that start with `@`, each written whole up to its end at once):
+
+| Command | Answer |
+|---|---|
+| `book moveinfo id=N` | For every legal move: the book value and level, the precision stage (0 to 7), the leaves missing for the next stage, the umigame numbers, the book positions reached after the move |
+| `book missing id=N` | The lines to the leaves missing for the next stage |
+| `book levels id=N` | The positions after the current position, per level (`scope=all`: the whole book) |
+| `book bestlines id=N` | The number of lines where both sides play best moves only (or moves losing at most `loss=` discs); with `file=`, the moves to their ends are written to a file |
+| `book findline id=N target=position` | The lines from the current position to that position through book positions only, in the order of the sum of the changes of the book value (seen by black), the smallest first: `n=` lines (1 by default) |
+| `stop id=N` | Stop the analysis N only (the other analyses and the commands waiting are kept) |
+
+- Precision stage: 3 to 7 mean that `book deviate 1 1` to `book deviate 5 5` from the position after the move would add nothing; 0: not in the book; 1: the lines of best moves do not reach a solved position; 2: the range of stage 3 is not complete. `base=deviate2`, `base=deviate3` and `stages=` change the reference.
+- Umigame numbers: the smallest number of line ends to learn to know every line of the condition after the move (by default, the best moves of both sides), for black and for white. A position reached by different lines is counted once. `umi=loss` and `umi=range` can be used too (with a wide range, a number that may not be the smallest gets `exact=0`).
+- During an analysis, Edax still reads `hint`, the moves and the other commands. Before a command that may change the book (`book store`, …), the analyses are stopped.
+- Details: [user manual 12.4](manual/en/12-integration.md).
+
+What changes:
+
+- `stop` takes `id=N`. A `stop` without a number works as before (stop thinking, drop the commands waiting).
+- The lines of the standard output (the prompt, the moves of a game, the lines of the book moves) are written whole, so that no analysis line comes in their middle.
+- `help book` lists the 5 commands.
+- The words of an analysis command are cut at spaces; a value between `"…"` is one value, with its spaces (`file="C:\a b\lines.txt"`). A number `id=` that is not an int is answered by `@error word=id` alone, and nothing is done. Written while another output (a warning, …) is half written, an analysis line may come in the middle of that line (a GUI reads the `@…` in the middle of a line; [user manual 12.4](manual/en/12-integration.md)).
+
+Checks:
+
+- On 3 small books made for the tests (about 1,400 to 410,000 positions, with many transpositions and passes), the answers were compared with computations written apart (in Python, reading the book file itself): the precision stages, the missing leaves, the values, the numbers of positions and the umigame numbers (against the smallest over every choice of moves) agree for 4,924 moves × 3 conditions; the lines to the missing leaves for 1,528 cases; the best lines for 608 cases (the 5,546 lines written were played again from the start).
+- The precision stages were also checked by running the real `book deviate`, `deviate2` and `deviate3` 164 times (nothing is added within the range of stage k; something is added within the range of stage k+1).
+- Lines to a position (`book findline`): 6,576 cases on 3 test books agree with a computation written apart (the n smallest costs and the number of lines); each line answered was played again (legal, every position in the book, the target reached, the same cost).
+- Umigame numbers: 40,000 random graphs of positions (31,338 with shared positions) agree with the smallest over every choice of moves.
+- The background thread: stopping (running, waiting, unknown number), the stop before a command that changes the book, no line lost while `hint` runs at the same time, `quit` during an analysis.
+- Search: 17 positions with 1 thread, level 14 and no book give the same depths, scores, node counts (7,805,061 in all) and principal variations as `wEdax-x86-64-v3.exe` of v4.5.5-nikque.18. The 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (77,639,567) and principal variations as v4.5.5-nikque.18; the 7 Cassio cases pass. The 3 DLLs: 204 API checks, 0 failures. The books of suite F of `book-reproducible` are those of v4.5.5-nikque.18. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 204 API checks, 0 failures. Android (NDK r27d): no warning. No program or library holds a folder of the build machine.
+- Speed: the search, the evaluation, the book learning and the file format are unchanged. What the usual paths run in addition is a lock when a line is written, a check at the start of a book command (once per command) and the reading of the `stop` lines. The node counts above show that the search is the same.
+- Speed of the new commands (a test book of 19.1 million positions, 4 threads): the precision stages and umigame numbers (best moves) of every move take 0.02 s or less even from the start; the number of positions from the start 2.3 s; `book bestlines loss=4` 15.5 s (9.81 million positions). The analyses take at most about 86 MB more memory (about 7 % of the book).
+- Size (against v4.5.5-nikque.18): the 5 Windows programs +40,448 to +41,472 bytes (the analysis code); the 3 DLLs the same size (the unused code is dropped by the linker). Built by the release workflow: Linux programs +73,728 to +90,112 bytes and libraries +73,760 to +86,048 bytes, macOS programs +66,176 and +73,856 bytes and library +99,200 bytes, Android programs +31,544 and +52,152 bytes and libraries +31,968 and +53,000 bytes, Windows ARM64 +48,640 bytes.
+- Release workflow (run 39501599439): the API checks of the Linux and macOS libraries, 204, 0 failures; fforum-1-19 on macOS with the same node counts as before (x64 2,175,751, arm64 2,181,259). The Windows x86 and x64 programs and DLLs are the local PGO builds.
+- Not checked with the 29 GB real book.
+
 ## v4.5.5-nikque.18
 
 The programs no longer hold the folder where they were built. **The search, `eval.dat`, the book file format and the results are the same as v4.5.5-nikque.17.**
