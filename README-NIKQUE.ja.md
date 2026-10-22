@@ -4,7 +4,15 @@
 
 この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
 
-**このブランチ（`eval2`）は、評価関数を変えた別の系列です（この版は v4.5.5-eval2.7）。** 既定のブランチ `edax-4.5.5-fixes`（v4.5.5-nikque.19）との違いは、下の「v4.5.5-eval2.1 の変更点」に書いた評価関数の変更だけです。
+**このブランチ（`eval2`）は、評価関数を変えた別の系列です（この版は v4.5.5-eval2.8）。** 既定のブランチ `edax-4.5.5-fixes`（v4.5.5-nikque.20）との違いは、下の「v4.5.5-eval2.1 の変更点」に書いた評価関数の変更だけです。
+
+## v4.5.5-eval2.8 の変更点
+
+v4.5.5-eval2.7 に、v4.5.5-nikque.20 の変更（下の nikque.20 の項：book を軽くする `book reduce` と、消す前に数える `book reducecount`）を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。探索と結果は v4.5.5-eval2.7 と同じです。
+
+確認：
+
+- `book reduce`・`book reducecount` の試験（nikque.20 と同じ試験：試験のために作った小さなbook 3 つで、別に書いた計算と照らし合わせ）は 529 通りすべて一致しました。
 
 ## v4.5.5-eval2.7 の変更点
 
@@ -214,6 +222,32 @@ v4.5.5-nikque.9 の配布版（上流の `eval.dat`）より、この版（新�
 - **bookの回帰試験**（上流の `eval.dat`、1スレッド、level 21、`book-store-tasks = 1`、配布用のAVX-512版）：全bookコマンドの8組の試験で、できたファイル84個が v4.5.5-nikque.9 の配布版と一致しました（違うのは、日時の入るファイル1種類だけ）。8組の時間の合計は 172.1秒 → 174.1秒（1.012倍。1回ずつの値で、誤差と区別できません）。新しい `eval.dat` でのbookの試験と、複数スレッドのbookの試験は、行っていません。
 - 最大メモリ（上の「速さ」）。
 - **測っていない・確認していないもの**：macOS版・Android版・Windows ARM64版の動作と速さ（Android版と Windows ARM64版はビルドだけ）、bookの学習の時間、level 24 以上の対局、level 30 以上の探索、新しい `eval.dat` でのbookの試験（bookのコードは v4.5.5-nikque.9 から変えていません）、この版のライブラリを入れた edax_runner。
+## v4.5.5-nikque.20 の変更点
+
+book を軽くする命令 `book reduce` と、消す前に数を数える `book reducecount` を足しました。**探索・`eval.dat`・bookのファイル形式・結果は v4.5.5-nikque.19 と同じです。**
+
+| 命令 | 働き |
+|---|---|
+| `book reduce X Y` | 今の局面から `book deviate3 X Y` がたどる局面だけを残し、ほかを消す（ふつうは初期局面で打つ）。消した局面への手は Leaf の候補になる（`book prune` と同じ） |
+| `book reducecount id=N x=X y=Y` | `book reduce X Y` で残る局面と消える局面の数（裏のスレッドで数える。bookは変えない。答えは `@end id=N kept=… removed=… positions=…`） |
+
+- 残る範囲：今の局面と、1 手の石損が X 以下、石損の合計が Y 以下の手でたどれる局面（`book deviate3 X Y` が広げる局面を探すときに歩く範囲。合流した局面は、石損の合計がいちばん小さい道で決まる）と、歩いた局面からその手で行ける、bookの深さの次の局面と終局の局面です。
+- `book reduce` は、先に今の局面から評価値を計算し直します（`book deviate3` と同じ）。`book reducecount` も、bookを変えずに同じ計算をしてから数えるので、`book reduce` と同じ数になります。
+- 残った局面の評価値は変わらず、その後に同じ局面から `book deviate3 X Y` を打つと、消す前と同じ Leaf を広げます。
+- X は 0〜129、Y は 0〜254 です。数が 2 つない・範囲の外・今の局面がbookにない・bookの深さより 2 つ以上先のときは、警告を出してbookを変えません。
+- 切り詰めたbookは、`book subtree`・`book prune` と同じく、そのまま Edax を終了すると `book-file` のファイルに保存されます。
+- 詳しくは[ユーザーマニュアル 8.4](manual/ja/08-book-maintenance.md)・[12.4](manual/ja/12-integration.md)。
+
+動作が変わるところ：
+
+- `help book` に 2 つの命令を足しました。ほかの命令は変えていません。
+
+確認：
+
+- 試験のために作った小さなbook 4 つ（約 1,500〜41 万局面、合流とパスを多く含む）で、別に書いた計算（Python。bookのファイルを自分で読み、`book deviate3` の歩き方と評価値の計算し直しを書いた）と比べました：`book reducecount` の残る数・消える数、`book reduce` の後に保存したbookの局面の集まり・各局面の評価値・level・Link・Leaf、その後の `book deviate3 X Y` が広げる局面が、546 通りですべて一致。数の欠け・範囲の外・bookにない局面・深さの先の局面・`stop id=N` も確かめました。
+- 直す前の v4.5.5-nikque.19 では、同じ試験がすべて落ちることを確かめました（知らない命令）。
+- 29GBの実bookでは確かめていません。
+
 ## v4.5.5-nikque.19 の変更点
 
 GUI のプログラムのための、book の解析の命令を足しました。**探索・`eval.dat`・bookのファイル形式・結果は v4.5.5-nikque.18 と同じです。**
