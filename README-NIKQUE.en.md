@@ -4,6 +4,32 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.20
+
+A command that makes the book lighter, `book reduce`, and `book reducecount`, which counts before removing. **The search, `eval.dat`, the book file format and the results are the same as v4.5.5-nikque.19.**
+
+| Command | What it does |
+|---|---|
+| `book reduce X Y` | Keeps only the positions that `book deviate3 X Y` walks from the current position and removes the others (usually typed at the initial position). A move to a removed position may become a leaf (as with `book prune`) |
+| `book reducecount id=N x=X y=Y` | The number of positions that `book reduce X Y` would keep and remove (counted in a background thread; the book is not changed; the answer is `@end id=N kept=… removed=… positions=…`) |
+
+- What is kept: the current position, the positions reached from it by moves that lose at most X discs each with at most Y discs lost in all (the range that `book deviate3 X Y` walks when it looks for the positions to expand; a position reached by several ways counts with the smallest sum of losses), and the positions under the depth of the book and at the end of the game that a walked position reaches by such a move.
+- `book reduce` first computes again the values after the current position (as `book deviate3`). `book reducecount` does the same computation without changing the book before it counts, so the numbers are those of `book reduce`.
+- The values of the positions kept do not change, and `book deviate3 X Y` from the same position afterwards expands the same leaves as before.
+- X is 0 to 129, Y is 0 to 254. Without two numbers, with a number out of range, when the current position is not in the book or is two or more moves beyond the depth of the book, a warning is shown and the book is not changed.
+- As with `book subtree` and `book prune`, a book cut down is saved to the file of `book-file` when Edax is then ended.
+- See the [user manual 8.4](manual/en/08-book-maintenance.md) and [12.4](manual/en/12-integration.md).
+
+Behaviour changes:
+
+- `help book` shows the 2 commands. No other command changed.
+
+Checks:
+
+- On 4 small books made for the tests (about 1,500 to 410,000 positions, with many transpositions and passes), compared with a computation written apart (Python; it reads the book file itself and walks as `book deviate3` does, after computing the values again): the numbers kept and removed by `book reducecount`; the positions of the book saved after `book reduce`, the value, level, links and leaf of each of them; the positions whose leaf `book deviate3 X Y` expands afterwards. All the same in 546 cases. Missing numbers, numbers out of range, a position out of the book, a position beyond the depth and `stop id=N` were checked too.
+- With v4.5.5-nikque.19, from before the change, the same tests all fail (unknown commands).
+- Not checked with the 29 GB real book.
+
 ## Changes in v4.5.5-nikque.19
 
 Book analysis commands for a GUI program. **The search, `eval.dat`, the book file format and the results are the same as v4.5.5-nikque.18.**

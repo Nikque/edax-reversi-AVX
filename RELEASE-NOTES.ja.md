@@ -2,6 +2,32 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-nikque.20
+
+book を軽くする命令 `book reduce` と、消す前に数を数える `book reducecount` を足しました。**探索・`eval.dat`・bookのファイル形式・結果は v4.5.5-nikque.19 と同じです。**
+
+| 命令 | 働き |
+|---|---|
+| `book reduce X Y` | 今の局面から `book deviate3 X Y` がたどる局面だけを残し、ほかを消す（ふつうは初期局面で打つ）。消した局面への手は Leaf の候補になる（`book prune` と同じ） |
+| `book reducecount id=N x=X y=Y` | `book reduce X Y` で残る局面と消える局面の数（裏のスレッドで数える。bookは変えない。答えは `@end id=N kept=… removed=… positions=…`） |
+
+- 残る範囲：今の局面と、1 手の石損が X 以下、石損の合計が Y 以下の手でたどれる局面（`book deviate3 X Y` が広げる局面を探すときに歩く範囲。合流した局面は、石損の合計がいちばん小さい道で決まる）と、歩いた局面からその手で行ける、bookの深さの次の局面と終局の局面です。
+- `book reduce` は、先に今の局面から評価値を計算し直します（`book deviate3` と同じ）。`book reducecount` も、bookを変えずに同じ計算をしてから数えるので、`book reduce` と同じ数になります。
+- 残った局面の評価値は変わらず、その後に同じ局面から `book deviate3 X Y` を打つと、消す前と同じ Leaf を広げます。
+- X は 0〜129、Y は 0〜254 です。数が 2 つない・範囲の外・今の局面がbookにない・bookの深さより 2 つ以上先のときは、警告を出してbookを変えません。
+- 切り詰めたbookは、`book subtree`・`book prune` と同じく、そのまま Edax を終了すると `book-file` のファイルに保存されます。
+- 詳しくは[ユーザーマニュアル 8.4](manual/ja/08-book-maintenance.md)・[12.4](manual/ja/12-integration.md)。
+
+動作が変わるところ：
+
+- `help book` に 2 つの命令を足しました。ほかの命令は変えていません。
+
+確認：
+
+- 試験のために作った小さなbook 4 つ（約 1,500〜41 万局面、合流とパスを多く含む）で、別に書いた計算（Python。bookのファイルを自分で読み、`book deviate3` の歩き方と評価値の計算し直しを書いた）と比べました：`book reducecount` の残る数・消える数、`book reduce` の後に保存したbookの局面の集まり・各局面の評価値・level・Link・Leaf、その後の `book deviate3 X Y` が広げる局面が、546 通りですべて一致。数の欠け・範囲の外・bookにない局面・深さの先の局面・`stop id=N` も確かめました。
+- 直す前の v4.5.5-nikque.19 では、同じ試験がすべて落ちることを確かめました（知らない命令）。
+- 29GBの実bookでは確かめていません。
+
 ## v4.5.5-nikque.19
 
 GUI のプログラムのための、book の解析の命令を足しました。**探索・`eval.dat`・bookのファイル形式・結果は v4.5.5-nikque.18 と同じです。**
