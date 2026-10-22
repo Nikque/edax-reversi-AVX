@@ -259,13 +259,15 @@ void help_book(void)
 		"  leaf expand [n1 n2] expand the leaves better than every link of their\n  position; with <n1> <n2>, only in the walk of deviate3 <n1> <n2>.\n"
 		"  prune               remove unreachable positions.\n"
 		"  subtree             only keep positions from the current position.\n"
+		"  reduce <n1> <n2>    only keep the positions that deviate3 <n1> <n2> walks from\n  the current position, and those its moves lead to.\n"
 		"  add [file]          add positions from a game base file (txt, ggf, sgf or\n  wthor format).\n"
 		"  moveinfo id=<n> ... for every legal move: book value, precision stage, missing\n  leaves, umigame numbers, positions (answers: lines starting with '@').\n"
 		"  missing id=<n> ...  the lines to the leaves missing for the next stage.\n"
 		"  levels id=<n> ...   the positions of each level after the current position.\n"
 		"  bestlines id=<n> ... the lines of best moves: counts, and a file of their ends.\n"
 		"  findline id=<n> target=<position> ... the lines from the current position to\n  a position, through book positions only.\n"
-		"  (these five commands run beside the others and only read the book;\n  \"stop id=<n>\" stops one of them.)\n");
+		"  reducecount id=<n> x=<n1> y=<n2>  the positions that reduce <n1> <n2> would\n  keep and remove.\n"
+		"  (these six commands run beside the others and only read the book;\n  \"stop id=<n>\" stops one of them.)\n");
 }
 
 /**
@@ -842,6 +844,20 @@ void ui_loop_edax(UI *ui)
 					book_negamax(book); // negamax nodes
 					book_negamax_subtree(book, &play->board); // (from this position, when the initial one is no longer in the book)
 					book_sort(book); // sort moves
+
+				// keep only the positions that book deviate3 <n1> <n2> walks from the current position
+				} else if (strcmp(book_cmd, "reduce") == 0) {
+					val_1 = val_2 = -1;
+					book_param = parse_int(book_param, &val_1);
+					book_param = parse_int(book_param, &val_2);
+					if (val_1 < 0 || val_1 > 129 || val_2 < 0 || val_2 > 254) {
+						warn("book reduce: two loss limits are needed, from 0 to 129 and from 0 to 254 (book reduce <n1> <n2>); the book is not changed\n");
+					} else if (book_reduce(book, &play->board, val_1, val_2)) {
+						book_fix(book); // do nothing (or edax is buggy)
+						book_negamax(book); // negamax nodes
+						book_negamax_subtree(book, &play->board); // (from this position, when the initial one is no longer in the book)
+						book_sort(book); // sort moves
+					}
 
 				// show the current position as stored in the book
 				} else if (strcmp(book_cmd, "show") == 0) {

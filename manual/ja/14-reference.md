@@ -78,6 +78,7 @@ v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧
 | `merge` | ファイル | 別の book を取り込む | `.mrg` | [8.3](08-book-maintenance.md) |
 | `subtree` | | 今の局面から先だけを残す | | [8.4](08-book-maintenance.md) |
 | `prune` | | 片方が最善を打つ変化だけを残す | | [8.4](08-book-maintenance.md) |
+| `reduce` | X Y。X は 0〜129、Y は 0〜254 | 今の局面から `deviate3 X Y` でたどれる局面だけを残す | | [8.4](08-book-maintenance.md) |
 | `export`・`import` | ファイル | 文字のファイルに書き出す・読み戻す | | [8.5](08-book-maintenance.md) |
 | `leaf recalculate`・`leaf recalculate3` | `deviate` と同じ | Leaf を計算し直す | `.leaf`・`.leaf3` | [8.6](08-book-maintenance.md) |
 | `leaf recalculate2`・`leaf recalculate4` | `deviate2` と同じ | Leaf を計算し直す | `.leaf2`・`.leaf4` | [8.6](08-book-maintenance.md) |
@@ -92,6 +93,7 @@ v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧
 | `levels` | `id=N` ［`scope=all`］ | level ごとの局面の数（裏で動く） | | [12.4](12-integration.md) |
 | `bestlines` | `id=N` ［`loss=`・`depth=`・`solved=`・`file=`・`which=`］ | 最善の進行の数と、その端までの手順の書き出し（裏で動く） | 指定のファイル | [12.4](12-integration.md) |
 | `findline` | `id=N` `target=局面` ［`n=`］ | 今の局面から局面までの、book の局面だけを通る手順（裏で動く） | | [12.4](12-integration.md) |
+| `reducecount` | `id=N` ［`x=`（2）・`y=`（4）］ | `reduce X Y` で残る局面と消える局面の数（裏で動く。book は変えない） | | [12.4](12-integration.md) |
 
 ## 14.3 base のコマンド
 

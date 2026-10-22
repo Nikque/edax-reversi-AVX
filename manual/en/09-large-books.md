@@ -78,7 +78,7 @@ book-merge-auto-save = on
 
 ## 9.5 Cautions for the steps on a large book
 
-1. **Copy the file before maintenance.** `book subtree`, `book prune`, `book merge`, `book correct`, `book leaf recalculate`, `book fill`, `book fill2` and `book leaf expand` change the book a lot. The save at the end overwrites `book-file` ([8.4](08-book-maintenance.md)).
+1. **Copy the file before maintenance.** `book subtree`, `book prune`, `book reduce`, `book merge`, `book correct`, `book leaf recalculate`, `book fill`, `book fill2` and `book leaf expand` change the book a lot. The save at the end overwrites `book-file` ([8.4](08-book-maintenance.md)).
 2. **Do not type `book new` while a large book is in use.** The book in memory is dropped, and getting it back costs the time of reading the file again. If Edax is then ended as it is, the file of `book-file` becomes the new empty book and the previous file is kept under a name with `.old` added (up to v4.5.5-nikque.12 it is not kept but overwritten; [6.7](06-book-basics.md)).
 3. **`book export` (the text file) gives a very large file for a large book.** Use the files of `book save` for everyday saving and for passing a book on.
 4. **When you stop, remember the save interval.** Stopping a growing command loses what came after the last save ([7.5](07-book-learning.md)). `quit` waits until the command ends.

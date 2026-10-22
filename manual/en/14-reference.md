@@ -78,6 +78,7 @@ They are written after `book` (or `b`). The word that follows may be in upper ca
 | `merge` | file | Take in another book | `.mrg` | [8.3](08-book-maintenance.md) |
 | `subtree` | | Keep only what follows the current position | | [8.4](08-book-maintenance.md) |
 | `prune` | | Keep only the lines where one side plays best moves | | [8.4](08-book-maintenance.md) |
+| `reduce` | X Y. X: 0 to 129, Y: 0 to 254 | Keep only the positions that `deviate3 X Y` walks from the current position | | [8.4](08-book-maintenance.md) |
 | `export`, `import` | file | Write to a text file, read back | | [8.5](08-book-maintenance.md) |
 | `leaf recalculate`, `leaf recalculate3` | as `deviate` | Compute the leaves again | `.leaf`, `.leaf3` | [8.6](08-book-maintenance.md) |
 | `leaf recalculate2`, `leaf recalculate4` | as `deviate2` | Compute the leaves again | `.leaf2`, `.leaf4` | [8.6](08-book-maintenance.md) |
@@ -92,6 +93,7 @@ They are written after `book` (or `b`). The word that follows may be in upper ca
 | `levels` | `id=N` [`scope=all`] | The positions per level (in the background) | | [12.4](12-integration.md) |
 | `bestlines` | `id=N` [`loss=`, `depth=`, `solved=`, `file=`, `which=`] | The number of lines of best moves, and a file of the moves to their ends (in the background) | The file given | [12.4](12-integration.md) |
 | `findline` | `id=N` `target=position` [`n=`] | The lines from the current position to a position, through book positions only (in the background) | | [12.4](12-integration.md) |
+| `reducecount` | `id=N` [`x=` (2), `y=` (4)] | The positions that `reduce X Y` would keep and remove (in the background; the book is not changed) | | [12.4](12-integration.md) |
 
 ## 14.3 Base commands
 

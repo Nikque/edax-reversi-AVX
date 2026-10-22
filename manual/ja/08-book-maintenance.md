@@ -15,6 +15,7 @@
 | 2 つの book を 1 つにまとめる | `book merge` | 8.3 |
 | book を浅くする・ある定石の先だけ残す | `book depth`＋`book subtree` | 8.4 |
 | 悪い手ばかりの変化を捨てる | `book prune` | 8.4 |
+| `book deviate3 X Y` でたどれない局面を消して軽くする | `book reduce` | 8.4 |
 | 文字のファイルに書き出す・読み戻す | `book export`・`book import` | 8.5 |
 | `eval.dat` を替えた後などに、Leaf の評価値を計算し直す | `book leaf recalculate` 系 | 8.6 |
 | 完全読みの局面の値を確かめ直す | `book correct` | 8.7 |
@@ -151,9 +152,36 @@ Positions: 1269 (moves = 1296 links + 1265 leaves);
 
 対局で使う book を小さくしたいときに使います（相手がどう打っても、自分は最善で応じられる範囲が残ります）。研究用に「両者の間違い」まで育てた book（`book deviate2` で広げたもの）に使うと、その大半が消えます。
 
+### book reduce：deviate3 X Y でたどれる局面だけを残して軽くする
+
+v4.5.5-nikque.20 からのコマンドです。
+
+```
+>init
+>book reducecount id=1 x=2 y=4
+@end id=1 kept=19 removed=25184 positions=25203 ms=16
+>book reduce 2 4
+Book reduce 2 4: 19 positions kept, 25184 removed
+Fixing book...0 done
+Negamaxing book...done
+Sorting book...done
+>book info
+Positions: 19 (moves = 22 links + 17 leaves);
+```
+
+今の盤の局面から `book deviate3 X Y` がたどる局面だけを残し、ほかを消します。上の例（試験の小さな book）では、25,203 局面が 19 局面になりました。ふつうは、`init` で初期局面に戻してから打ちます。
+
+- 残るのは、今の局面と、そこから「1 手の石損が X 以下、そこまでの石損の合計が Y 以下」の手でたどれる局面です。`book deviate3 X Y` が、広げる局面を探すときに歩く範囲と同じです（別の手順から同じ局面に来るときは、石損の合計がいちばん小さい道で決まります）。歩いた局面からその手で行ける、book の深さの次の局面と終局の局面も残ります。
+- 打つと、まず今の局面から先の評価値を計算し直します（`book deviate3` と同じ）。
+- 消した局面への手は、その局面の Leaf の候補になります（`book prune` と同じ）。残った局面の評価値は変わりません。その後に同じ局面から `book deviate3 X Y` を打つと、消す前と同じ Leaf だけを広げます。
+- X は 0〜129、Y は 0〜254 です。数が 2 つないとき、範囲の外のときは、警告が出て何もしません。
+- 初期局面でない局面で打つと、`book subtree` と同じく、初期局面からそこまでの局面も消えます。
+- 今の局面が book にないとき、book の深さより 2 つ以上先のときは、警告が出て何もしません。
+- 消える数は、`book reducecount id=N x=X y=Y` で先に確かめられます（book は変えません。[12.4](12-integration.md)）。`book reduce` と同じく評価値を計算し直した値で数えるので、同じ数になります。
+
 ### 切り詰めるときの注意
 
-**v4.5.5-nikque.13 から、`book subtree`・`book prune` で切り詰めた book は、そのまま Edax を終了すると、`book-file` のファイルに保存されます**（切り詰める前の book が、上書きされます）。
+**v4.5.5-nikque.13 から、`book subtree`・`book prune` で切り詰めた book は、そのまま Edax を終了すると、`book-file` のファイルに保存されます**（切り詰める前の book が、上書きされます）。`book reduce`（v4.5.5-nikque.20 から）も同じです。
 
 - 切り詰める前の book を残したいときは、**先にファイルの写しを取る**か、切り詰めた book を `book save 別の名前` で保存してから、終了する前に `book load` で元の book を読み直してください。
 - `book depth` で深さの設定を変えただけでは、保存されません。
@@ -298,6 +326,7 @@ book の中から、空きが 52 で、最善の手が 1 つに決まってい�
 | `book depth n` | 深さの設定を変える |
 | `book subtree` | 今の盤の局面から先だけを残す |
 | `book prune` | 片方が最善を打つ変化だけを残す |
+| `book reduce X Y` | 今の盤の局面から `book deviate3 X Y` でたどれる局面だけを残す |
 | `book export ファイル`・`book import ファイル` | 文字のファイルに書き出す・読み戻す |
 | `book leaf recalculate`（`2`・`3`・`4`）`X Y` | Leaf の評価値を計算し直す |
 | `book correct` | 完全読みの局面を確かめ直す |
