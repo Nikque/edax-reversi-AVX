@@ -11,6 +11,8 @@
  * - book bestlines: the lines of best moves (both sides) from the current position, counted and written.
  * - book findline: the lines from the current position to a target position through book positions only, the
  *   smallest sum of the changes of the book value (seen by black) along the line first.
+ * - book reducecount: the positions that book reduce x y would keep and remove (book reduce itself, which changes the
+ *   book, is a book command of the main thread: book_reduce below).
  *
  * The analyses run in a thread of their own, one after the other, and only read the book: the commands
  * that change the book first stop them (book_analysis_quiesce). They can be stopped at any time with
@@ -85,7 +87,7 @@ static void ba_print(const char *format, ...)
 
 /* ------------------------------------------------------------------ state ------------------------------------------------------------------- */
 
-enum { BA_MOVEINFO, BA_MISSING, BA_LEVELS, BA_BESTLINES, BA_FINDLINE };
+enum { BA_MOVEINFO, BA_MISSING, BA_LEVELS, BA_BESTLINES, BA_FINDLINE, BA_REDUCECOUNT };
 enum { BA_DEVIATE = 1, BA_DEVIATE2 = 2, BA_DEVIATE3 = 3 };
 enum { BA_UMI_OFF, BA_UMI_BEST, BA_UMI_LOSS, BA_UMI_RANGE };
 enum { BA_PART_STAGE = 1, BA_PART_UMI = 2, BA_PART_COUNT = 4 };
@@ -96,7 +98,7 @@ enum { BA_PART_STAGE = 1, BA_PART_UMI = 2, BA_PART_COUNT = 4 };
 typedef struct BaJob {
 	struct BaJob *next;
 	int id;                 /**< number given by the user interface */
-	int kind;               /**< BA_MOVEINFO, BA_MISSING, BA_LEVELS, BA_BESTLINES or BA_FINDLINE */
+	int kind;               /**< BA_MOVEINFO, BA_MISSING, BA_LEVELS, BA_BESTLINES, BA_FINDLINE or BA_REDUCECOUNT */
 	char *param;            /**< words after the command */
 	char *line;             /**< moves of the game up to the current position (passes left out) */
 	Board board;            /**< current position */
@@ -142,7 +144,7 @@ typedef struct BaParams {
 	int n_stage;                                /**< ranges of the stages 3 and above */
 	int stage_x[BA_MAX_STAGES], stage_y[BA_MAX_STAGES];
 	int umi;                                    /**< BA_UMI_* */
-	int x, y;                                   /**< loss limits (umi=loss; book missing) */
+	int x, y;                                   /**< loss limits (umi=loss; book missing; book reducecount) */
 	bool xy_set;
 	int lo, hi;                                 /**< value range, for the side to move at the current position (umi=range) */
 	int depth;                                  /**< last move number followed by the umigame numbers */
@@ -2949,6 +2951,291 @@ end:
 	return result;
 }
 
+/* ------------------------------------------------------------------ book reduce ------------------------------------------------------------- */
+
+/*
+ * book reduce x y keeps the positions that the walk of book deviate3 x y reaches from the current position (the root):
+ * a position walked with its smallest accumulated loss L keeps the positions of its links whose loss e is
+ * 0 <= e <= x with L + e <= y; such a position is walked in turn when its empties are at least those of the book depth
+ * and the game is not over (as book_deviate_total_by_loss). The root is always kept. The other positions are removed,
+ * and the links to them are removed as after book prune (the best of them may become the leaf of the position).
+ * As book deviate3, book reduce first negamaxes the positions after the root (a book learnt from later positions may
+ * not be negamaxed from this one); book reducecount, which does not change the book, walks with the values of its own
+ * negamax (ba_negamax_values), so that both find the same positions. The values of the positions kept do not change
+ * (the best move of a position kept is kept), and book deviate3 x y from the root then selects the same leaves as before.
+ */
+
+/** A position reached by the walk of book reducecount. */
+typedef struct BaRItem {
+	Position *p;
+	unsigned int idx;
+} BaRItem;
+
+typedef struct BaRList {
+	BaRItem *v;
+	long long n, size;
+} BaRList;
+
+static bool ba_rlist_push(BaRList *l, Position *p, const unsigned int idx)
+{
+	if (l->n == l->size) {
+		const long long size = l->size + l->size / 2 + 1024;
+		BaRItem *v = (BaRItem*) realloc(l->v, (size_t) size * sizeof *v);
+		if (v == NULL) return false;
+		l->v = v; l->size = size;
+	}
+	l->v[l->n].p = p;
+	l->v[l->n].idx = idx;
+	++l->n;
+	return true;
+}
+
+/** A position of the depth first walk of ba_negamax_values. */
+typedef struct BaNItem {
+	Position *p;
+	unsigned int idx;
+	int link;               /**< next link */
+	int best;               /**< best value so far */
+} BaNItem;
+
+/**
+ * @brief The values of the negamax of the positions after a root, as book_negamax_position computes them: the best of
+ * the leaf (when it has a score) and of the values of the children seen from the position (a link without child is
+ * not counted), -SCORE_INF if none.
+ * @param val Marks: value + 128 of each position computed (1 to 255), 0 for the others.
+ * @return false if stopped or out of memory.
+ */
+static bool ba_negamax_values(BaWork *w, Position *root, const unsigned int root_idx, BaVisit *val)
+{
+	BaNItem *stack = NULL;
+	int n = 0, size = 0;
+	Position *next = root;      /* position to put on the stack */
+	unsigned int next_idx = root_idx;
+	bool ok = true;
+
+	ba_visit_clear(val);
+	while (ok) {
+		BaNItem *top;
+		if (next) {
+			if (n == size) {
+				BaNItem *s = (BaNItem*) realloc(stack, (size_t) (size + 64) * sizeof *s);
+				if (s == NULL) { ok = false; break; }
+				stack = s; size += 64;
+			}
+			stack[n].p = next;
+			stack[n].idx = next_idx;
+			stack[n].link = 0;
+			stack[n].best = next->leaf.score > -SCORE_INF ? next->leaf.score : -SCORE_INF;
+			++n;
+			next = NULL;
+		}
+		if (w->job->cancel) { ok = false; break; }
+		top = stack + n - 1;
+		while (top->link < top->p->n_link) {
+			const Link *l = position_links(top->p) + top->link;
+			Board target;
+			unsigned int ci;
+			Position *child;
+			unsigned char cv;
+			board_next(&top->p->board, l->move, &target);
+			child = ba_probe(w, &target, &ci);
+			if (child == NULL) { ++top->link; continue; } // (a link without child is not counted)
+			cv = ba_visit_get(val, ci);
+			if (cv == 0) { next = child; next_idx = ci; break; } // its value first (the link is read again then)
+			if (128 - cv > top->best) top->best = 128 - cv;
+			++top->link;
+		}
+		if (next) continue;
+		if (!ba_visit_set(val, top->idx, (unsigned char) (top->best + 128))) ok = false;
+		else if (--n == 0) break;
+	}
+	free(stack);
+	return ok;
+}
+
+/**
+ * @brief The positions that book reduce keeps from a root (marks: smallest accumulated loss + 1 of a walked position,
+ * 1 for a position kept that is not walked), with the values of ba_negamax_values.
+ * @return their number, -1 if stopped or out of memory.
+ */
+static long long ba_reduce_walk(BaWork *w, Position *root, const unsigned int root_idx, const int move_loss, const int total_loss, const BaVisit *val)
+{
+	const Book *book = w->book;
+	BaRList *level = (BaRList*) calloc((size_t) total_loss + 1, sizeof *level);
+	long long n = -1;
+	int L;
+	bool ok;
+
+	if (level == NULL) return -1;
+	ba_visit_clear(&w->visit);
+	ok = ba_visit_set(&w->visit, root_idx, 1);
+	if (ok && ba_walkable(book, root)) ok = ba_rlist_push(level, root, root_idx);
+	for (L = 0; ok && L <= total_loss; ++L) {
+		BaRList *cur = level + L;
+		long long k;
+		for (k = 0; ok && k < cur->n; ++k) { // (positions reached with the same loss are added while the list is read)
+			Position *p = cur->v[k].p;
+			const int v = ba_visit_get(val, cur->v[k].idx) - 128;
+			Link *l;
+
+			if (w->job->cancel) { ok = false; break; }
+			if (ba_visit_get(&w->visit, cur->v[k].idx) != L + 1) continue; // reached later with a smaller loss
+			foreach_link(l, p) {
+				Board target;
+				unsigned int ci;
+				Position *child;
+				board_next(&p->board, l->move, &target);
+				child = ba_probe(w, &target, &ci);
+				if (child) {
+					const int e = v + (ba_visit_get(val, ci) - 128); // (the score of the link is minus the value of the child)
+					unsigned char old;
+					if (e < 0 || e > move_loss || L + e > total_loss) continue;
+					old = ba_visit_get(&w->visit, ci);
+					if (!ba_walkable(book, child)) {
+						if (!old && !ba_visit_set(&w->visit, ci, 1)) { ok = false; break; }
+						continue;
+					}
+					if (old && old <= L + e + 1) continue;
+					if (!ba_visit_set(&w->visit, ci, (unsigned char) (L + e + 1)) || !ba_rlist_push(level + L + e, child, ci)) { ok = false; break; }
+				}
+			}
+		}
+		free(cur->v); cur->v = NULL; cur->n = cur->size = 0;
+	}
+	if (ok) n = (long long) w->visit.n;
+	for (L = 0; L <= total_loss; ++L) free(level[L].v);
+	free(level);
+	return n;
+}
+
+/** @return true if a root is deeper than the book depth (book reduce, as book subtree, does not change the book then). */
+static inline bool ba_reduce_deep(const Book *book, const Position *root)
+{
+	return board_count_empties(&root->board) < book->options.n_empties - 1;
+}
+
+static int ba_reducecount(BaJob *job, const BaParams *prm)
+{
+	const long long t = real_clock();
+	const unsigned long long n_book = ba.index.n;
+	BaWork w;
+	BaVisit val;
+	unsigned int idx;
+	Position *root;
+	long long kept = -1;
+
+	ba_work_init(&w, job, prm);
+	root = ba_probe(&w, &job->board, &idx);
+	if (root == NULL || ba_reduce_deep(job->book, root)) {
+		ba_work_free(&w);
+		ba_print("@end id=%d kept=%llu removed=0 positions=%llu %s=1 ms=%lld\n", job->id, n_book, n_book, root ? "deep" : "notinbook", real_clock() - t);
+		return 0;
+	}
+	ba_visit_init(&val, n_book);
+	if (ba_negamax_values(&w, root, idx, &val)) kept = ba_reduce_walk(&w, root, idx, prm->x, prm->y, &val);
+	ba_visit_free(&val);
+	ba_work_free(&w);
+	if (kept < 0) return -1;
+	ba_print("@end id=%d kept=%lld removed=%lld positions=%llu ms=%lld\n", job->id, kept, (long long) n_book - kept, n_book, real_clock() - t);
+	return 0;
+}
+
+static int ba_reduce_x, ba_reduce_y; /**< loss limits of book reduce (read by the tasks of book_reduce_edge_range) */
+
+/** @brief Mark the positions that the walked positions of a range of buckets keep without walking them (book reduce). */
+static void book_reduce_edge_range(BookTask *task)
+{
+	Book *book = task->book;
+	int b, k;
+
+	for (b = task->first; b < task->last; ++b) {
+		PositionArray *a = book->array + b;
+		for (k = 0; k < a->n; ++k) {
+			Position *p = a->positions + k;
+			const int v = book->visit[book->visit_first[b] + (unsigned int) k];
+			Link *l;
+			if (v == 0) continue; // not walked
+			foreach_link(l, p) {
+				const int e = p->score.value - l->score;
+				if (0 <= e && e <= ba_reduce_x && v - 1 + e <= ba_reduce_y) {
+					Board target;
+					Position *child;
+					board_next(&p->board, l->move, &target);
+					if (board_count_empties(&target) >= book->options.n_empties && !board_is_game_over(&target)) continue; // (walked: marked by the walk)
+					child = book_probe(book, &target);
+					if (child) { // (another task may mark it too)
+						unsigned char s;
+						do {
+							s = atomic_load_uchar(&child->state);
+							if (position_state_is(s, book, POSITION_TODO)) break;
+						} while (!atomic_cas_uchar(&child->state, s, position_state_set(s, book->epoch, POSITION_TODO)));
+					}
+				}
+			}
+		}
+	}
+}
+
+/**
+ * @brief Keep only the positions that the walk of book deviate3 x y reaches from a position (book reduce).
+ *
+ * The walk is the one of book deviate3 (with n-tasks threads), after a negamax from the position (as book deviate3);
+ * see the notes above ba_reduce_walk, which counts the same positions (book reducecount).
+ *
+ * @param book opening book.
+ * @param board Position to start from.
+ * @param move_loss Maximum loss for one move (0 to 129).
+ * @param total_loss Maximum cumulative loss for both players (0 to VISIT_LOSS_MAX).
+ * @return false if the book is not changed (the position is not in the book or deeper than the book depth, no memory).
+ */
+bool book_reduce(Book *book, const Board *board, const int move_loss, const int total_loss)
+{
+	Position *root = book_probe(book, board);
+	PositionArray *a;
+	unsigned int n_nodes;
+	int i;
+
+	if (root == NULL) {
+		warn("book reduce: this position is not in the book; the book is not changed\n");
+		return false;
+	}
+	if (ba_reduce_deep(book, root)) {
+		warn("book reduce: this position is deeper than the book depth; the book is not changed\n");
+		return false;
+	}
+	n_nodes = book->n_nodes;
+	book_clean(book);
+	book_negamax_position(root, book);
+	book_clean(book);
+	if (!book_visit_init(book)) return false;
+	bprint("Book reduce %d %d: walk...\r", move_loss, total_loss);
+	deviate_walk_all = true; // (every position walked is marked "todo")
+	if (!book_deviate_total_by_loss(book, root, 3, move_loss, total_loss)) {
+		book_clean(book);
+		book_visit_clear(book);
+		position_deviate_total(root, book, move_loss, total_loss, 0, false);
+	}
+	deviate_walk_all = false;
+	ba_reduce_x = move_loss;
+	ba_reduce_y = total_loss;
+	{
+		BookTask task[MAX_THREADS];
+		book_parallel(book, book_reduce_edge_range, task, NULL);
+	}
+	position_set_todo(root, book);
+	book_visit_free(book);
+
+	bprint("Book reduce %d %d: remove...\r", move_loss, total_loss);
+	for (a = book->array; a < book->array + book->n; ++a)
+	for (i = 0; i < a->n; ++i) if (!position_is_todo(a->positions + i, book)) {book_remove_at(book, a, i); --i;}
+	book_clean(book);
+	// the book that was cut is saved when Edax ends (as book prune)
+	if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;
+	book_pool_compact(book);
+	printf("Book reduce %d %d: %u positions kept, %u removed\n", move_loss, total_loss, book->n_nodes, n_nodes - book->n_nodes);
+	return true;
+}
+
 /* ------------------------------------------------------------------ thread -------------------------------------------------------------------- */
 
 /** @brief Free an analysis. */
@@ -2980,6 +3267,7 @@ static void ba_run(BaJob *job)
 	else if (job->kind == BA_MISSING) r = ba_missing(job, &prm);
 	else if (job->kind == BA_BESTLINES) r = ba_bestlines(job, &prm);
 	else if (job->kind == BA_FINDLINE) r = ba_findline(job, &prm);
+	else if (job->kind == BA_REDUCECOUNT) r = ba_reducecount(job, &prm);
 	else r = ba_levels(job, &prm);
 	if (r < 0) {
 		if (job->cancel) ba_print("@cancel id=%d\n", job->id);
@@ -3011,7 +3299,7 @@ static void* ba_thread(void *v)
 }
 
 /**
- * @brief Read a command "book moveinfo|missing|levels|bestlines|findline ..." and give it to the analysis thread.
+ * @brief Read a command "book moveinfo|missing|levels|bestlines|findline|reducecount ..." and give it to the analysis thread.
  *
  * @param book Opening book.
  * @param param Words after "book".
@@ -3036,6 +3324,7 @@ bool book_analysis_command(Book *book, const char *param, const Board *board, co
 	else if (strcmp(word, "levels") == 0) kind = BA_LEVELS;
 	else if (strcmp(word, "bestlines") == 0) kind = BA_BESTLINES;
 	else if (strcmp(word, "findline") == 0) kind = BA_FINDLINE;
+	else if (strcmp(word, "reducecount") == 0) kind = BA_REDUCECOUNT;
 	else return false;
 
 	book_analysis_init();

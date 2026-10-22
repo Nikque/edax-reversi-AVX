@@ -15,6 +15,7 @@ This chapter explains the commands that fix a finished book, merge books, cut a 
 | Merge two books into one | `book merge` | 8.3 |
 | Make the book shallower, or keep what follows one opening only | `book depth` + `book subtree` | 8.4 |
 | Drop the lines where both sides play badly | `book prune` | 8.4 |
+| Remove what `book deviate3 X Y` cannot reach, to make the book lighter | `book reduce` | 8.4 |
 | Write to a text file and read back | `book export`, `book import` | 8.5 |
 | Compute the scores of the leaves again, after `eval.dat` was replaced for instance | the `book leaf recalculate` family | 8.6 |
 | Verify the values of the exactly solved positions | `book correct` | 8.7 |
@@ -151,9 +152,36 @@ Only the positions are kept that can be reached from the initial position by lin
 
 Use it to make a book for playing smaller (what remains is the range where you can answer with the best move whatever the opponent plays). On a book grown for study down to "the mistakes of both sides" (expanded with `book deviate2`), most of that is removed.
 
+### book reduce: keeping only what deviate3 X Y walks, to make the book lighter
+
+A command since v4.5.5-nikque.20.
+
+```
+>init
+>book reducecount id=1 x=2 y=4
+@end id=1 kept=19 removed=25184 positions=25203 ms=16
+>book reduce 2 4
+Book reduce 2 4: 19 positions kept, 25184 removed
+Fixing book...0 done
+Negamaxing book...done
+Sorting book...done
+>book info
+Positions: 19 (moves = 22 links + 17 leaves);
+```
+
+Only the positions that `book deviate3 X Y` walks from the position on the board are kept; the others are removed. In the example above (a small test book), 25,203 positions became 19. Usually, go back to the initial position with `init` first.
+
+- What remains is the position on the board and the positions reached from it by moves that lose at most X discs each, with at most Y discs lost in all on the way. This is the range that `book deviate3 X Y` walks when it looks for the positions to expand (when the same position is reached by other moves, the way with the smallest sum of losses counts). The positions under the depth of the book and the positions at the end of the game that a walked position reaches by such a move are kept too.
+- It first computes again the values after the position on the board (as `book deviate3`).
+- A move to a removed position may become the leaf of its position (as with `book prune`). The values of the positions kept do not change. `book deviate3 X Y` from the same position afterwards expands the same leaves as before.
+- X is 0 to 129, Y is 0 to 254. Without two numbers, or with a number out of range, a warning is shown and nothing is done.
+- From a position that is not the initial one, the positions from the initial position up to it are removed too, as with `book subtree`.
+- When the position on the board is not in the book, or two or more moves beyond the depth of the book, a warning is shown and nothing is done.
+- The numbers can be checked first with `book reducecount id=N x=X y=Y` (it does not change the book; [12.4](12-integration.md)). It counts with the values computed again, as `book reduce` does, so the numbers are the same.
+
 ### Cautions when cutting
 
-**Since v4.5.5-nikque.13, a book cut down with `book subtree` or `book prune` is saved to the file of `book-file` when Edax is then ended** (the book from before the cut is overwritten).
+**Since v4.5.5-nikque.13, a book cut down with `book subtree` or `book prune` is saved to the file of `book-file` when Edax is then ended** (the book from before the cut is overwritten). So is a book cut with `book reduce` (since v4.5.5-nikque.20).
 
 - To keep the book from before the cut, **copy the file first**, or save the cut book with `book save another-name` and then, before quitting, read the original book again with `book load`.
 - Changing only the depth setting with `book depth` does not cause a save.
@@ -298,6 +326,7 @@ Among the positions of the book with 52 empty squares in which the best move is 
 | `book depth n` | Change the depth setting |
 | `book subtree` | Keep only what follows the position on the board |
 | `book prune` | Keep only the lines where one side plays best moves |
+| `book reduce X Y` | Keep only the positions that `book deviate3 X Y` walks from the position on the board |
 | `book export file`, `book import file` | Write to a text file, read back |
 | `book leaf recalculate` (`2`, `3`, `4`) `X Y` | Compute the scores of the leaves again |
 | `book correct` | Verify the exactly solved positions |

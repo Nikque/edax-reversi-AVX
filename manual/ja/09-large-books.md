@@ -78,7 +78,7 @@ book-merge-auto-save = on
 
 ## 9.5 大きな book での手順の注意
 
-1. **保守の前に、ファイルの写しを取る。** `book subtree`・`book prune`・`book merge`・`book correct`・`book leaf recalculate`・`book fill`・`book fill2`・`book leaf expand` は、book を大きく変えます。終了のときの保存は、`book-file` を上書きします（[8.4](08-book-maintenance.md)）。
+1. **保守の前に、ファイルの写しを取る。** `book subtree`・`book prune`・`book reduce`・`book merge`・`book correct`・`book leaf recalculate`・`book fill`・`book fill2`・`book leaf expand` は、book を大きく変えます。終了のときの保存は、`book-file` を上書きします（[8.4](08-book-maintenance.md)）。
 2. **大きな book を使っている間は、`book new` を打たない。** メモリの中の book が捨てられ、元に戻すには、ファイルを読み直す時間がかかります。そのまま終了すると、`book-file` のファイルは新しい空の book になり、それまでのファイルは `.old` を付けた名前で残ります（v4.5.5-nikque.12 までの版では、残らずに上書きされます。[6.7](06-book-basics.md)）。
 3. **`book export`（文字のファイル）は、大きな book ではとても大きなファイルになります。** ふだんの保存や受け渡しには、`book save` のファイルを使ってください。
 4. **止めるときは、保存の間隔を思い出す。** 育てるコマンドを止めると、最後の保存の後の分を失います（[7.5](07-book-learning.md)）。`quit` は、コマンドが終わるまで待ちます。
