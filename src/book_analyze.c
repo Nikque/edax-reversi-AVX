@@ -2963,6 +2963,8 @@ end:
  * not be negamaxed from this one); book reducecount, which does not change the book, walks with the values of its own
  * negamax (ba_negamax_values), so that both find the same positions. The values of the positions kept do not change
  * (the best move of a position kept is kept), and book deviate3 x y from the root then selects the same leaves as before.
+ * The walk of book reduce only marks the positions (deviate_mark_only): it does not list them as book deviate3 does
+ * for the positions to expand. book reducecount answers an error for a damaged book (see ba_red_group).
  */
 
 /** Numbers of the positions reached by the walk of book reducecount (4 bytes each: see ba_position). */
@@ -2996,12 +2998,28 @@ static Position* ba_position(const BaWork *w, const unsigned int idx)
 	return w->book->array[lo].positions + (idx - first[lo]);
 }
 
+/*
+ * The group of a position: 2 * empties, + 1 if it must pass. A legal move leaves one empty less, and a pass goes from a
+ * position that must pass to one that can move: the children of a position are always in an earlier (smaller) group.
+ * A child that is not (a link to a square already taken, a pass to a position that can move as well, a cycle) is a
+ * damaged book: book reducecount does not count it (see ba_reducecount).
+ */
+#define BA_RED_GROUPS 122       /**< 2 * (60 empties + 1) */
+#define BA_DAMAGED (-3)         /**< the result of the counts for a damaged book */
+
+/** @return the group of a position (see above). */
+static inline int ba_red_group(const Position *p)
+{
+	return 2 * board_count_empties(&p->board) + (can_move(p->board.player, p->board.opponent) ? 0 : 1);
+}
+
 /** A position of the depth first walk of ba_negamax_values. */
 typedef struct BaNItem {
 	Position *p;
 	unsigned int idx;
 	int link;               /**< next link */
 	int best;               /**< best value so far */
+	int group;              /**< its group (see ba_red_group) */
 } BaNItem;
 
 /**
@@ -3009,12 +3027,12 @@ typedef struct BaNItem {
  * the leaf (when it has a score) and of the values of the children seen from the position (a link without child is
  * not counted), -SCORE_INF if none.
  * @param val Marks: value + 128 of each position computed (1 to 255), 0 for the others.
- * @return false if stopped or out of memory.
+ * @return 0, -1 if stopped or out of memory, BA_DAMAGED if a child is not in an earlier group (see ba_red_group).
  */
-static bool ba_negamax_values(BaWork *w, Position *root, const unsigned int root_idx, BaVisit *val)
+static int ba_negamax_values(BaWork *w, Position *root, const unsigned int root_idx, BaVisit *val)
 {
 	BaNItem *stack = NULL;
-	int n = 0, size = 0;
+	int n = 0, size = 0, result = -1;
 	Position *next = root;      /* position to put on the stack */
 	unsigned int next_idx = root_idx;
 	bool ok = true;
@@ -3032,6 +3050,7 @@ static bool ba_negamax_values(BaWork *w, Position *root, const unsigned int root
 			stack[n].idx = next_idx;
 			stack[n].link = 0;
 			stack[n].best = next->leaf.score > -SCORE_INF ? next->leaf.score : -SCORE_INF;
+			stack[n].group = ba_red_group(next);
 			++n;
 			next = NULL;
 		}
@@ -3046,17 +3065,19 @@ static bool ba_negamax_values(BaWork *w, Position *root, const unsigned int root
 			board_next(&top->p->board, l->move, &target);
 			child = ba_probe(w, &target, &ci);
 			if (child == NULL) { ++top->link; continue; } // (a link without child is not counted)
+			if (ba_red_group(child) >= top->group) { result = BA_DAMAGED; ok = false; break; }
 			cv = ba_visit_get(val, ci);
 			if (cv == 0) { next = child; next_idx = ci; break; } // its value first (the link is read again then)
 			if (128 - cv > top->best) top->best = 128 - cv;
 			++top->link;
 		}
+		if (!ok) break;
 		if (next) continue;
 		if (!ba_visit_set(val, top->idx, (unsigned char) (top->best + 128))) ok = false;
-		else if (--n == 0) break;
+		else if (--n == 0) { result = 0; break; }
 	}
 	free(stack);
-	return ok;
+	return result;
 }
 
 /**
@@ -3124,19 +3145,13 @@ static long long ba_reduce_walk(BaWork *w, Position *root, const unsigned int ro
  * after group, the positions of a group by the threads. The walk goes by increasing accumulated loss, the positions of
  * the same loss by the threads, in rounds (the positions reached with the same loss are walked in the next round). The
  * marks are one byte per position, changed by compare and swap: a mark only goes down to the smallest loss, so the
- * positions kept and their losses are those of the walk with one thread.
+ * positions kept and their losses are those of the walk with one thread. A child that is not in an earlier group (a
+ * damaged book) is found before its group is used.
  */
 
-#define BA_RED_GROUPS 122       /**< 2 * (60 empties + 1) */
 #ifndef BA_RED_FEW
 #define BA_RED_FEW 4096         /**< fewer positions are done by one thread (the tests build with 1: threads for all) */
 #endif
-
-/** @return the group of a position (see above). */
-static inline int ba_red_group(const Position *p)
-{
-	return 2 * board_count_empties(&p->board) + (can_move(p->board.player, p->board.opponent) ? 0 : 1);
-}
 
 /**
  * @brief The children of a position, in the order of its links: their positions (NULL: not in the book) and numbers.
@@ -3198,10 +3213,12 @@ static void* ba_red_reach_run(void *v)
 	unsigned int ci[256];
 	long long k;
 
-	for (k = t->first; k < t->last && !t->w->job->cancel; ++k) {
-		const int n = ba_children(t->w, ba_position(t->w, t->cur[k]), child, ci);
+	for (k = t->first; k < t->last && !t->w->job->cancel && !t->broken; ++k) {
+		const Position *p = ba_position(t->w, t->cur[k]);
+		const int n = ba_children(t->w, p, child, ci), g = ba_red_group(p);
 		int i;
 		for (i = 0; i < n; ++i) {
+			if (child[i] && ba_red_group(child[i]) >= g) { t->broken = true; break; } // (its group is not used)
 			if (child[i] && atomic_load_uchar(t->mark + ci[i]) == 0 && atomic_cas_uchar(t->mark + ci[i], 0, 1)) {
 				if (!ba_rlist_push(t->out + ba_red_group(child[i]), ci[i]) || !ba_rlist_push(&t->next, ci[i])) t->oom = true;
 			}
@@ -3305,7 +3322,8 @@ static bool ba_rlist_move(BaRList *to, BaRList *from)
 
 /**
  * @brief The positions that book reduce keeps from a root, with n-tasks threads (see above).
- * @return their number, -1 if stopped, -2 if not done this way (out of memory, a damaged book): ba_reduce_walk then.
+ * @return their number, -1 if stopped, -2 if not done this way (out of memory, a root of more than 60 empties):
+ * ba_reduce_walk then, BA_DAMAGED for a damaged book (see ba_red_group).
  */
 static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int root_idx, const int move_loss, const int total_loss, const int n_thread)
 {
@@ -3319,7 +3337,7 @@ static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int
 	bool ok = true, broken = false;
 	int i, g, L;
 
-	if (!ba_dense_reserve(2 * n_book)) return -2;
+	if (ba_red_group(root) >= BA_RED_GROUPS || !ba_dense_reserve(2 * n_book)) return -2;
 	memset(t, 0, sizeof t);
 	memset(group, 0, sizeof group);
 	mark = (unsigned char*) calloc((size_t) n_book + 1, 1);
@@ -3342,7 +3360,8 @@ static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int
 		ba_red_run(t, n_thread, &front, 0, ba_red_reach_run);
 		front.n = 0;
 		for (i = 0; ok && i < n_thread; ++i) {
-			if (t[i].oom) ok = false;
+			if (t[i].broken) broken = true;
+			if (t[i].oom || broken) ok = false;
 			for (g = 0; ok && g < BA_RED_GROUPS; ++g) ok = ba_rlist_move(group + g, t[i].out + g);
 			if (ok) ok = ba_rlist_move(&front, &t[i].next);
 		}
@@ -3385,6 +3404,7 @@ static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int
 	}
 
 	if (w->job->cancel) result = -1;
+	else if (broken) result = BA_DAMAGED;
 	else if (ok) result = kept;
 	for (g = 0; g < BA_RED_GROUPS; ++g) free(group[g].v);
 	if (level) for (L = 0; L <= total_loss; ++L) free(level[L].v);
@@ -3426,12 +3446,17 @@ static int ba_reducecount(BaJob *job, const BaParams *prm)
 	}
 	if (n_thread > 1) kept = ba_reduce_threads(&w, root, idx, prm->x, prm->y, n_thread);
 	if (n_thread <= 1 || kept == -2) { // (one thread, or not enough memory for the marks)
-		kept = -1;
+		int r;
 		ba_visit_init(&val, n_book);
-		if (ba_negamax_values(&w, root, idx, &val)) kept = ba_reduce_walk(&w, root, idx, prm->x, prm->y, &val);
+		r = ba_negamax_values(&w, root, idx, &val);
+		kept = r < 0 ? r : ba_reduce_walk(&w, root, idx, prm->x, prm->y, &val);
 		ba_visit_free(&val);
 	}
 	ba_work_free(&w);
+	if (kept == BA_DAMAGED && !job->cancel) { // (the positions after the root do not make a book that can be counted)
+		ba_print("@error id=%d damaged=1\n@end id=%d error=1\n", job->id, job->id);
+		return 0;
+	}
 	if (kept < 0) return -1;
 	ba_print("@end id=%d kept=%lld removed=%lld positions=%llu ms=%lld\n", job->id, kept, (long long) n_book - kept, n_book, real_clock() - t);
 	return 0;
@@ -3505,12 +3530,13 @@ bool book_reduce(Book *book, const Board *board, const int move_loss, const int 
 	if (!book_visit_init(book)) return false;
 	bprint("Book reduce %d %d: walk...\r", move_loss, total_loss);
 	deviate_walk_all = true; // (every position walked is marked "todo")
+	deviate_mark_only = true; // (only marked: no list of them)
 	if (!book_deviate_total_by_loss(book, root, 3, move_loss, total_loss)) {
 		book_clean(book);
 		book_visit_clear(book);
 		position_deviate_total(root, book, move_loss, total_loss, 0, false);
 	}
-	deviate_walk_all = false;
+	deviate_walk_all = deviate_mark_only = false;
 	ba_reduce_x = move_loss;
 	ba_reduce_y = total_loss;
 	{
@@ -3522,6 +3548,9 @@ bool book_reduce(Book *book, const Board *board, const int move_loss, const int 
 
 	bprint("Book reduce %d %d: remove...\r", move_loss, total_loss);
 	book_remove_unmarked(book);
+	free(book->todo_list.item); // (the places of the positions have changed: the memory of the list of an earlier command goes)
+	book->todo_list.item = NULL;
+	book->todo_list.size = 0;
 	book_clean(book);
 	// the book that was cut is saved when Edax ends (as book prune)
 	if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;

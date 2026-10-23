@@ -1841,6 +1841,9 @@ static int leaf_recalc_mode = LEAF_RECALC_OFF;
 /** book fill with loss limits: the deviate2/3 walk selects every position it walks, not only those whose leaf it would expand */
 static bool deviate_walk_all = false;
 
+/** book reduce: the positions of the walk are only marked "todo", not listed (they are not expanded) */
+static bool deviate_mark_only = false;
+
 /** @return true if the level of the position solves it exactly. */
 static bool position_is_solved(const Position *p)
 {
@@ -1980,7 +1983,8 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 
 	if (deviate_walk_all) { // (book fill with loss limits: every position of the walk)
 		if (!position_is_todo(position, book)) {
-			book_mark_todo(book, position);
+			if (deviate_mark_only) position_set_todo(position, book);
+			else book_mark_todo(book, position);
 			book->stats.n_todo++;
 		}
 		return;
@@ -5558,6 +5562,7 @@ static void deviate_worker_todo(DeviateWorker *w, Position *p)
 	const unsigned char s = atomic_load_uchar(&p->state);
 	if (position_state_is(s, book, POSITION_TODO) || !atomic_cas_uchar(&p->state, s, position_state_set(s, book->epoch, POSITION_TODO))) return; // already marked
 	++w->n_todo;
+	if (deviate_mark_only) return;
 	if (w->n == w->size) {
 		const long long size = w->size + w->size / 2 + 1024;
 		unsigned long long *item = (unsigned long long*) realloc(w->item, size * sizeof *item);
