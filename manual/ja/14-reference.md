@@ -159,6 +159,10 @@ v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧
 | `book-seed` | 0〜2^64−1、`auto` | `auto` | `auto` | book の同点候補を選ぶ乱数の種（`auto` は時計から） |
 | `book-reproducible` | `on`／`off` | `off` | `off` | book のコマンドを、毎回同じ book になるように行う（[7章](07-book-learning.md)） |
 | `probcut-model` | `standard`／`refit` | `standard` | `standard` | 枝刈りの方式（`refit` は実験用） |
+| `book-reduce-index` | `binary`／`table` | `table` | | `book reducecount` で番号から局面を引く方法（v4.5.5-nikque.22 から。[8.4](08-book-maintenance.md)） |
+| `book-reduce-walk` | `loss`／`group` | `loss` | | `book reducecount` の並列の歩きの順（v4.5.5-nikque.22 から） |
+| `book-reduce-reuse` | `on`／`off` | `on` | | `book reduce` で直前の `book reducecount` の結果を使う（v4.5.5-nikque.22 から） |
+| `book-reduce-shrink` | `on`／`off` | `on` | | `book reduce` の後にバケツの数を減らす（v4.5.5-nikque.22 から） |
 | `auto-start`・`auto-swap`・`auto-store`・`auto-quit` | `on`／`off` | `off` | | 終局したときの動作（[3.9](03-playing.md)） |
 | `repeat` | 数 | 0 | | 続けて打つ局数 |
 | `search-log-file`・`ui-log-file` | ファイル | なし | | 記録のファイル |

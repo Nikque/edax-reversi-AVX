@@ -2,6 +2,24 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-nikque.22
+
+`book reduce`, which makes the book lighter, and `book reducecount`, which counts first, take less time and memory with large books. **The positions kept and what each of them holds (values, links, leaves...) are those of v4.5.5-nikque.21.** The search, `eval.dat` and the book file format are not changed.
+
+- `book reducecount`: a position is found from its number with a table of every 64 numbers, which narrows the search (new setting `book-reduce-index`, `table` by default; `binary`: the binary search of nikque.21; the table takes about 1/16 byte per position). With a real book of 29 GB (about 700 million positions; 331.7 million kept by 2 4 from the initial position), 757 to 857 s became 354 to 437 s with 4 threads, and 462 s became 237 s with 8 threads (see the checks).
+- `book reduce`: after `book reducecount` from the same position with the same X Y, the book not changed meanwhile, it uses the positions kept and the values found by the count, without computing the values again nor walking (new setting `book-reduce-reuse`, `on` by default): a program that counts and asks before `book reduce`, as the GUI does, no longer does the same work twice. What was counted is kept until the next `book reducecount` or `book reduce`, or until a command that may change the book (a `book` command...); it takes memory meanwhile (with threads, 2 bytes per position of the book).
+- `book reduce`: after most positions were removed, the book gets as many buckets (where the positions are held) as a book of its size gets when it is loaded, and the arrays no longer used are given back (new setting `book-reduce-shrink`, `on` by default). The array of the buckets takes about 1 byte per position before the cut (about 1 GB for 700 million positions) and was kept until the engine closed. With other buckets, the positions are saved in another order (the same positions; loaded and saved again, the order is the same); `off` saves in the order of nikque.21.
+- `book reducecount` with threads: the lists of positions found by the threads go to the lists of the groups without being copied, and the lists done with and the room left in them are given back.
+- Added as a setting: `book-reduce-walk` (`loss`: walk by increasing accumulated loss, the default; `group`: walk in the order of the groups: the children are always in later groups, so the smallest loss of each position is known when its group comes; no lists by loss). With that book `group` was 3 to 9% slower with about the same memory, so `loss` stays the default.
+- The settings are given in `config.ini` or on the command line (`-book-reduce-index binary`...), and once started with a command (`book-reduce-index binary`...).
+
+Checks:
+
+- The tests of `book reduce` and `book reducecount` (4 small books made for the tests, compared with a computation written apart; the tests of nikque.21): all the same in 546 cases, with 4 threads and 1 thread, with and without `book reducecount` before `book reduce`, with both values of `book-reduce-index` and of `book-reduce-walk`, and with a test build that takes the parallel way for every group. With the count first, that its result was used was checked too.
+- The books saved after the same `book reduce` commands as for v4.5.5-nikque.20, with the executables of v4.5.5-nikque.20 and of this version, with and without the count first: the same byte for byte in 54 cases (but for the save date). With a test build with fewer buckets at least, so that `book-reduce-shrink` works on small books: the same positions, sorted, in 54 cases.
+- The tests of damaged books and wrong words (14 cases) all pass.
+- Speed (the real book of 29 GB, read only; `book reducecount` from the initial position with 2 4, a test build without PGO, 8 logical CPUs): the numbers above. Measured twice; the first time, 12 to 20% slower, probably with other work at the same time, gave the same order and ratios. The memory added while counting: about 8.6 to 8.9 GB with 4 threads, about 10.4 GB with 8 (about the same for every setting). The speed and memory of `book reduce` itself were not measured (the real book is not changed).
+
 ## v4.5.5-nikque.21
 
 The way `book reduce`, which makes the book lighter, and `book reducecount`, which counts first, do their work is changed, and the errors found by the cross-check before the release (some of them in v4.5.5-nikque.20 too) are fixed. **With a sound book, the positions kept and the book saved after `book reduce` are those of v4.5.5-nikque.20** (the same byte for byte, but for the save date).

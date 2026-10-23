@@ -159,6 +159,10 @@ Each of them can be given in three ways: in `config.ini` (`name = value`), on th
 | `book-seed` | 0 to 2^64 - 1, `auto` | `auto` | `auto` | The seed of the random choice among book moves of equal score (`auto`: from the clock) |
 | `book-reproducible` | `on` / `off` | `off` | `off` | Book commands give the same book from a run to the next ([chapter 7](07-book-learning.md)) |
 | `probcut-model` | `standard` / `refit` | `standard` | `standard` | The pruning method (`refit` is experimental) |
+| `book-reduce-index` | `binary` / `table` | `table` | | How `book reducecount` finds a position from its number (since v4.5.5-nikque.22; [8.4](08-book-maintenance.md)) |
+| `book-reduce-walk` | `loss` / `group` | `loss` | | The order of the walk of `book reducecount` with threads (since v4.5.5-nikque.22) |
+| `book-reduce-reuse` | `on` / `off` | `on` | | `book reduce` uses the result of the `book reducecount` just before (since v4.5.5-nikque.22) |
+| `book-reduce-shrink` | `on` / `off` | `on` | | Fewer buckets after `book reduce` (since v4.5.5-nikque.22) |
 | `auto-start`, `auto-swap`, `auto-store`, `auto-quit` | `on` / `off` | `off` | | What happens when a game ends ([3.9](03-playing.md)) |
 | `repeat` | a number | 0 | | The number of games played in a row |
 | `search-log-file`, `ui-log-file` | file | none | | Log files |
