@@ -2635,9 +2635,13 @@ void book_init(Book *book)
  * @param n Number of positions.
  * @return Number of buckets (a power of 2).
  */
+#ifndef BOOK_BUCKETS_MIN
+#define BOOK_BUCKETS_MIN 65536  /**< the fewest buckets (the tests of book-reduce-shrink build with fewer, for small books) */
+#endif
+
 static int book_bucket_count(const long long n)
 {
-	int b = 65536;
+	int b = BOOK_BUCKETS_MIN;
 	while (b < (1 << 28) && (long long) b * 16 < n) b <<= 1;
 	return b;
 }
@@ -2688,6 +2692,52 @@ static void book_grow_buckets(Book *book, const long long n_positions)
 	book->n = n;
 	book->todo_list.valid = false; // positions moved
 	book->todo_list.n = 0;
+}
+
+/**
+ * @brief Decrease the number of buckets of a book from which most positions were removed (book reduce).
+ *
+ * The book gets the buckets of a book of its size when it is loaded (book_bucket_count): each bucket its own array
+ * of the exact size, and the pool and the arrays of the removed positions are given back. The positions and their
+ * links are the same; the book is saved in the order of the new buckets (as after loading the saved book again).
+ *
+ * @param book Opening book.
+ * @return true if the buckets changed.
+ */
+static bool book_shrink_buckets(Book *book)
+{
+	const int n = book_bucket_count(book->n_nodes);
+	PositionArray *array, *a;
+	Position *p;
+	int i;
+
+	if ((long long) n * 4 > book->n) return false; // (not worth moving the book)
+	array = (PositionArray*) malloc(n * sizeof *array);
+	if (array == NULL) return false; // keep the current buckets
+	for (i = 0; i < n; ++i) position_array_init(array + i);
+	foreach_position(p, a, book) ++array[board_get_hash_code(&p->board) & (n - 1)].size; // (the size of each array first)
+	for (i = 0; i < n; ++i) {
+		if (array[i].size && (array[i].positions = (Position*) malloc(array[i].size * sizeof (Position))) == NULL) {
+			while (i > 0) free(array[--i].positions);
+			free(array);
+			return false;
+		}
+	}
+	foreach_position(p, a, book) {
+		PositionArray *b = array + (board_get_hash_code(&p->board) & (n - 1));
+		b->positions[b->n++] = *p; // the links move with the position
+	}
+	for (a = book->array; a < book->array + book->n; ++a) if (a->size >= 0) free(a->positions);
+	free(book->array);
+	free(book->pool);
+	book->pool = NULL;
+	book->pool_size = 0;
+	book->pool_unused = 0;
+	book->array = array;
+	book->n = n;
+	book->todo_list.valid = false; // positions moved
+	book->todo_list.n = 0;
+	return true;
 }
 
 /**
