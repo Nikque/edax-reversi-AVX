@@ -847,11 +847,16 @@ void ui_loop_edax(UI *ui)
 
 				// keep only the positions that book deviate3 <n1> <n2> walks from the current position
 				} else if (strcmp(book_cmd, "reduce") == 0) {
+					char *s = book_param, *e;
+					bool words; // two numbers, each a whole word, and nothing after them
 					val_1 = val_2 = -1;
-					book_param = parse_int(book_param, &val_1);
-					book_param = parse_int(book_param, &val_2);
-					if (val_1 < 0 || val_1 > 129 || val_2 < 0 || val_2 > 254) {
-						warn("book reduce: two loss limits are needed, from 0 to 129 and from 0 to 254 (book reduce <n1> <n2>); the book is not changed\n");
+					e = parse_int(s, &val_1);
+					words = e && e != parse_skip_spaces(s) && (*e == '\0' || isspace((unsigned char) *e));
+					s = e;
+					e = parse_int(s, &val_2);
+					words = words && e && e != parse_skip_spaces(s) && *parse_skip_spaces(e) == '\0';
+					if (!words || val_1 < 0 || val_1 > 129 || val_2 < 0 || val_2 > 254) {
+						warn("book reduce: two loss limits are needed, from 0 to 129 and from 0 to 254, and nothing after them (book reduce <n1> <n2>); the book is not changed\n");
 					} else if (book_reduce(book, &play->board, val_1, val_2)) {
 						book_fix(book); // do nothing (or edax is buggy)
 						book_negamax(book); // negamax nodes
