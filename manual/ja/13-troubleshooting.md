@@ -59,7 +59,7 @@
 | `quit` を打ったのに終わらない | book のコマンドが終わるのを待っている | 待つ。待てないなら、Edax そのものを止める（最後の保存の後の分は失われる） |
 | `WARNING: book subtree: this position is deeper than the book depth; the book is not changed` | 今の盤の局面が、book の深さより先にある | `book depth` を確かめる。局面を戻してから行う |
 | `WARNING: book reduce: this position is deeper than the book depth; the book is not changed`、`WARNING: book reduce: this position is not in the book; the book is not changed` | 今の盤の局面が、book の深さより先にある、または book にない | 局面を戻してから行う（ふつうは `init` で初期局面に戻す） |
-| `WARNING: book reduce: two loss limits are needed, …` | `book reduce` に数が 2 つない、または範囲の外（X は 0〜129、Y は 0〜254） | `book reduce 2 4` のように 2 つの数を書く |
+| `WARNING: book reduce: two loss limits are needed, …` | `book reduce` に数が 2 つない、範囲の外（X は 0〜129、Y は 0〜254）、または数の後ろに別の語がある | `book reduce 2 4` のように 2 つの数を書く |
 | `not enough memory to search the positions at the same time` | 同時に行う探索のためのメモリが足りない。数を減らして続けている | そのままでも動く。`book-expand-tasks` を小さくするか、`hash-table-size` を `auto` にする |
 | `not enough memory to play N games at the same time: they are learned one after the other` | 同時に学習するためのメモリが足りない。1 局ずつ学習している | `book-store-tasks` を小さくする |
 | `cannot create a thread: the search uses N threads instead of M` | スレッドを作れなかった。作れた数で続けている | そのままでも動く。`n-tasks` を小さくする |

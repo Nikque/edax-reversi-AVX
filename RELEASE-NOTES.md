@@ -4,11 +4,11 @@
 
 ## v4.5.5-eval2.9 (with the changes of v4.5.5-nikque.21)
 
-v4.5.5-eval2.8 with the changes of v4.5.5-nikque.21 (below: `book reduce` and `book reducecount` faster and with less memory, with the same results). **The evaluation and `eval.dat` are still those of v4.5.5-eval2.1** (the same file). The search and the results are the same as v4.5.5-eval2.8.
+v4.5.5-eval2.8 with the changes of v4.5.5-nikque.21 (below: the way `book reduce` and `book reducecount` work is changed, and a damaged book and wrong words are dealt with; with a sound book, the positions kept are the same). **The evaluation and `eval.dat` are still those of v4.5.5-eval2.1** (the same file). The search and the results are the same as v4.5.5-eval2.8.
 
 Checks:
 
-- The tests of `book reduce` and `book reducecount` (the tests of nikque.21) all agree, 546 cases, with 4 threads and with 1 thread.
+- The tests of `book reduce` and `book reducecount` (the tests of nikque.21) all agree, 546 cases, with 4 threads and with 1 thread. The tests of a damaged book and of wrong words (the 14 cases of nikque.21) all pass.
 
 ## v4.5.5-eval2.8 (with the changes of v4.5.5-nikque.20)
 
@@ -127,17 +127,22 @@ Training data: the search scores of self-play games of Edax itself (level 8, abo
 Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
 ## v4.5.5-nikque.21
 
-`book reduce`, which makes the book lighter, and `book reducecount`, which counts first, now run faster and with less memory. **What they do and their results are the same as in v4.5.5-nikque.20** (the book saved after `book reduce` is the same byte for byte, but for the save date).
+The way `book reduce`, which makes the book lighter, and `book reducecount`, which counts first, do their work is changed, and the errors found by the cross-check before the release (some of them in v4.5.5-nikque.20 too) are fixed. **With a sound book, the positions kept and the book saved after `book reduce` are those of v4.5.5-nikque.20** (the same byte for byte, but for the save date).
 
 - `book reduce`: the positions not kept are removed in one pass over each bucket of the book (where the positions are held). Before, the rest of the bucket was moved for each position removed: when most positions are removed, the moves grew with the size of the buckets (8 to 16 positions on average).
-- `book reducecount` runs with the n-tasks threads (one thread before): the values are computed again group after group, the positions grouped by empties from the group with the fewest, and the walk goes by increasing accumulated loss; in both, the positions of the same group are shared by the threads (the results are those of one thread). With threads it takes 2 bytes of marks per position and 4 bytes per position reached from the root. With one thread it walks as before, an item of its queue taking 4 bytes (the number of the position) instead of 16 (its place and number).
+- `book reduce`: its walk only marks the positions kept. Before, it also made the list of the places of the positions walked (8 bytes a position: a list for each thread, and the list made of them), as `book deviate3` does; `book reduce` does not use that list. After the command, the memory of the list left by an earlier command is given back too.
+- `book reducecount` runs with the n-tasks threads (one thread before): the values are computed again group after group, the positions grouped by empties from the group with the fewest, and the walk goes by increasing accumulated loss; in both, the positions of the same group are shared by the threads (the results are those of one thread). With threads, its main arrays take 2 bytes per position of the book (the marks and the values) and 4 bytes per position reached from the root (the numbers by group). It also uses lists of work (copies for each thread, and the room left in them): these are not all its memory, nor a limit. With one thread it walks as before, an item of its queue taking 4 bytes (the number of the position) instead of 16 (its place and number).
+- `book reducecount`: with a damaged book (a link to a square already taken, a link back to the same position), it does not count and answers `@error id=N damaged=1` and `@end id=N error=1`. The version before the release read out of an array with threads and ended abnormally, and v4.5.5-nikque.20 did not end with a link back to the same position (it stopped with `stop id=N`). What `book reduce` does is not changed.
+- `book reduce X Y` runs only when each of the two numbers is a whole word, with nothing after them. v4.5.5-nikque.20 removed the positions of `book reduce 0 0` with `book reduce 0 0x`, `book reduce 0 0 junk` or `book reduce 0 0 1` too; now a warning is shown and the book is not changed.
 - The precision stages, the other analysis commands, the search, `eval.dat` and the book file format are not changed.
+- A correction of the records: "the values of the positions kept do not change" in the v4.5.5-nikque.20 section compares them with the values after the computation that `book reduce` does first (when the values of the book read are not consistent, that computation changes them, as with `book deviate3`).
 
 Checks:
 
-- The tests of `book reduce` and `book reducecount` (4 small books made for the tests, compared with a computation written apart; the tests of v4.5.5-nikque.20): all the same in 546 cases, with 4 threads and with 1 thread.
-- The books saved after the same `book reduce` commands with the executables before and after the change: the same byte for byte in 54 cases (but for the save date).
-- The speed and the memory were not measured (other programs used the CPU during the tests); the two points above follow from the way the work is done.
+- The tests of `book reduce` and `book reducecount` (4 small books made for the tests, compared with a computation written apart; the tests of v4.5.5-nikque.20): all the same in 546 cases, with 4 threads and with 1 thread (and with 4 threads in a test build that takes the parallel way for every group). The 546 cases are the counts, the books saved after the cuts, the tests of the words, the stops and others in all. The leaves are compared as the positions that `book deviate3` selects first from the books before and after the cut, computed apart: `book deviate3` itself was not run to its end for the comparison.
+- The books saved after the same `book reduce` commands as for v4.5.5-nikque.20, with the executables of v4.5.5-nikque.20 and of this version: the same byte for byte in 54 cases (but for the save date).
+- Tests of two damaged books (of 2 positions and of 1 position) and of `book reduce` with wrong words were added (14 cases: 8 fail with the executable before the fixes, all pass with this version, with 1 thread and with 4 threads).
+- The speed and the memory were not measured (other programs used the CPU during the tests): it cannot be said that the commands as a whole are faster or take less memory than before. What follows from the way the work is done is only that the moves to fill the gaps when positions are removed, and the list of the walk of `book reduce`, are gone.
 - Not checked with the 29 GB real book.
 
 ## v4.5.5-nikque.20
