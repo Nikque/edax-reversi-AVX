@@ -2,6 +2,14 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-eval2.10（v4.5.5-nikque.22 の変更を取り込み）
+
+v4.5.5-eval2.9 に、v4.5.5-nikque.22 の変更（下の nikque.22 の項：`book reduce`・`book reducecount` の時間とメモリを減らし、新しい設定 `book-reduce-index`・`book-reduce-reuse`・`book-reduce-shrink`・`book-reduce-walk`）を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。探索と結果は v4.5.5-eval2.9 と同じです。
+
+確認：
+
+- `book reduce`・`book reducecount` の試験（nikque.22 と同じ試験）は 546 通りすべて一致しました（4 スレッドと 1 スレッド、数えてから打つ形）。
+
 ## v4.5.5-eval2.9（v4.5.5-nikque.21 の変更を取り込み）
 
 v4.5.5-eval2.8 に、v4.5.5-nikque.21 の変更（下の nikque.21 の項：`book reduce`・`book reducecount` の処理の形を変え、壊れた book と誤った語の扱いを直した。正常な book で残る局面は同じ）を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。探索と結果は v4.5.5-eval2.8 と同じです。
@@ -128,6 +136,24 @@ v4.5.5-eval2.1 に、v4.5.5-nikque.10〜13 の変更を全部取り込みまし�
 学習データ：Edax 自身の自己対局（level 8、約84万局）の探索の値、このforkで学習したbookの局面と値、[Egaroucid](https://www.egaroucid.nyanyan.dev/) のサイトで公開されている学習データ。Egaroucid については、公開されているデータを学習に使っただけで、パターンや学習ずみの重みは使っていません。学習データは配布物に入っていません。
 
 確認：上流の `eval.dat` で、Windows 5種・Linux 4種の1スレッドの結果とノード数、bookの回帰試験（1スレッド、84ファイル）が v4.5.5-nikque.9 と一致。新しい `eval.dat` で、Windows 5種・Linux 4種のノード数が互いに一致、完全読みの評価値は上流の `eval.dat` と全問同じ、API試験191項目に合格（Windows 3種・Linux 3種）。 macOS版・Android版・Windows ARM64版は動作を確認していません（Android版・Windows ARM64版はビルドだけ）。
+## v4.5.5-nikque.22
+
+book を軽くする命令 `book reduce` と、その前に数える `book reducecount` が、大きな book で使う時間とメモリを減らしました。**残る局面と、局面ごとの中身（評価値・Link・Leaf など）は v4.5.5-nikque.21 と同じです。** 探索・`eval.dat`・bookのファイル形式は変えていません。
+
+- `book reducecount`：番号から局面を引くとき、64 番ごとの表で探す範囲を絞るようにしました（新しい設定 `book-reduce-index`、既定 `table`。`binary` で nikque.21 と同じ二分探索。表は局面 1 つあたり約 1/16 バイト）。29GB の実 book（約 7 億局面、初期局面から 2 4 で 3 億 3,170 万局面が残る）で、4 スレッドで 757〜857 秒が 354〜437 秒、8 スレッドで 462 秒が 237 秒になりました（下の確認）。
+- `book reduce`：直前の `book reducecount` と同じ局面・同じ X Y で、その間に book が変わっていなければ、数えたときの残す局面と評価値を使い、評価値の計算し直しと歩きを省きます（新しい設定 `book-reduce-reuse`、既定 `on`）。GUI のように、数えて確かめてから `book reduce` を打つ使い方で、同じ計算を 2 回しなくなります。数えた結果は、次の `book reducecount` か `book reduce` まで、または book を変えるかもしれない命令（`book` の命令など）を打つまで残ります（そのぶんメモリを使います。並列のときは book の局面 1 つあたり 2 バイト）。
+- `book reduce`：ほとんどの局面を消した後は、bookのバケツ（局面の入れ物）の数を、その大きさの book を読み込むときと同じ数に減らし、使わなくなった配列を手放します（新しい設定 `book-reduce-shrink`、既定 `on`）。バケツの配列は消す前の局面 1 つあたり約 1 バイトあり（約 7 億局面で約 1GB）、前はエンジンを閉じるまで残っていました。バケツの数が変わると、保存した book の中の局面の並びが変わります（中身は同じ。読み込み直して保存すると同じ並び）。`off` にすると nikque.21 と同じ並びで保存します。
+- `book reducecount`（並列）：スレッドが見つけた局面の列を、組の列へ写さずに渡し、使い終わった列と確保の余りを手放すようにしました。
+- 切り替えとして足したもの：`book-reduce-walk`（`loss`：石損の合計の小さい順に歩く。既定。`group`：組の順に歩く。子はいつも後の組にあるので、各局面のいちばん小さい石損はその組の番には決まっている。石損ごとの列を使わない）。29GB の実 book では `group` が 3〜9% 遅く、メモリもほぼ同じだったので、既定は `loss` のままです。
+- 設定は `config.ini` か起動の引数（`-book-reduce-index binary` など）、起動の後は命令（`book-reduce-index binary` など）で変えられます。
+
+確認：
+
+- `book reduce`・`book reducecount` の試験（試験のために作った小さなbook 4 つ、別に書いた計算と比べる。nikque.21 と同じ試験）は 546 通りすべて一致。4 スレッドと 1 スレッド、数えてから `book reduce` を打つ形と打たない形、`book-reduce-index` の 2 つ・`book-reduce-walk` の 2 つ、並列の道をどの組でも通す試験用の組み立てで。数えてから打つ形では、数えた結果を使ったことも確かめた。
+- v4.5.5-nikque.20 と同じ手順の `book reduce` の後に保存したbookを、v4.5.5-nikque.20 とこの版の実行ファイルで比べ、数えずに打つ形でも数えてから打つ形でも、54 通りすべてバイト単位で同じ（保存日時を除く）。`book-reduce-shrink` が働くように、バケツの数の下限を小さくした試験用の組み立てでも、局面の中身を並べ直して 54 通りすべて同じ。
+- 壊れた book と誤った語の試験（14 件）もすべて通過。
+- 速さ（29GB の実 book を読むだけ。`book reducecount` を初期局面から 2 4、PGO なしの試験用の組み立て、論理CPU 8 つに固定）：上の表の数字。2 回測り、1 回目はほかの処理と重なった見立てで 12〜20% 遅かったが、順位と比は同じ。数えている間に増えるメモリは 4 スレッドで約 8.6〜8.9GB、8 スレッドで約 10.4GB（どの切り替えでもほぼ同じ）。`book reduce` そのものの速さとメモリは測っていません（実 book を変えないため）。
+
 ## v4.5.5-nikque.21
 
 book を軽くする命令 `book reduce` と、その前に数える `book reducecount` の処理の形を変え、公開の前のクロスチェックで見つかった誤り（v4.5.5-nikque.20 にもあったものを含む）を直しました。**正常な book で残る局面と、`book reduce` の後に保存する book は v4.5.5-nikque.20 と同じです**（保存日時を除いてバイト単位で同じ）。

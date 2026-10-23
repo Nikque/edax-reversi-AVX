@@ -177,7 +177,8 @@ Only the positions that `book deviate3 X Y` walks from the position on the board
 - X is 0 to 129, Y is 0 to 254. Without two numbers, with a number out of range, or with other words after the numbers (since v4.5.5-nikque.21), a warning is shown and nothing is done.
 - From a position that is not the initial one, the positions from the initial position up to it are removed too, as with `book subtree`.
 - When the position on the board is not in the book, or two or more moves beyond the depth of the book, a warning is shown and nothing is done.
-- The numbers can be checked first with `book reducecount id=N x=X y=Y` (it does not change the book; [12.4](12-integration.md)). It counts with the values computed again, as `book reduce` does, so the numbers are the same.
+- The numbers can be checked first with `book reducecount id=N x=X y=Y` (it does not change the book; [12.4](12-integration.md)). It counts with the values computed again, as `book reduce` does, so the numbers are the same. `book reduce` from the same position with the same X Y just after the count uses its result, without computing the values again nor walking (since v4.5.5-nikque.22; setting `book-reduce-reuse`).
+- After most positions were removed, the book gets fewer buckets and gives the memory back (since v4.5.5-nikque.22; setting `book-reduce-shrink`); the positions are then saved in another order (the same positions).
 
 ### Cautions when cutting
 
