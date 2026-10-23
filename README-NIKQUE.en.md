@@ -9,12 +9,12 @@ This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5c
 `book reduce`, which makes the book lighter, and `book reducecount`, which counts first, now run faster and with less memory. **What they do and their results are the same as in v4.5.5-nikque.20** (the book saved after `book reduce` is the same byte for byte, but for the save date).
 
 - `book reduce`: the positions not kept are removed in one pass over each bucket of the book (where the positions are held). Before, the rest of the bucket was moved for each position removed: when most positions are removed, the moves grew with the size of the buckets (8 to 16 positions on average).
-- `book reducecount`: an item of the queue of its walk takes 4 bytes (the number of the position, from which the position is found) instead of 16 (the place and the number of the position): less memory when many positions are kept.
+- `book reducecount` runs with the n-tasks threads (one thread before): the values are computed again group after group, the positions grouped by empties from the group with the fewest, and the walk goes by increasing accumulated loss; in both, the positions of the same group are shared by the threads (the results are those of one thread). With threads it takes 2 bytes of marks per position and 4 bytes per position reached from the root. With one thread it walks as before, an item of its queue taking 4 bytes (the number of the position) instead of 16 (its place and number).
 - The precision stages, the other analysis commands, the search, `eval.dat` and the book file format are not changed.
 
 Checks:
 
-- The tests of `book reduce` and `book reducecount` (4 small books made for the tests, compared with a computation written apart; the tests of v4.5.5-nikque.20): all the same in 546 cases.
+- The tests of `book reduce` and `book reducecount` (4 small books made for the tests, compared with a computation written apart; the tests of v4.5.5-nikque.20): all the same in 546 cases, with 4 threads and with 1 thread.
 - The books saved after the same `book reduce` commands with the executables before and after the change: the same byte for byte in 54 cases (but for the save date).
 - The speed and the memory were not measured (other programs used the CPU during the tests); the two points above follow from the way the work is done.
 - Not checked with the 29 GB real book.
