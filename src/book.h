@@ -146,6 +146,7 @@ void book_analysis_init(void);
 bool book_analysis_command(Book*, const char*, const Board*, const int, const char*);
 bool book_analysis_stop(const char*);
 void book_analysis_quiesce(void);
+void book_analysis_quiesce_reduce(void);
 void book_analysis_end(void);
 void ui_output_lock(void);
 void ui_output_unlock(const bool);

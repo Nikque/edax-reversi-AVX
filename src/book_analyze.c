@@ -112,7 +112,11 @@ typedef struct BaIndex {
 	unsigned int *first;    /**< number of the first position of each bucket */
 	int n_bucket;
 	unsigned long long n;   /**< positions */
+	unsigned int *table;    /**< book-reduce-index table: the bucket of the number j << BA_INDEX_SHIFT (see ba_index_table) */
+	unsigned int n_table;
 } BaIndex;
+
+#define BA_INDEX_SHIFT 6        /**< one bucket number in the table of book-reduce-index for 64 numbers */
 
 static struct {
 	Lock lock;
@@ -426,6 +430,9 @@ static bool ba_index_get(const Book *book)
 	unsigned int i, n = 0;
 
 	if (ba.index.first && ba.index_book == book && ba.index.n_bucket == book->n) return true;
+	free(ba.index.table);
+	ba.index.table = NULL;
+	ba.index.n_table = 0;
 	free(ba.index.first);
 	ba.index.first = (unsigned int*) malloc((size_t) book->n * sizeof *ba.index.first);
 	if (ba.index.first == NULL) return false;
@@ -521,6 +528,9 @@ static void ba_index_free(void)
 	ba_cache = NULL;
 	free(ba.index.first);
 	ba.index.first = NULL;
+	free(ba.index.table);
+	ba.index.table = NULL;
+	ba.index.n_table = 0;
 	ba.index_book = NULL;
 	ba.index.n = 0;
 	ba.index.n_bucket = 0;
@@ -2985,11 +2995,37 @@ static bool ba_rlist_push(BaRList *l, const unsigned int idx)
 	return true;
 }
 
+/**
+ * @brief The table of book-reduce-index table: the bucket of every number multiple of 64 (see ba_position).
+ * Made before the walks of book reducecount (the threads only read it), kept with the numbering.
+ * @return false if out of memory (the binary search of all the buckets is used then).
+ */
+static bool ba_index_table(void)
+{
+	unsigned long long j;
+	int b = 0;
+	if (ba.index.table) return true;
+	ba.index.n_table = (unsigned int) (ba.index.n >> BA_INDEX_SHIFT) + 1;
+	ba.index.table = (unsigned int*) malloc((size_t) ba.index.n_table * sizeof *ba.index.table);
+	if (ba.index.table == NULL) return false;
+	for (j = 0; j < ba.index.n_table; ++j) {
+		const unsigned long long idx = j << BA_INDEX_SHIFT;
+		while (b + 1 < ba.index.n_bucket && ba.index.first[b + 1] <= idx) ++b;
+		ba.index.table[j] = (unsigned int) b;
+	}
+	return true;
+}
+
 /** @return the position of a number (see BaIndex): in the last bucket whose first number is not above it. */
 static Position* ba_position(const BaWork *w, const unsigned int idx)
 {
 	const unsigned int *first = ba.index.first;
 	int lo = 0, hi = ba.index.n_bucket;
+	if (ba.index.table && options.book_reduce_index) { // (between the buckets of the numbers multiple of 64 around it)
+		const unsigned int j = idx >> BA_INDEX_SHIFT;
+		lo = (int) ba.index.table[j];
+		if (j + 1 < ba.index.n_table) hi = (int) ba.index.table[j + 1] + 1;
+	}
 	while (hi - lo > 1) {
 		const int mid = lo + (hi - lo) / 2;
 		if (first[mid] <= idx) lo = mid;
@@ -3304,10 +3340,19 @@ static void ba_red_run(BaRedThread *t, const int n_thread, const BaRList *list, 
 	thread_run_workers(run, t, sizeof *t, m, true, false);
 }
 
-/** @brief Append a list to another and empty it. @return false if out of memory. */
+/**
+ * @brief Append a list to another and empty it: to an empty list, the memory of the list given goes with its numbers
+ * (no copy), and the list given keeps the memory of the other one. @return false if out of memory.
+ */
 static bool ba_rlist_move(BaRList *to, BaRList *from)
 {
 	if (from->n == 0) return true;
+	if (to->n == 0) {
+		const BaRList empty = *to;
+		*to = *from;
+		*from = empty;
+		return true;
+	}
 	if (to->n + from->n > to->size) {
 		const long long size = to->n + from->n + to->size / 2 + 1024;
 		unsigned int *v = (unsigned int*) realloc(to->v, (size_t) size * sizeof *v);
@@ -3320,16 +3365,78 @@ static bool ba_rlist_move(BaRList *to, BaRList *from)
 	return true;
 }
 
+/** @brief Give back the memory of a list beyond its numbers (a list that does not grow any more). */
+static void ba_rlist_trim(BaRList *l)
+{
+	if (l->n == 0) {
+		free(l->v); l->v = NULL; l->size = 0;
+	} else if (l->size > l->n + l->n / 8 + 1024) {
+		unsigned int *v = (unsigned int*) realloc(l->v, (size_t) l->n * sizeof *v);
+		if (v) { l->v = v; l->size = l->n; }
+	}
+}
+
+/**
+ * The walk of book-reduce-walk group: the groups from the root's down (the children of a position are in later groups
+ * of this order), so that the smallest accumulated loss of a position is known when its group comes (its parents were
+ * walked before): each walked position of the group, with that loss, marks its children as the walk by loss does.
+ */
+static void* ba_red_gwalk_run(void *v)
+{
+	BaRedThread *t = (BaRedThread*) v;
+	const Book *book = t->w->book;
+	Position *child[256];
+	unsigned int ci[256];
+	long long k;
+
+	for (k = t->first; k < t->last && !t->w->job->cancel; ++k) {
+		const unsigned int idx = t->cur[k];
+		const unsigned char m = atomic_load_uchar(t->mark + idx);
+		const Position *p;
+		int vp, n, i, L;
+		if (m == 0) continue; // not reached by the walk
+		p = ba_position(t->w, idx);
+		if (!ba_walkable(book, p)) continue; // (kept, not walked)
+		L = m - 1;
+		vp = t->val[idx] - 128;
+		n = ba_children(t->w, p, child, ci);
+		for (i = 0; i < n; ++i) {
+			int e;
+			unsigned char old, mark;
+			if (child[i] == NULL) continue;
+			e = vp + (t->val[ci[i]] - 128); // (the score of the link is minus the value of the child)
+			if (e < 0 || e > t->move_loss || L + e > t->total_loss) continue;
+			if (!ba_walkable(book, child[i])) {
+				if (atomic_load_uchar(t->mark + ci[i]) == 0 && atomic_cas_uchar(t->mark + ci[i], 0, 1)) ++t->n_new;
+				continue;
+			}
+			mark = (unsigned char) (L + e + 1);
+			for (;;) {
+				old = atomic_load_uchar(t->mark + ci[i]);
+				if (old && old <= mark) break;
+				if (atomic_cas_uchar(t->mark + ci[i], old, mark)) {
+					if (old == 0) ++t->n_new;
+					break;
+				}
+			}
+		}
+	}
+	return NULL;
+}
+
 /**
  * @brief The positions that book reduce keeps from a root, with n-tasks threads (see above).
+ * @param kept_out, val_out If not NULL: the marks of the positions kept (not 0) and the values + 128 of the positions
+ * after the root, when they are counted (see ba_counted); freed otherwise.
  * @return their number, -1 if stopped, -2 if not done this way (out of memory, a root of more than 60 empties):
  * ba_reduce_walk then, BA_DAMAGED for a damaged book (see ba_red_group).
  */
-static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int root_idx, const int move_loss, const int total_loss, const int n_thread)
+static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int root_idx, const int move_loss, const int total_loss, const int n_thread, BaVisit *kept_out, BaVisit *val_out)
 {
 	const Book *book = w->book;
 	const unsigned long long n_book = ba.index.n;
 	const int n_out = total_loss + 1 > BA_RED_GROUPS ? total_loss + 1 : BA_RED_GROUPS;
+	const bool by_group = options.book_reduce_walk == 1; // (book-reduce-walk group: the lists of the groups are kept for the walk)
 	BaRedThread t[MAX_THREADS];
 	BaRList group[BA_RED_GROUPS], front = {NULL, 0, 0}, *level;
 	unsigned char *mark = NULL, *val = NULL;
@@ -3371,22 +3478,28 @@ static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int
 		if (t[i].out) for (g = 0; g < n_out; ++g) { free(t[i].out[g].v); t[i].out[g].v = NULL; t[i].out[g].size = 0; }
 		free(t[i].next.v); t[i].next.v = NULL; t[i].next.size = 0;
 	}
+	for (g = 0; g < BA_RED_GROUPS; ++g) ba_rlist_trim(group + g); // (the lists of the groups do not grow any more)
 
 	// the values, group after group
 	for (g = 0; ok && g < BA_RED_GROUPS && !w->job->cancel; ++g) {
 		if (group[g].n) ba_red_run(t, n_thread, group + g, 0, ba_red_negamax_run);
 		for (i = 0; i < n_thread; ++i) if (t[i].broken) broken = true;
 		if (broken) ok = false;
-		free(group[g].v); group[g].v = NULL; group[g].n = group[g].size = 0;
+		if (!by_group) { free(group[g].v); group[g].v = NULL; group[g].n = group[g].size = 0; }
 	}
 
-	// the walk, by increasing loss
+	// the walk
 	if (ok && !w->job->cancel) {
 		memset(mark, 0, (size_t) n_book + 1);
 		mark[root_idx] = 1;
-		if (ba_walkable(book, root)) ok = ba_rlist_push(level, root_idx);
+		if (!by_group && ba_walkable(book, root)) ok = ba_rlist_push(level, root_idx);
 	}
-	for (L = 0; ok && L <= total_loss && !w->job->cancel; ++L) {
+	for (g = BA_RED_GROUPS - 1; by_group && ok && g >= 0 && !w->job->cancel; --g) { // in the order of the groups
+		if (group[g].n) ba_red_run(t, n_thread, group + g, 0, ba_red_gwalk_run);
+		for (i = 0; i < n_thread; ++i) { kept += t[i].n_new; t[i].n_new = 0; }
+		free(group[g].v); group[g].v = NULL; group[g].n = group[g].size = 0;
+	}
+	for (L = 0; !by_group && ok && L <= total_loss && !w->job->cancel; ++L) { // by increasing loss
 		long long done = 0;
 		while (ok && done < level[L].n && !w->job->cancel) {
 			const long long end = level[L].n;
@@ -3414,9 +3527,17 @@ static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int
 		free(t[i].out);
 		free(t[i].next.v);
 	}
-	free(mark);
-	free(val);
-	ba_dense_release(2 * n_book);
+	if (result >= 0 && kept_out && val_out) { // (the memory reserved goes with them: ba_visit_free gives it back)
+		ba_visit_init(kept_out, n_book);
+		kept_out->dense = mark;
+		kept_out->n = (unsigned long long) kept;
+		ba_visit_init(val_out, n_book);
+		val_out->dense = val;
+	} else {
+		free(mark);
+		free(val);
+		ba_dense_release(2 * n_book);
+	}
 	return result;
 }
 
@@ -3426,17 +3547,44 @@ static inline bool ba_reduce_deep(const Book *book, const Position *root)
 	return board_count_empties(&root->board) < book->options.n_empties - 1;
 }
 
+/*
+ * The positions found by the last book reducecount (book-reduce-reuse): book reduce from the same root with the same
+ * loss limits uses them (book_reduce_counted) while the book does not change: any command that may change the book
+ * stops the analyses first (book_analysis_quiesce), which forgets them; book reduce itself keeps them for its use
+ * (book_analysis_quiesce_reduce). They are also forgotten by the next book reducecount and after book reduce.
+ * Only the analysis thread (while counting) or the main thread (the analyses stopped) uses them.
+ */
+static struct {
+	bool valid;
+	Board root;                 /**< the board of the root, as in the book */
+	int x, y;
+	int n_bucket;               /**< buckets of the book then */
+	unsigned long long n;       /**< positions of the book then */
+	BaVisit kept;               /**< marks of the positions kept (not 0) */
+	BaVisit val;                /**< value + 128 of the positions after the root */
+} ba_counted;
+
+/** @brief Forget the positions counted by book reducecount (the lock of the analyses is not held). */
+static void ba_counted_free(void)
+{
+	ba_visit_free(&ba_counted.kept);
+	ba_visit_free(&ba_counted.val);
+	ba_counted.valid = false;
+}
+
 static int ba_reducecount(BaJob *job, const BaParams *prm)
 {
 	const long long t = real_clock();
 	const unsigned long long n_book = ba.index.n;
 	const int n_thread = options.n_task < 1 ? 1 : (options.n_task > MAX_THREADS ? MAX_THREADS : options.n_task);
 	BaWork w;
-	BaVisit val;
+	BaVisit val, kept_marks;
 	unsigned int idx;
 	Position *root;
 	long long kept = -1;
+	bool marks = false;         // (kept_marks and val hold the positions counted)
 
+	ba_counted_free(); // (the memory of the last count first)
 	ba_work_init(&w, job, prm);
 	root = ba_probe(&w, &job->board, &idx);
 	if (root == NULL || ba_reduce_deep(job->book, root)) {
@@ -3444,15 +3592,35 @@ static int ba_reducecount(BaJob *job, const BaParams *prm)
 		ba_print("@end id=%d kept=%llu removed=0 positions=%llu %s=1 ms=%lld\n", job->id, n_book, n_book, root ? "deep" : "notinbook", real_clock() - t);
 		return 0;
 	}
-	if (n_thread > 1) kept = ba_reduce_threads(&w, root, idx, prm->x, prm->y, n_thread);
+	if (n_thread > 1) {
+		kept = ba_reduce_threads(&w, root, idx, prm->x, prm->y, n_thread, &kept_marks, &val);
+		marks = kept >= 0;
+	}
 	if (n_thread <= 1 || kept == -2) { // (one thread, or not enough memory for the marks)
 		int r;
 		ba_visit_init(&val, n_book);
 		r = ba_negamax_values(&w, root, idx, &val);
 		kept = r < 0 ? r : ba_reduce_walk(&w, root, idx, prm->x, prm->y, &val);
-		ba_visit_free(&val);
+		if (kept >= 0) { // (the marks of the walk)
+			kept_marks = w.visit;
+			memset(&w.visit, 0, sizeof w.visit);
+			marks = true;
+		} else ba_visit_free(&val);
 	}
 	ba_work_free(&w);
+	if (marks && options.book_reduce_reuse && !job->cancel) {
+		ba_counted.root = root->board;
+		ba_counted.x = prm->x;
+		ba_counted.y = prm->y;
+		ba_counted.n_bucket = job->book->n;
+		ba_counted.n = n_book;
+		ba_counted.kept = kept_marks;
+		ba_counted.val = val;
+		ba_counted.valid = true;
+	} else if (marks) {
+		ba_visit_free(&kept_marks);
+		ba_visit_free(&val);
+	}
 	if (kept == BA_DAMAGED && !job->cancel) { // (the positions after the root do not make a book that can be counted)
 		ba_print("@error id=%d damaged=1\n@end id=%d error=1\n", job->id, job->id);
 		return 0;
@@ -3510,6 +3678,58 @@ static void book_reduce_edge_range(BookTask *task)
  * @param total_loss Maximum cumulative loss for both players (0 to VISIT_LOSS_MAX).
  * @return false if the book is not changed (the position is not in the book or deeper than the book depth, no memory).
  */
+/**
+ * @brief book reduce with the positions that book reducecount found just before (book-reduce-reuse, see ba_counted).
+ *
+ * The positions it counted are marked "todo" (they are those that the walk below keeps). The negamax of book reduce
+ * is not done: of what it changes, only the scores of the links to the positions removed stay after book reduce (one
+ * of them may become the leaf, see position_remove_links; the rest is computed again by the negamax that follows book
+ * reduce), and they are set as it sets them, from the values that book reducecount computed in the same way.
+ *
+ * @return false if the count is not the one of this book reduce, or a value is missing (nothing that stays is changed).
+ */
+static bool book_reduce_counted(Book *book, const Position *root, const int move_loss, const int total_loss)
+{
+	PositionArray *a;
+	unsigned int idx = 0;
+	int b, k;
+	bool ok;
+
+	if (!ba_counted.valid || ba_counted.x != move_loss || ba_counted.y != total_loss || ba_counted.n_bucket != book->n
+	 || ba_counted.n != book->n_nodes || !board_equal(&ba_counted.root, &root->board)) return false;
+	lock(&ba);
+	ok = ba_index_get(book) && ba.index.n == ba_counted.n; // (the numbering of the count: the book is the same)
+	unlock(&ba);
+	if (!ok) return false;
+	book_clean(book);
+	for (b = 0; b < book->n; ++b) {
+		a = book->array + b;
+		for (k = 0; k < a->n; ++k, ++idx) {
+			Position *p = a->positions + k;
+			Link *l;
+			if (ba_visit_get(&ba_counted.kept, idx) == 0) continue;
+			position_set_todo(p, book);
+			foreach_link(l, p) {
+				Board target;
+				const Position *child;
+				board_next(&p->board, l->move, &target);
+				child = book_probe(book, &target);
+				if (child) {
+					const int c = (int) (board_get_hash_code(&child->board) & (unsigned long long) (book->n - 1));
+					const unsigned int ci = ba.index.first[c] + (unsigned int) (child - book->array[c].positions);
+					const int cv = ba_visit_get(&ba_counted.val, ci);
+					if (cv == 0) { book_clean(book); return false; } // (not computed: the walk below does it all)
+					if (ba_visit_get(&ba_counted.kept, ci) == 0 && l->score != 128 - cv) { // (the score of the link is minus the value of the child)
+						l->score = (signed char) (128 - cv);
+						book->need_saving = true;
+					}
+				}
+			}
+		}
+	}
+	return true;
+}
+
 bool book_reduce(Book *book, const Board *board, const int move_loss, const int total_loss)
 {
 	Position *root = book_probe(book, board);
@@ -3517,34 +3737,46 @@ bool book_reduce(Book *book, const Board *board, const int move_loss, const int 
 
 	if (root == NULL) {
 		warn("book reduce: this position is not in the book; the book is not changed\n");
+		ba_counted_free();
 		return false;
 	}
 	if (ba_reduce_deep(book, root)) {
 		warn("book reduce: this position is deeper than the book depth; the book is not changed\n");
+		ba_counted_free();
 		return false;
 	}
 	n_nodes = book->n_nodes;
-	book_clean(book);
-	book_negamax_position(root, book);
-	book_clean(book);
-	if (!book_visit_init(book)) return false;
-	bprint("Book reduce %d %d: walk...\r", move_loss, total_loss);
-	deviate_walk_all = true; // (every position walked is marked "todo")
-	deviate_mark_only = true; // (only marked: no list of them)
-	if (!book_deviate_total_by_loss(book, root, 3, move_loss, total_loss)) {
+	if (options.book_reduce_reuse && book_reduce_counted(book, root, move_loss, total_loss)) {
+		bprint("Book reduce %d %d: the positions counted by book reducecount...\r", move_loss, total_loss);
+	} else {
 		book_clean(book);
-		book_visit_clear(book);
-		position_deviate_total(root, book, move_loss, total_loss, 0, false);
-	}
-	deviate_walk_all = deviate_mark_only = false;
-	ba_reduce_x = move_loss;
-	ba_reduce_y = total_loss;
-	{
-		BookTask task[MAX_THREADS];
-		book_parallel(book, book_reduce_edge_range, task, NULL);
+		book_negamax_position(root, book);
+		book_clean(book);
+		if (!book_visit_init(book)) { ba_counted_free(); return false; }
+		bprint("Book reduce %d %d: walk...\r", move_loss, total_loss);
+		deviate_walk_all = true; // (every position walked is marked "todo")
+		deviate_mark_only = true; // (only marked: no list of them)
+		if (!book_deviate_total_by_loss(book, root, 3, move_loss, total_loss)) {
+			book_clean(book);
+			book_visit_clear(book);
+			position_deviate_total(root, book, move_loss, total_loss, 0, false);
+		}
+		deviate_walk_all = deviate_mark_only = false;
+		ba_reduce_x = move_loss;
+		ba_reduce_y = total_loss;
+		{
+			BookTask task[MAX_THREADS];
+			book_parallel(book, book_reduce_edge_range, task, NULL);
+		}
+		book_visit_free(book);
 	}
 	position_set_todo(root, book);
-	book_visit_free(book);
+	ba_counted_free(); // (the book changes now: the numbering that book_reduce_counted may have made goes too)
+	if (ba.init) {
+		lock(&ba);
+		ba_index_free();
+		unlock(&ba);
+	}
 
 	bprint("Book reduce %d %d: remove...\r", move_loss, total_loss);
 	book_remove_unmarked(book);
@@ -3554,7 +3786,7 @@ bool book_reduce(Book *book, const Board *board, const int move_loss, const int 
 	book_clean(book);
 	// the book that was cut is saved when Edax ends (as book prune)
 	if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;
-	book_pool_compact(book);
+	if (!(options.book_reduce_shrink && book_shrink_buckets(book))) book_pool_compact(book);
 	printf("Book reduce %d %d: %u positions kept, %u removed\n", move_loss, total_loss, book->n_nodes, n_nodes - book->n_nodes);
 	return true;
 }
@@ -3581,6 +3813,7 @@ static void ba_run(BaJob *job)
 	}
 	lock(&ba);
 	ok = ba_index_get(job->book);
+	if (ok && job->kind == BA_REDUCECOUNT && options.book_reduce_index) ba_index_table(); // (without memory: the binary search)
 	unlock(&ba);
 	if (!ok) {
 		ba_print("@error id=%d memory=1\n@end id=%d error=1\n", job->id, job->id);
@@ -3737,8 +3970,8 @@ bool book_analysis_stop(const char *param)
 	return has_id;
 }
 
-/** @brief Stop all the analyses and wait for the end of the current one (before a command that may change the book). */
-void book_analysis_quiesce(void)
+/** @brief Stop all the analyses and wait for the end of the current one; keep_counted: see ba_counted. */
+static void ba_quiesce(const bool keep_counted)
 {
 	bool found = false;
 	if (!ba.init) return;
@@ -3748,6 +3981,19 @@ void book_analysis_quiesce(void)
 	while (ba.current) condition_wait(&ba);
 	ba_index_free();
 	unlock(&ba);
+	if (!keep_counted) ba_counted_free();
+}
+
+/** @brief Stop all the analyses and wait for the end of the current one (before a command that may change the book). */
+void book_analysis_quiesce(void)
+{
+	ba_quiesce(false);
+}
+
+/** @brief As book_analysis_quiesce, before book reduce: the positions counted by book reducecount are kept for it. */
+void book_analysis_quiesce_reduce(void)
+{
+	ba_quiesce(true);
 }
 
 /** @brief End the analysis thread. */

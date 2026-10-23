@@ -100,6 +100,10 @@ typedef struct {
 	bool book_seed_set;                   /**< book-seed given: the random numbers of the book (moves chosen among equal ones) start from book_seed; else from the clock (the default) */
 	unsigned long long book_seed;         /**< seed of the random numbers of the book (see book_seed_set) */
 	bool book_reproducible;               /**< the book functions give the same book from a run to the next (one-thread searches, expansions applied in the order of the list); off by default */
+	bool book_reduce_shrink;              /**< book reduce: fewer buckets when most positions are removed (on by default; off: the book saved is in the order of v4.5.5-nikque.21) */
+	bool book_reduce_reuse;               /**< book reduce: the positions that book reducecount found just before are used, the book being the same (on by default) */
+	int book_reduce_index;                /**< book reducecount: a position from its number, 0 = binary search of the buckets, 1 = with a table of every 64 numbers (the default) */
+	int book_reduce_walk;                 /**< book reducecount with threads: 0 = walk by accumulated loss (the default), 1 = in the order of the groups (the children first) */
 
 	// TODO: add more options?
 } Options;

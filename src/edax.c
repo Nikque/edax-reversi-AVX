@@ -681,7 +681,8 @@ void ui_loop_edax(UI *ui)
 					char word[16];
 					parse_word(param, word, 15);
 					string_to_lowercase(word);
-					if (strcmp(word, "on") != 0 && strcmp(word, "off") != 0 && strcmp(word, "randomness") != 0
+					if (strcmp(word, "reduce") == 0) book_analysis_quiesce_reduce(); // (it may use the positions counted by book reducecount)
+					else if (strcmp(word, "on") != 0 && strcmp(word, "off") != 0 && strcmp(word, "randomness") != 0
 					 && strcmp(word, "show") != 0 && strcmp(word, "info") != 0 && strcmp(word, "stats") != 0) book_analysis_quiesce();
 				}
 				play_no_stop(play, true); // the word "stop" does not cut the searches of a book command short (see play_stop)
