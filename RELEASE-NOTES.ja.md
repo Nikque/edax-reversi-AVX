@@ -2,6 +2,14 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-eval2.9（v4.5.5-nikque.21 の変更を取り込み）
+
+v4.5.5-eval2.8 に、v4.5.5-nikque.21 の変更（下の nikque.21 の項：`book reduce`・`book reducecount` を速く・少ないメモリに。結果は同じ）を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。探索と結果は v4.5.5-eval2.8 と同じです。
+
+確認：
+
+- `book reduce`・`book reducecount` の試験（nikque.21 と同じ試験）は 546 通りすべて一致しました。
+
 ## v4.5.5-eval2.8（v4.5.5-nikque.20 の変更を取り込み）
 
 v4.5.5-eval2.7 に、v4.5.5-nikque.20 の変更（下の nikque.20 の項：book を軽くする `book reduce` と、消す前に数える `book reducecount`）を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。探索と結果は v4.5.5-eval2.7 と同じです。
@@ -117,6 +125,21 @@ v4.5.5-eval2.1 に、v4.5.5-nikque.10〜13 の変更を全部取り込みまし�
 学習データ：Edax 自身の自己対局（level 8、約84万局）の探索の値、このforkで学習したbookの局面と値、[Egaroucid](https://www.egaroucid.nyanyan.dev/) のサイトで公開されている学習データ。Egaroucid については、公開されているデータを学習に使っただけで、パターンや学習ずみの重みは使っていません。学習データは配布物に入っていません。
 
 確認：上流の `eval.dat` で、Windows 5種・Linux 4種の1スレッドの結果とノード数、bookの回帰試験（1スレッド、84ファイル）が v4.5.5-nikque.9 と一致。新しい `eval.dat` で、Windows 5種・Linux 4種のノード数が互いに一致、完全読みの評価値は上流の `eval.dat` と全問同じ、API試験191項目に合格（Windows 3種・Linux 3種）。 macOS版・Android版・Windows ARM64版は動作を確認していません（Android版・Windows ARM64版はビルドだけ）。
+## v4.5.5-nikque.21
+
+book を軽くする命令 `book reduce` と、その前に数える `book reducecount` を、速く・少ないメモリで動くようにしました。**働きと結果は v4.5.5-nikque.20 と同じです**（`book reduce` の後に保存する book も、保存日時を除いてバイト単位で同じ）。
+
+- `book reduce`：残さない局面を消す処理を、bookのバケツ（局面の入れ物）ごとに 1 回の走査で詰める形にしました。前は 1 局面を消すごとにバケツの残りを詰め直していたので、ほとんどの局面を消すときには、詰め直す量がバケツの大きさ（平均 8〜16 局面）に比例して増えていました。
+- `book reducecount`：歩きの待ち行列の 1 項目を、16 バイト（局面の場所と番号）から 4 バイト（番号だけ。局面は番号から引く）にしました。多くの局面が残るbookで、使うメモリが減ります。
+- 精度の段階の計算・ほかの解析の命令・探索・`eval.dat`・bookのファイル形式は変えていません。
+
+確認：
+
+- `book reduce`・`book reducecount` の試験（試験のために作った小さなbook 4 つ、別に書いた計算と比べる。v4.5.5-nikque.20 と同じ試験）は 546 通りすべて一致。
+- v4.5.5-nikque.20 と同じ手順の `book reduce` の後に保存したbookを、直す前と後の実行ファイルで比べ、54 通りすべてバイト単位で同じ（保存日時を除く）。
+- 速さとメモリの量は測っていません（試験の間、ほかのプログラムが CPU を使っていたため）。上の 2 点は、処理の形から言えることです。
+- 29GBの実bookでは確かめていません。
+
 ## v4.5.5-nikque.20
 
 book を軽くする命令 `book reduce` と、消す前に数を数える `book reducecount` を足しました。**探索・`eval.dat`・bookのファイル形式・結果は v4.5.5-nikque.19 と同じです。**

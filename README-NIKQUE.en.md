@@ -6,6 +6,14 @@ This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5c
 
 **This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.8).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.20) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
 
+## Changes in v4.5.5-eval2.9
+
+v4.5.5-eval2.8 with the changes of v4.5.5-nikque.21 (below: `book reduce` and `book reducecount` faster and with less memory, with the same results). **The evaluation and `eval.dat` are still those of v4.5.5-eval2.1** (the same file). The search and the results are the same as v4.5.5-eval2.8.
+
+Checks:
+
+- The tests of `book reduce` and `book reducecount` (the tests of nikque.21) all agree, 546 cases.
+
 ## Changes in v4.5.5-eval2.8
 
 v4.5.5-eval2.7 with the changes of v4.5.5-nikque.20 (below: `book reduce`, which makes the book lighter, and `book reducecount`, which counts before removing). **The evaluation and `eval.dat` are still those of v4.5.5-eval2.1** (the same file). The search and the results are the same as v4.5.5-eval2.7.
@@ -225,6 +233,21 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+## Changes in v4.5.5-nikque.21
+
+`book reduce`, which makes the book lighter, and `book reducecount`, which counts first, now run faster and with less memory. **What they do and their results are the same as in v4.5.5-nikque.20** (the book saved after `book reduce` is the same byte for byte, but for the save date).
+
+- `book reduce`: the positions not kept are removed in one pass over each bucket of the book (where the positions are held). Before, the rest of the bucket was moved for each position removed: when most positions are removed, the moves grew with the size of the buckets (8 to 16 positions on average).
+- `book reducecount`: an item of the queue of its walk takes 4 bytes (the number of the position, from which the position is found) instead of 16 (the place and the number of the position): less memory when many positions are kept.
+- The precision stages, the other analysis commands, the search, `eval.dat` and the book file format are not changed.
+
+Checks:
+
+- The tests of `book reduce` and `book reducecount` (4 small books made for the tests, compared with a computation written apart; the tests of v4.5.5-nikque.20): all the same in 546 cases.
+- The books saved after the same `book reduce` commands with the executables before and after the change: the same byte for byte in 54 cases (but for the save date).
+- The speed and the memory were not measured (other programs used the CPU during the tests); the two points above follow from the way the work is done.
+- Not checked with the 29 GB real book.
+
 ## Changes in v4.5.5-nikque.20
 
 A command that makes the book lighter, `book reduce`, and `book reducecount`, which counts before removing. **The search, `eval.dat`, the book file format and the results are the same as v4.5.5-nikque.19.**

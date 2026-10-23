@@ -2,6 +2,14 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.9 (with the changes of v4.5.5-nikque.21)
+
+v4.5.5-eval2.8 with the changes of v4.5.5-nikque.21 (below: `book reduce` and `book reducecount` faster and with less memory, with the same results). **The evaluation and `eval.dat` are still those of v4.5.5-eval2.1** (the same file). The search and the results are the same as v4.5.5-eval2.8.
+
+Checks:
+
+- The tests of `book reduce` and `book reducecount` (the tests of nikque.21) all agree, 546 cases.
+
 ## v4.5.5-eval2.8 (with the changes of v4.5.5-nikque.20)
 
 v4.5.5-eval2.7 with the changes of v4.5.5-nikque.20 (below: `book reduce`, which makes the book lighter, and `book reducecount`, which counts before removing). **The evaluation and `eval.dat` are still those of v4.5.5-eval2.1** (the same file). The search and the results are the same as v4.5.5-eval2.7.
@@ -117,6 +125,21 @@ Speed (release executables: time of this version with the new `eval.dat`, divide
 Training data: the search scores of self-play games of Edax itself (level 8, about 840,000 games), the positions and scores of a book learned with this fork, and the training data published on the site of [Egaroucid](https://www.egaroucid.nyanyan.dev/). For Egaroucid, only the published data was used for training: its patterns and trained weights are not used. The training data is not in the package.
 
 Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
+## v4.5.5-nikque.21
+
+`book reduce`, which makes the book lighter, and `book reducecount`, which counts first, now run faster and with less memory. **What they do and their results are the same as in v4.5.5-nikque.20** (the book saved after `book reduce` is the same byte for byte, but for the save date).
+
+- `book reduce`: the positions not kept are removed in one pass over each bucket of the book (where the positions are held). Before, the rest of the bucket was moved for each position removed: when most positions are removed, the moves grew with the size of the buckets (8 to 16 positions on average).
+- `book reducecount`: an item of the queue of its walk takes 4 bytes (the number of the position, from which the position is found) instead of 16 (the place and the number of the position): less memory when many positions are kept.
+- The precision stages, the other analysis commands, the search, `eval.dat` and the book file format are not changed.
+
+Checks:
+
+- The tests of `book reduce` and `book reducecount` (4 small books made for the tests, compared with a computation written apart; the tests of v4.5.5-nikque.20): all the same in 546 cases.
+- The books saved after the same `book reduce` commands with the executables before and after the change: the same byte for byte in 54 cases (but for the save date).
+- The speed and the memory were not measured (other programs used the CPU during the tests); the two points above follow from the way the work is done.
+- Not checked with the 29 GB real book.
+
 ## v4.5.5-nikque.20
 
 A command that makes the book lighter, `book reduce`, and `book reducecount`, which counts before removing. **The search, `eval.dat`, the book file format and the results are the same as v4.5.5-nikque.19.**
