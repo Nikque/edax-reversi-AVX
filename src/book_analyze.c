@@ -2965,29 +2965,35 @@ end:
  * (the best move of a position kept is kept), and book deviate3 x y from the root then selects the same leaves as before.
  */
 
-/** A position reached by the walk of book reducecount. */
-typedef struct BaRItem {
-	Position *p;
-	unsigned int idx;
-} BaRItem;
-
+/** Numbers of the positions reached by the walk of book reducecount (4 bytes each: see ba_position). */
 typedef struct BaRList {
-	BaRItem *v;
+	unsigned int *v;
 	long long n, size;
 } BaRList;
 
-static bool ba_rlist_push(BaRList *l, Position *p, const unsigned int idx)
+static bool ba_rlist_push(BaRList *l, const unsigned int idx)
 {
 	if (l->n == l->size) {
 		const long long size = l->size + l->size / 2 + 1024;
-		BaRItem *v = (BaRItem*) realloc(l->v, (size_t) size * sizeof *v);
+		unsigned int *v = (unsigned int*) realloc(l->v, (size_t) size * sizeof *v);
 		if (v == NULL) return false;
 		l->v = v; l->size = size;
 	}
-	l->v[l->n].p = p;
-	l->v[l->n].idx = idx;
-	++l->n;
+	l->v[l->n++] = idx;
 	return true;
+}
+
+/** @return the position of a number (see BaIndex): in the last bucket whose first number is not above it. */
+static Position* ba_position(const BaWork *w, const unsigned int idx)
+{
+	const unsigned int *first = ba.index.first;
+	int lo = 0, hi = ba.index.n_bucket;
+	while (hi - lo > 1) {
+		const int mid = lo + (hi - lo) / 2;
+		if (first[mid] <= idx) lo = mid;
+		else hi = mid;
+	}
+	return w->book->array[lo].positions + (idx - first[lo]);
 }
 
 /** A position of the depth first walk of ba_negamax_values. */
@@ -3069,17 +3075,20 @@ static long long ba_reduce_walk(BaWork *w, Position *root, const unsigned int ro
 	if (level == NULL) return -1;
 	ba_visit_clear(&w->visit);
 	ok = ba_visit_set(&w->visit, root_idx, 1);
-	if (ok && ba_walkable(book, root)) ok = ba_rlist_push(level, root, root_idx);
+	if (ok && ba_walkable(book, root)) ok = ba_rlist_push(level, root_idx);
 	for (L = 0; ok && L <= total_loss; ++L) {
 		BaRList *cur = level + L;
 		long long k;
 		for (k = 0; ok && k < cur->n; ++k) { // (positions reached with the same loss are added while the list is read)
-			Position *p = cur->v[k].p;
-			const int v = ba_visit_get(val, cur->v[k].idx) - 128;
+			const unsigned int idx = cur->v[k];
+			Position *p;
+			int v;
 			Link *l;
 
 			if (w->job->cancel) { ok = false; break; }
-			if (ba_visit_get(&w->visit, cur->v[k].idx) != L + 1) continue; // reached later with a smaller loss
+			if (ba_visit_get(&w->visit, idx) != L + 1) continue; // reached later with a smaller loss
+			p = ba_position(w, idx);
+			v = ba_visit_get(val, idx) - 128;
 			foreach_link(l, p) {
 				Board target;
 				unsigned int ci;
@@ -3096,7 +3105,7 @@ static long long ba_reduce_walk(BaWork *w, Position *root, const unsigned int ro
 						continue;
 					}
 					if (old && old <= L + e + 1) continue;
-					if (!ba_visit_set(&w->visit, ci, (unsigned char) (L + e + 1)) || !ba_rlist_push(level + L + e, child, ci)) { ok = false; break; }
+					if (!ba_visit_set(&w->visit, ci, (unsigned char) (L + e + 1)) || !ba_rlist_push(level + L + e, ci)) { ok = false; break; }
 				}
 			}
 		}
@@ -3191,9 +3200,7 @@ static void book_reduce_edge_range(BookTask *task)
 bool book_reduce(Book *book, const Board *board, const int move_loss, const int total_loss)
 {
 	Position *root = book_probe(book, board);
-	PositionArray *a;
 	unsigned int n_nodes;
-	int i;
 
 	if (root == NULL) {
 		warn("book reduce: this position is not in the book; the book is not changed\n");
@@ -3226,8 +3233,7 @@ bool book_reduce(Book *book, const Board *board, const int move_loss, const int 
 	book_visit_free(book);
 
 	bprint("Book reduce %d %d: remove...\r", move_loss, total_loss);
-	for (a = book->array; a < book->array + book->n; ++a)
-	for (i = 0; i < a->n; ++i) if (!position_is_todo(a->positions + i, book)) {book_remove_at(book, a, i); --i;}
+	book_remove_unmarked(book);
 	book_clean(book);
 	// the book that was cut is saved when Edax ends (as book prune)
 	if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;
