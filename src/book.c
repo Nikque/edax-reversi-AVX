@@ -2443,6 +2443,35 @@ static void book_remove_at(Book *book, PositionArray *a, const int i)
 	book_detach_at(book, a, i);
 }
 
+/**
+ * @brief Remove the positions that are not marked "todo" (book reduce), each bucket in one pass.
+ *
+ * The positions kept keep their order, as with book_remove_at called for each position removed, but each one moves
+ * once at most (book_remove_at moves the rest of the bucket for each position removed).
+ *
+ * @param book Opening book.
+ */
+static void book_remove_unmarked(Book *book)
+{
+	PositionArray *a;
+	for (a = book->array; a < book->array + book->n; ++a) {
+		int i, j = 0;
+		for (i = 0; i < a->n; ++i) {
+			if (position_is_todo(a->positions + i, book)) {
+				if (j != i) a->positions[j] = a->positions[i];
+				++j;
+			} else position_free(a->positions + i);
+		}
+		if (j < a->n) {
+			const int removed = a->n - j;
+			if (a->size < 0) book->pool_unused += removed; // (see book_pool_reclaim)
+			a->n = j;
+			book->n_nodes -= (unsigned int) removed;
+			book->stats.n_nodes -= removed;
+		}
+	}
+}
+
 /** @return the place of a position in the book: bucket << 32 | index in the bucket. */
 static inline unsigned long long position_key(const Book *book, const Position *p)
 {
