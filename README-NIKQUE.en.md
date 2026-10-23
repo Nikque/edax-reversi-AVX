@@ -4,6 +4,21 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
+## Changes in v4.5.5-nikque.21
+
+`book reduce`, which makes the book lighter, and `book reducecount`, which counts first, now run faster and with less memory. **What they do and their results are the same as in v4.5.5-nikque.20** (the book saved after `book reduce` is the same byte for byte, but for the save date).
+
+- `book reduce`: the positions not kept are removed in one pass over each bucket of the book (where the positions are held). Before, the rest of the bucket was moved for each position removed: when most positions are removed, the moves grew with the size of the buckets (8 to 16 positions on average).
+- `book reducecount`: an item of the queue of its walk takes 4 bytes (the number of the position, from which the position is found) instead of 16 (the place and the number of the position): less memory when many positions are kept.
+- The precision stages, the other analysis commands, the search, `eval.dat` and the book file format are not changed.
+
+Checks:
+
+- The tests of `book reduce` and `book reducecount` (4 small books made for the tests, compared with a computation written apart; the tests of v4.5.5-nikque.20): all the same in 546 cases.
+- The books saved after the same `book reduce` commands with the executables before and after the change: the same byte for byte in 54 cases (but for the save date).
+- The speed and the memory were not measured (other programs used the CPU during the tests); the two points above follow from the way the work is done.
+- Not checked with the 29 GB real book.
+
 ## Changes in v4.5.5-nikque.20
 
 A command that makes the book lighter, `book reduce`, and `book reducecount`, which counts before removing. **The search, `eval.dat`, the book file format and the results are the same as v4.5.5-nikque.19.**
