@@ -173,8 +173,8 @@ Only the positions that `book deviate3 X Y` walks from the position on the board
 
 - What remains is the position on the board and the positions reached from it by moves that lose at most X discs each, with at most Y discs lost in all on the way. This is the range that `book deviate3 X Y` walks when it looks for the positions to expand (when the same position is reached by other moves, the way with the smallest sum of losses counts). The positions under the depth of the book and the positions at the end of the game that a walked position reaches by such a move are kept too.
 - It first computes again the values after the position on the board (as `book deviate3`).
-- A move to a removed position may become the leaf of its position (as with `book prune`). The values of the positions kept do not change. `book deviate3 X Y` from the same position afterwards expands the same leaves as before.
-- X is 0 to 129, Y is 0 to 254. Without two numbers, or with a number out of range, a warning is shown and nothing is done.
+- A move to a removed position may become the leaf of its position (as with `book prune`). The values of the positions kept do not change from those computed again first. `book deviate3 X Y` from the same position afterwards selects the same leaves first as before.
+- X is 0 to 129, Y is 0 to 254. Without two numbers, with a number out of range, or with other words after the numbers (since v4.5.5-nikque.21), a warning is shown and nothing is done.
 - From a position that is not the initial one, the positions from the initial position up to it are removed too, as with `book subtree`.
 - When the position on the board is not in the book, or two or more moves beyond the depth of the book, a warning is shown and nothing is done.
 - The numbers can be checked first with `book reducecount id=N x=X y=Y` (it does not change the book; [12.4](12-integration.md)). It counts with the values computed again, as `book reduce` does, so the numbers are the same.
