@@ -15,7 +15,7 @@ This **fixed version** (`Nikque/edax-reversi-AVX`; its versions are named `v4.5.
 
 The evaluation data (`eval.dat`) and the format of the book file are those of the original Edax 4.5.5. A book of the original Edax can be read as it is.
 
-What changed and when is in the `README-NIKQUE.en.md` of the package (changes of each version) and in `RELEASE-NOTES.md` (list of fixes). This manual explains how to use the program.
+What changed and when is in `RELEASE-NOTES.md` of the package (changes of each version). This manual explains how to use the program.
 
 ## 1.2 What you can do with Edax
 
@@ -40,8 +40,8 @@ The ZIP downloaded from the Releases page contains:
 | `bin/data/eval.dat` | The evaluation data. **Edax does not start without it** |
 | `bin/data/book.dat` | A first book (nearly empty: it holds the initial position only) |
 | `problem/` | Endgame problem sets (`fforum-1-19.obf` and three more; [chapter 11](11-solve-bench.md)) |
-| `README-NIKQUE.en.md`, `README-NIKQUE.ja.md` | Changes of each version and the record of the measurements |
-| `RELEASE-NOTES.md`, `RELEASE-NOTES.ja.md` | The list of fixes |
+| `README.md` | Overview of this fork (English and Japanese) and the upstream README |
+| `RELEASE-NOTES.md`, `RELEASE-NOTES.ja.md` | Changes of each version (tests and measurements: `docs/validation/` of the source) |
 | `manual/en/`, `manual/ja/` | This manual (English and Japanese; since v4.5.5-nikque.13) |
 | `LICENSE` | The licence (GPL-3.0) |
 

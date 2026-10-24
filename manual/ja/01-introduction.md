@@ -15,7 +15,7 @@ Edax は、オセロ（リバーシ）を打つプログラムです。Richard D
 
 評価データ（`eval.dat`）と book のファイルの形式は、元の Edax 4.5.5 と同じです。元の Edax の book は、そのまま読めます。
 
-何がいつ変わったかは、配布物の `README-NIKQUE.ja.md`（版ごとの変更点）と `RELEASE-NOTES.ja.md`（修正の一覧）にあります。このマニュアルは「使い方」の説明です。
+何がいつ変わったかは、配布物の `RELEASE-NOTES.ja.md`（版ごとの変更点）にあります。このマニュアルは「使い方」の説明です。
 
 ## 1.2 Edax でできること
 
@@ -40,8 +40,8 @@ Release のページからダウンロードした ZIP を展開すると、次�
 | `bin/data/eval.dat` | 評価データ。**これがないと Edax は起動しません** |
 | `bin/data/book.dat` | 最初の book（初期局面が 1 つ入っているだけの、ほぼ空の book） |
 | `problem/` | 終盤の問題集（`fforum-1-19.obf` など 4 ファイル。[11 章](11-solve-bench.md)） |
-| `README-NIKQUE.ja.md`・`README-NIKQUE.en.md` | 版ごとの変更点と実測の記録 |
-| `RELEASE-NOTES.ja.md`・`RELEASE-NOTES.md` | 修正の一覧 |
+| `README.md` | この版の概要（英語・日本語）と、元の Edax の説明 |
+| `RELEASE-NOTES.ja.md`・`RELEASE-NOTES.md` | 版ごとの変更点（テストと実測の記録は、ソースの `docs/validation/`） |
 | `manual/ja/`・`manual/en/` | このマニュアル（日本語・英語。v4.5.5-nikque.13 から） |
 | `LICENSE` | ライセンス（GPL-3.0） |
 

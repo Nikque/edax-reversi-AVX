@@ -85,6 +85,6 @@ Cannot open temporary book …
 - Check the current settings with `options` (is the `config.ini` you expect being read?).
 - Check the number of positions, the level and the depth of the book with `book info`.
 - Starting with a file name in the settings `ui-log-file` (record of the input and the output) and `search-log-file` (record of the searches) lets you see afterwards what happened.
-- `README-NIKQUE.en.md` of the package lists, for each version, "what changes in behaviour" and "what was not fixed, what to know".
+- `RELEASE-NOTES.md` of the package lists, for each version, the compatibility (what changes in behaviour) and notes (what was not fixed, what to know).
 
 Next: [14. Reference](14-reference.md)

@@ -135,7 +135,33 @@ int main(void)
 - **book を変える関数と、棋譜のファイルを書く関数（`edax_base_complete`・`edax_base_correct`）の実行中は、`edax_stop` が探索を止めません**（途中で打ち切った探索の結果が、book やファイルに入るのを防ぐためです）。
 - `edax_get_moves` が返す手順は、80 手（着手とパスの合計）までです。
 - Windows では、ファイル名を UTF-8 として読みます（UTF-8 として正しくないときは、その PC の文字コード）。日本語の名前を、その PC の文字コード（CP932）で渡すと、まれに、別の名前として読まれることがあります。ファイル名は、半角の英数字にしておくのが安全です。
-- くわしい説明（元の libedax との違い、追加した関数、ビルドのしかた）は、配布物の `README-NIKQUE.ja.md` の「libedax：Edax をライブラリとして使う」にあります。関数の一覧は `src/libedax.h`、全部の関数を呼ぶ例は `tests/libedax_test.c` です。
+
+### くわしい説明（元の libedax との違い・追加した関数・ビルド）
+
+- **関数と、呼び出し側とやり取りするデータの並びは元のlibedaxと同じです**（`src/libedax.h`）。Edax 4.5 で内部の構造が変わっているので、内部のデータをそのまま渡さず、元の並びのデータに詰め替えて渡します。
+- **設定**は、作業フォルダの `edax.ini`、`config.ini`、`libedax_initialize` の引数の順に読みます（後のものが優先）。書き方と項目は edax 本体と同じです。
+- 追加した関数：`edax_book_deviate2`、`edax_book_deviate3`（`book deviate2`・`deviate3`）、`libedax_cpu_level`（CPUが動かせる版を返します。`libedax-x64.dll` に問い合わせてから、v3・v4 を読み込む使い方ができます）、`edax_book_store_games`（複数の棋譜をまとめて対局・学習します。上の `book learn` と同じ処理で、棋譜は1行に1局の文字列で渡します）、`edax_book_store_tasks`（同時に学習する棋譜の数を返します。`book-store-tasks` が `auto` なら `n-tasks` の値）。v4.5.5-nikque.9 で `edax_book_save_checked`（bookを保存し、保存できたかどうかを返します）と `edax_book_failed`（直前のbookの処理が局面を追加できなかったかどうかを返します）を足しました。v4.5.5-nikque.12 で `edax_book_leaf_recalculate`・`edax_book_leaf_recalculate2`・`3`・`4`（`book leaf-recalculate` 系の命令）を足しました。
+- 元のlibedax（Edax 4.4）との違い：
+  - 既定のlevelは18です（元は21）。同じlevelでも、探索の評価値や手がEdax 4.4と違うことがあります。
+  - `edax_book_merge` は、この版の `book merge` と同じく、リンクの再構築・修正・negamaxまで行います（元は局面を足すだけ）。
+  - 最善進行の数（`edax_book_count_bestpath`・`edax_book_count_board_bestpath`）は、元のlibedaxではbookの全局面に常に記録欄を持たせていましたが、この版では数えるときだけ別に確保します（bookの局面は48バイトのままです）。数え方（下限の値）を変えたときと、bookを変更したときは、自動で数え直します。
+  - `Position` の `link`（手の配列）は、次の63局面を取得するまで有効です（v4.5.5-nikque.8 までは8局面）。`edax_bench` の結果の後ろにあったロックは使いません。
+  - 元のlibedaxでは異常終了した呼び方（初期化や終了の二重呼び出し、1手も打っていないときの `edax_get_last_move`、bookにない局面の `edax_book_show`、書き換えできない文字列を渡した `edax_get_bookmove_with_position_by_moves`）を、何もしない・空の結果を返す、に変えました。
+  - Windowsでは、ファイル名を UTF-8（だめなら ANSI）として読みます。ANSI（日本語のWindowsではCP932）で渡した名前が、たまたまUTF-8としても正しいバイトの並びのとき（半角カタカナ2文字の「ﾐｽ」など）は、UTF-8として読んだ名前（この例では「н」）のファイルを作ります。読み込みは、その名前のファイルがなければ、ANSIの名前のファイルを読みます（v4.5.5-nikque.13 の点検で確かめました。呼び出す側の文字コードは分からないので、変えていません）。
+- **edax 本体には影響しません。** libedaxのコードは、ライブラリをビルドするときだけ取り込まれます。libedaxを追加した時点のソースからビルドした edax は、v4.5.5-nikque.6 のソースからビルドしたものとバイト単位で同じでした（ビルド時刻とソースのフォルダ名の文字を除く）。
+- 速さとメモリ（1スレッド、`bench` の終盤20局面、Ryzen 9 9950X）：
+
+  | | 速さ | 最大メモリ |
+  |---|---|---|
+  | 元のlibedax（Edax 4.4、x86-64） | 53 百万ノード/秒 | 159 MB |
+  | `libedax-x64.dll` | 69 百万ノード/秒 | 82 MB |
+  | `libedax-x64-v3.dll` | 81 百万ノード/秒 | 82 MB |
+  | `libedax-x64-v4.dll` | 92 百万ノード/秒 | 82 MB |
+
+  ライブラリと edax 本体（同じCPU向け）は、ノード数が一致し、速さも同じでした。
+- 試験：`tests/libedax_test.c` が全関数を呼び出します（147項目。v4.5.5-nikque.9 では191項目、v4.5.5-nikque.10 では193項目、v4.5.5-nikque.12 では197項目、v4.5.5-nikque.13 では198項目。Windows 3種とLinux 3種で合格。元のlibedaxでも、対応する項目は同じ結果）。libedax4dart 7.67.0 のテスト29件のうち28件が合格し、残る1件は探索の評価値の比較です（既定のlevelの違いと、直前の探索の状態によるもの。同じlevelで単独に探索すると、元のlibedaxと同じ評価値になります）。Edax 4.4 のlibedaxが保存したbookを読めること、この版が保存したbookをEdax 4.4のlibedaxが読めること（27万局面のbookで全局面一致）も確かめました。
+- ビルド：Windowsは `nmake -f NMakefile vc-lib`（`vc-lib-x64`・`vc-lib-x64-v3`・`vc-lib-x64-v4`）、Linuxなどは `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`。Android用は `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib`（`src/libs-lib/<ABI>/libedax.so` ができます。NDK r27d で確認）。試験は `tests\build-libedax-test.cmd`。macOS用は、release-binaries ワークフローが arm64 と x86-64 のライブラリを作り、1つのファイル `libedax.universal.dylib`（libedax用のプログラムが読み込む名前）にまとめます。
+
 
 ## 12.3 edax_runner
 

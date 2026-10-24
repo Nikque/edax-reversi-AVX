@@ -135,7 +135,33 @@ Good to know:
 - **While a function that changes the book, or one that writes a game file (`edax_base_complete`, `edax_base_correct`), is running, `edax_stop` does not stop the search** (so that the result of a search cut short cannot go into the book or the file).
 - The line returned by `edax_get_moves` holds 80 plies at most (moves and passes together).
 - On Windows, file names are read as UTF-8 (as the code page of the PC when they are not valid UTF-8). A Japanese name passed in the code page of the PC (CP932) may, in rare cases, be read as another name. Keeping file names to ASCII letters and digits is safe.
-- The details (differences from the original libedax, added functions, how to build) are in "libedax: Edax as a library" of `README-NIKQUE.en.md` in the package. The list of functions is `src/libedax.h`; an example that calls every function is `tests/libedax_test.c`.
+
+### Details (differences from the original libedax, added functions, building)
+
+- **The functions and the layout of the data exchanged with the caller are those of the original libedax** (`src/libedax.h`). The structures of Edax changed in 4.5, so they are not passed as they are: the data are copied to structures with the original layout.
+- **Settings** are read from `edax.ini` and `config.ini` of the current folder, then from the arguments of `libedax_initialize` (the last one wins). The syntax and the settings are those of the edax program.
+- New functions: `edax_book_deviate2` and `edax_book_deviate3` (`book deviate2` and `deviate3`), `libedax_cpu_level` (which build the CPU can run: a program can ask `libedax-x64.dll`, then load the v3 or v4 library), `edax_book_store_games` (play and learn several games together, as `book learn` above does; the games are given as a string, one game per line) and `edax_book_store_tasks` (the number of games learned at the same time: `n-tasks` when `book-store-tasks` is `auto`). v4.5.5-nikque.9 adds `edax_book_save_checked` (saves the book and tells whether it was saved) and `edax_book_failed` (tells whether the last book function could not add a position). v4.5.5-nikque.12 adds `edax_book_leaf_recalculate`, `edax_book_leaf_recalculate2`, `3` and `4` (the `book leaf-recalculate` commands).
+- Differences from the original libedax (Edax 4.4):
+  - The default level is 18 (it was 21). At the same level, the scores and moves of a search can differ from Edax 4.4.
+  - `edax_book_merge` does what `book merge` does in this version: it also rebuilds the links, fixes and negamaxes the book (the original only added the positions).
+  - The counts of the best paths (`edax_book_count_bestpath`, `edax_book_count_board_bestpath`) were kept in every position of the book by the original libedax; here they are kept beside the book, only while they are used (a book position still takes 48 bytes). They are counted again when the limits change or when the book changes.
+  - The `link` array of a `Position` stays valid until 63 other positions are asked (8 up to v4.5.5-nikque.8). The lock which followed the result of `edax_bench` is not used.
+  - Calls which crashed the original libedax (a second initialization or termination, `edax_get_last_move` before any move, `edax_book_show` on a position missing from the book, a read-only string given to `edax_get_bookmove_with_position_by_moves`) now do nothing or return an empty result.
+  - On Windows, file names are read as UTF-8 (then as ANSI). A name given in the ANSI code page whose bytes also happen to be valid UTF-8 (in CP932, the two half-width katakana "ﾐｽ", for example) makes a file with the name read as UTF-8 ("н" here); when reading, the ANSI name is tried if no file has the UTF-8 name (checked during the audit of v4.5.5-nikque.13; the library cannot know the encoding of its caller, so this is unchanged).
+- **The edax program is not affected.** The code of libedax is only compiled when the library is built. An edax built from the sources with libedax added is byte-identical to one built from the v4.5.5-nikque.6 sources (except the build time and the name of the source folder).
+- Speed and memory (one thread, the 20 endgame positions of `bench`, Ryzen 9 9950X):
+
+  | | Speed | Peak memory |
+  |---|---|---|
+  | Original libedax (Edax 4.4, x86-64) | 53 million nodes/s | 159 MB |
+  | `libedax-x64.dll` | 69 million nodes/s | 82 MB |
+  | `libedax-x64-v3.dll` | 81 million nodes/s | 82 MB |
+  | `libedax-x64-v4.dll` | 92 million nodes/s | 82 MB |
+
+  The library and the edax program (for the same CPU) search the same number of nodes at the same speed.
+- Tests: `tests/libedax_test.c` calls every function (147 checks, 191 in v4.5.5-nikque.9, 193 in v4.5.5-nikque.10, 197 in v4.5.5-nikque.12, 198 in v4.5.5-nikque.13; passed by the 3 Windows and the 3 Linux libraries; the original libedax gives the same results on the checks it supports). 28 of the 29 tests of libedax4dart 7.67.0 pass; the other one compares a search score (it differs because of the default level and of the state left by the previous searches: a fresh search at the same level gives the same score as the original libedax). The books saved by the libedax of Edax 4.4 are read by this version, and the books saved by this version are read by the libedax of Edax 4.4 (all the positions of a 270,000-position book are the same).
+- Build: on Windows, `nmake -f NMakefile vc-lib` (`vc-lib-x64`, `vc-lib-x64-v3`, `vc-lib-x64-v4`); elsewhere, `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`. For Android: `ndk-build -C src NDK_PROJECT_PATH=. NDK_APPLICATION_MK=./Application-lib.mk NDK_OUT=./obj-lib NDK_LIBS_OUT=./libs-lib` (it makes `src/libs-lib/<ABI>/libedax.so`; checked with NDK r27d). Test: `tests\build-libedax-test.cmd`. For macOS, the release-binaries workflow builds the arm64 and x86-64 libraries and joins them in one file, `libedax.universal.dylib` (the name loaded by the programs written for libedax).
+
 
 ## 12.3 edax_runner
 

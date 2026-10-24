@@ -2,7 +2,7 @@
 
 A maintained fork of [Edax 4.5.5 (okuhara/edax-reversi-AVX)](https://github.com/okuhara/edax-reversi-AVX), the Othello engine. It fixes bugs in book learning and book handling, adds book analysis and maintenance commands, and makes book learning faster on many-core PCs. Books made with upstream Edax 4.5.5 can be used as they are.
 
-[日本語](#日本語) · [Download](https://github.com/Nikque/edax-reversi-AVX/releases/latest) · [Manual](manual/en/README.md) · [Release notes](RELEASE-NOTES.md) · [Full notes per version](README-NIKQUE.en.md)
+[日本語](#日本語) · [Download](https://github.com/Nikque/edax-reversi-AVX/releases/latest) · [Manual](manual/en/README.md) · [Release notes](RELEASE-NOTES.md) · [Tests and measurements](docs/validation/)
 
 ## Download and run
 
@@ -46,7 +46,10 @@ The complete list is in the [release notes](RELEASE-NOTES.md).
 
 ## Build
 
-Windows (Visual Studio 2022, Developer Command Prompt): in `src`, run `nmake -f NMakefile vc-x64-v3` (other targets are listed in `src/NMakefile`). Linux and macOS: `src/Makefile`. Details: [README-NIKQUE.en.md, "Build and use"](README-NIKQUE.en.md#build-and-use).
+- **Windows** (Visual Studio 2022, Developer Command Prompt): in `src`, run `nmake -f NMakefile vc-x64-v4` (other targets are in `src/NMakefile`; `build-win-v4.cmd` builds the v4 executable). The release executables use the PGO targets (`vc-pgo-x64-v4`, `vc-pgo-x64-v3`, `vc-pgo-x64`, and `vc-pgo-x86-sse`, `vc-pgo-x86` from an x86 prompt), except ARM64.
+- **Libraries**: Windows `nmake -f NMakefile vc-lib-x64` (`-v3`, `-v4`); Linux and others `make libbuild ARCH=<x86-64|x86-64-v3|x86-64-v4> COMP=gcc OS=linux`. See [manual 12.2](manual/en/12-integration.md).
+- **Other platforms**: the [release-binaries workflow](.github/workflows/release-binaries.yaml) builds Linux, macOS and Android; `package-release.py` assembles the ZIP.
+- The 32-bit Linux build (`lEdax-x86`) needs an i486 or later CPU. The upstream 32-bit macOS `mEdax-x86` is not included: current Xcode SDKs cannot link a corrected i386 binary.
 
 ## License
 
@@ -60,7 +63,7 @@ This fork was developed with ChatGPT-6 Astra / Sol and Claude Opus 5.5.
 
 オセロのエンジン [Edax 4.5.5（okuhara/edax-reversi-AVX）](https://github.com/okuhara/edax-reversi-AVX) の修正版です。book の学習と扱いの不具合を直し、book の解析・整理のコマンドを足し、多コアの PC で book の学習を速くしました。元の Edax 4.5.5 で作った book をそのまま使えます。
 
-[ダウンロード](https://github.com/Nikque/edax-reversi-AVX/releases/latest) · [マニュアル](manual/ja/README.md) · [修正一覧](RELEASE-NOTES.ja.md) · [版ごとの詳しい説明](README-NIKQUE.ja.md)
+[ダウンロード](https://github.com/Nikque/edax-reversi-AVX/releases/latest) · [マニュアル](manual/ja/README.md) · [修正一覧](RELEASE-NOTES.ja.md) · [テストと実測の記録](docs/validation/)
 
 ### 使い始め方
 

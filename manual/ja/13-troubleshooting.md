@@ -85,6 +85,6 @@ Cannot open temporary book …
 - `options` で、今の設定を確かめます（思っていた `config.ini` が読まれているか）。
 - `book info` で、book の局面の数・level・深さを確かめます。
 - 設定 `ui-log-file`（入力と表示の記録）・`search-log-file`（探索の記録）にファイル名を書いて起動すると、何が起きたかを後から見られます。
-- 配布物の `README-NIKQUE.ja.md` には、版ごとの「動作が変わるところ」と「直していないもの・知っておくこと」がまとめてあります。
+- 配布物の `RELEASE-NOTES.ja.md` には、版ごとの「互換性」（動作が変わるところ）と「注意」（直していないもの・知っておくこと）が書いてあります。
 
 次：[14. コマンドと設定の一覧](14-reference.md)

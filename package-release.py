@@ -52,8 +52,7 @@ MACOS_FILES = ("bin/mEdax-arm64", "bin/mEdax-x64-modern", "bin/libedax.universal
 
 OTHER_FILES = (
     "LICENSE",
-    "README-NIKQUE.en.md",
-    "README-NIKQUE.ja.md",
+    "README.md",
     "RELEASE-NOTES.md",
     "RELEASE-NOTES.ja.md",
     "bin/README.MS-Windows.txt",
