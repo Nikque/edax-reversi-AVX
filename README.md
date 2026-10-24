@@ -1,8 +1,110 @@
-# edax-reversi-AVX
+# Edax 4.5.5 nikque
 
-**Edax 4.5.5 corrected build:** [English release README](README-NIKQUE.en.md) · [日本語の修正版README](README-NIKQUE.ja.md) · [Windows executable and release downloads](https://github.com/Nikque/edax-reversi-AVX/releases)
+A maintained fork of [Edax 4.5.5 (okuhara/edax-reversi-AVX)](https://github.com/okuhara/edax-reversi-AVX), the Othello engine. It fixes bugs in book learning and book handling, adds book analysis and maintenance commands, and makes book learning faster on many-core PCs. Books made with upstream Edax 4.5.5 can be used as they are.
 
-This fork's default branch contains the corrected 4.5.5 source and build. The historical upstream README follows below.
+[日本語](#日本語) · [Download](https://github.com/Nikque/edax-reversi-AVX/releases/latest) · [Manual](manual/en/README.md) · [Release notes](RELEASE-NOTES.md) · [Full notes per version](README-NIKQUE.en.md)
+
+## Download and run
+
+1. Download the ZIP from the [latest release](https://github.com/Nikque/edax-reversi-AVX/releases/latest) and unpack it.
+2. Open the `bin` folder and start the executable for your system from **inside that folder** (Edax looks for `data/eval.dat` in the current folder).
+
+| System | Executable in `bin/` |
+|---|---|
+| Windows x64 | `wEdax-x86-64.exe` (any CPU), `-v3` (AVX2), `-v4` (AVX-512) |
+| Windows x86 / ARM64 | `wEdax-x86.exe`, `wEdax-x86-sse.exe` / `wEdax-arm64.exe` |
+| Linux x64 / x86 | `lEdax-x86-64` (any CPU), `-v3`, `-v4` / `lEdax-x86` |
+| macOS | `mEdax-arm64` (Apple silicon), `mEdax-x64-modern` (Intel) |
+| Android | `aEdax-arm64-v8a`, `aEdax-armeabi-v7a` |
+
+If you are not sure which CPU features you have, use the version without `-v3`/`-v4`. The ZIP also contains the libedax libraries (`.dll`, `.so`, `.dylib`) for GUIs and tools such as [nikque GUI](https://github.com/Nikque/nikque-gui) and [edax_runner](https://github.com/Nikque/edax_runner).
+
+Getting started: [Manual, chapter 2](manual/en/02-quick-start.md).
+
+## Versions
+
+There are three lines. They share the same commands, settings and book format.
+
+| Line | What it is | Where |
+|---|---|---|
+| **v4.5.5-nikque.N** | The main line: bug fixes and new book commands, with the upstream evaluation (`eval.dat`) | Branch `edax-4.5.5-fixes` (default). Latest release |
+| **v4.5.5-eval2.N** | nikque + a new evaluation function (adds mobility; about +17 to +22 Elo against upstream `eval.dat`). Scores differ from the nikque line | Branch `eval2`, releases `v4.5.5-eval2.N` |
+| **newedax** | The eval2 line ported to C++23, same results | [Nikque/newedax](https://github.com/Nikque/newedax) |
+
+Each eval2 and newedax release includes all changes of the nikque release it names (for example, eval2.10 = nikque.22 + eval2).
+
+## Main changes from upstream
+
+- **Book learning fixed**: `book deviate` could crash or lose positions (a dangling pointer); `book merge`, `book fix` and book saving were made safe (temporary file, damaged records rejected).
+- **New learning commands**: `book deviate2` / `deviate3` (limits on loss per move and in total).
+- **Faster learning on many cores**: several book positions are expanded at the same time (`book-expand-tasks`, `book-store-tasks`); with 32 threads at level 18, up to about 4.7 times faster.
+- **Less memory**: about 50 bytes per book position (58 before).
+- **Book analysis and maintenance**: `book moveinfo`, `book missing`, `book bestlines`, `book reduce` and others (used by nikque GUI).
+- **17 other fixes** in file I/O, time control, PGN/GGF and protocols (XBoard, GTP, NBoard).
+
+The complete list is in the [release notes](RELEASE-NOTES.md).
+
+## Build
+
+Windows (Visual Studio 2022, Developer Command Prompt): in `src`, run `nmake -f NMakefile vc-x64-v3` (other targets are listed in `src/NMakefile`). Linux and macOS: `src/Makefile`. Details: [README-NIKQUE.en.md, "Build and use"](README-NIKQUE.en.md#build-and-use).
+
+## License
+
+GPL-3.0 ([LICENSE](LICENSE)), as upstream. `bin/data/eval.dat` and `bin/data/book.dat` are taken unchanged from the upstream v4.5.5 release. If you redistribute the executables, keep the source and the license available.
+
+This fork was developed with ChatGPT-6 Astra / Sol and Claude Opus 5.5.
+
+---
+
+## 日本語
+
+オセロのエンジン [Edax 4.5.5（okuhara/edax-reversi-AVX）](https://github.com/okuhara/edax-reversi-AVX) の修正版です。book の学習と扱いの不具合を直し、book の解析・整理のコマンドを足し、多コアの PC で book の学習を速くしました。元の Edax 4.5.5 で作った book をそのまま使えます。
+
+[ダウンロード](https://github.com/Nikque/edax-reversi-AVX/releases/latest) · [マニュアル](manual/ja/README.md) · [修正一覧](RELEASE-NOTES.ja.md) · [版ごとの詳しい説明](README-NIKQUE.ja.md)
+
+### 使い始め方
+
+1. [最新の Release](https://github.com/Nikque/edax-reversi-AVX/releases/latest) の ZIP をダウンロードして展開します。
+2. `bin` フォルダーを開き、**そのフォルダーの中から**実行ファイルを起動します（Edax は今いるフォルダーの `data/eval.dat` を読みます）。
+
+Windows なら、まず `wEdax-x86-64.exe` を使ってください。AVX2 対応の CPU なら `-v3`、AVX-512 対応なら `-v4` が速くなります。ほかの OS の実行ファイルは上の英語の表のとおりです。
+
+詳しくは [マニュアル 2 章「起動と最初の対局」](manual/ja/02-quick-start.md) を見てください。
+
+### 3 つの系列
+
+コマンド・設定・book の形式は 3 つとも同じです。
+
+| 系列 | 内容 | 置き場所 |
+|---|---|---|
+| **v4.5.5-nikque.N** | 本線。不具合の修正と book のコマンドの追加。評価関数（`eval.dat`）は元のまま | ブランチ `edax-4.5.5-fixes`（既定）、最新の Release |
+| **v4.5.5-eval2.N** | nikque に新しい評価関数を足したもの（着手可能数を追加。元の `eval.dat` に対して約 +17〜22 Elo）。評価値は nikque と異なる | ブランチ `eval2` |
+| **newedax** | eval2 を C++23 に移したもの。結果は同じ | [Nikque/newedax](https://github.com/Nikque/newedax) |
+
+eval2・newedax の各版は、対応する nikque の版の変更をすべて含みます（例：eval2.10 = nikque.22 + eval2）。
+
+### 元の Edax からの主な変更
+
+- **book の学習の不具合を修正**：`book deviate` が解放済みのメモリを読み、学習が止まったり局面が抜けたりすることがありました。`book merge`・`book fix`・book の保存も安全にしました（一時ファイル経由、壊れたレコードを拒否）。
+- **学習のコマンドを追加**：`book deviate2`・`deviate3`（1 手ごと・合計の損失で範囲を指定）。
+- **多コアでの学習を高速化**：複数の局面を同時に展開します（`book-expand-tasks`、`book-store-tasks`）。32 スレッド・level 18 で最大約 4.7 倍。
+- **メモリの削減**：book の 1 局面あたり約 50 バイト（以前は約 58 バイト）。
+- **book の解析と整理**：`book moveinfo`・`book missing`・`book bestlines`・`book reduce` など（nikque GUI が使います）。
+- **そのほか 17 件の修正**：ファイルの入出力、持ち時間、PGN・GGF、通信（XBoard・GTP・NBoard）。
+
+すべての変更は [修正一覧](RELEASE-NOTES.ja.md) にあります。
+
+### ライセンス
+
+元と同じ GPL-3.0（[LICENSE](LICENSE)）です。`bin/data/eval.dat` と `bin/data/book.dat` は元の v4.5.5 の配布物から変えずに取り出したものです。実行ファイルを再配布するときは、ソースとライセンスを入手できるようにしてください。
+
+この fork の作業には ChatGPT-6 Astra・Sol と Claude Opus 5.5 を使いました。
+
+---
+
+## Upstream README (okuhara/edax-reversi-AVX)
+
+The text below is the original README of the upstream project, kept unchanged.
 
 Automatically exported from code.google.com/p/okuharaandroid-edax-reversi
 
