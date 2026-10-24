@@ -2,7 +2,7 @@
 
 [Contents](README.md) | Previous: [13. Troubleshooting](13-troubleshooting.md) | Next: [15. Glossary](15-glossary.md)
 
-All the commands and settings of v4.5.5-nikque.19 (made from the lists in the source). Where the "Chapter" column is empty, the item is for development and testing and is not explained in this manual.
+All the commands and settings of v4.5.5-nikque.19, compiled from the lists in the source. Items with an empty "Chapter" column are for development and testing and are not explained in this manual.
 
 ## 14.1 Commands for playing and analysing
 
@@ -13,16 +13,16 @@ All the commands and settings of v4.5.5-nikque.19 (made from the lists in the so
 | `new` | `n` | | New game from the current *first position* | [3.3](03-playing.md) |
 | `load` | `o`, `open` | file | Load a game | [3.6](03-playing.md) |
 | `save` | `s` | file | Save the game | [3.6](03-playing.md) |
-| `quit` | `q`, `exit` | | End | [2.7](02-quick-start.md) |
+| `quit` | `q`, `exit` | | Exit | [2.7](02-quick-start.md) |
 | `undo` | `u` | | Take back a move | [3.3](03-playing.md) |
-| `redo` | `r` | | Play a move taken back again | [3.3](03-playing.md) |
+| `redo` | `r` | | Replay a move that was taken back | [3.3](03-playing.md) |
 | `mode` | `m` | [0 to 3] (3 if left out) | Who plays | [3.2](03-playing.md) |
 | (the name of a square) | | | Play that move. `ps` (`pa`) is a pass | [3.1](03-playing.md) |
 | `play` | | moves, or the name of an opening | Play a sequence of moves | [3.1](03-playing.md) |
 | `force` | | moves, or the name of an opening | Make Edax play a given opening | [3.7](03-playing.md) |
 | `go` | | | Make Edax play one move | [3.1](03-playing.md) |
 | `hint` | | [1 to 60] (1 if left out) | Show the best moves | [3.4](03-playing.md) |
-| `stop` | [`id=N`] | | Stop thinking (the mode becomes `mode 3`); the commands waiting are dropped. With `id=N`, only the book analysis N stops (nothing else changes) | [3.1](03-playing.md), [12.4](12-integration.md) |
+| `stop` | [`id=N`] | | Stop thinking (the mode becomes `mode 3`) and discard the queued commands. With `id=N`, only book analysis N stops (nothing else changes) | [3.1](03-playing.md), [12.4](12-integration.md) |
 | `analyze` | `a`, `analyse` | [number of moves] (all if left out) | Look back at the last n moves of the game | [3.4](03-playing.md) |
 | `setboard` | | board side | Set up a position | [3.5](03-playing.md) |
 | `vmirror`, `hmirror` | | | Swap top and bottom, left and right | [3.5](03-playing.md) |
@@ -42,12 +42,12 @@ All the commands and settings of v4.5.5-nikque.19 (made from the lists in the so
 | `microbench`, `script-to-obf`, `select-hard`, `wtest`, `weval`, `edaxify`, `seek`, `mobility`, `debug-pv` | | | For development and testing | [11.4](11-solve-bench.md) |
 | `nboard 1`, `xboard`, `protocol_version`, `engine-protocol init` | | | Switch to another protocol | [12.1](12-integration.md) |
 
-- A line that starts with `#`, and an empty line, do nothing.
-- When the commands come from a file (`wEdax-x86-64.exe < commands.txt`), they are run from the top down. Write `quit` at the end.
+- Lines that start with `#`, and empty lines, are ignored.
+- When commands are read from a file (`wEdax-x86-64.exe < commands.txt`), they run from top to bottom. Put `quit` at the end.
 
 ## 14.2 Book commands
 
-They are written after `book` (or `b`). The word that follows may be in upper case.
+These are entered after `book` (or `b`). The word that follows may be in upper case.
 
 | Command | Arguments (those in [ ] may be left out; the value in ( ) is used then) | Meaning | File it saves by itself | Chapter |
 |---|---|---|---|---|
@@ -57,8 +57,8 @@ They are written after `book` (or `b`). The word that follows may be in upper ca
 | `on`, `off` | | Use the book in a game or not | | [6.5](06-book-basics.md) |
 | `randomness` | [n] (0) | The margin for choosing a move from the book | | [6.5](06-book-basics.md) |
 | `depth` | [n] (36) | The depth setting | | [6.4](06-book-basics.md) |
-| `new` | [level] (21) [depth] (36) | A new empty book. **The current book in memory is dropped.** At the following saves without a file name, the previous file of `book-file` is kept under an `.old` name | | [6.7](06-book-basics.md) |
-| `load`, `open` | file | Read a book. At the saves without a file name that follow the load of another file, the previous file of `book-file` is kept under an `.old` name | | [6.6](06-book-basics.md) |
+| `new` | [level] (21) [depth] (36) | A new empty book. **The current book in memory is discarded.** At later saves without a file name, the previous `book-file` file is kept under an `.old` name | | [6.7](06-book-basics.md) |
+| `load`, `open` | file | Load a book. After another file is loaded, saves without a file name keep the previous `book-file` file under an `.old` name | | [6.6](06-book-basics.md) |
 | `save` | [file] (the file of `book-file`) | Save the book | | [6.6](06-book-basics.md) |
 | `verbose` | n | How much is printed (0 to 2) | | [8.7](08-book-maintenance.md) |
 | `analyze`, `a` | [number of moves] | Look back at a game with the scores of the book | | [3.4](03-playing.md) |
@@ -97,7 +97,7 @@ They are written after `book` (or `b`). The word that follows may be in upper ca
 
 ## 14.3 Base commands
 
-They are written after `base` ([10.2](10-files.md)).
+These are entered after `base` ([10.2](10-files.md)).
 
 | Command | Arguments | Meaning |
 |---|---|---|
@@ -110,15 +110,15 @@ They are written after `base` ([10.2](10-files.md)).
 | `problem` | file [empties] (24) output | Write positions to a problem file |
 | `tofen` | file [empties] (24) output | Write positions in FEN |
 
-## 14.4 Options for the start only
+## 14.4 Startup-only options
 
 | Option | Meaning | Chapter |
 |---|---|---|
-| `-?`, `-help` | Show the list of options and end | |
+| `-?`, `-help` | Show the list of options and exit | |
 | `-v`, `-version` | Show the version | |
-| `-solve file` | Solve a problem set and end | [11.1](11-solve-bench.md) |
-| `-bench n` | Measure the speed and end | [11.2](11-solve-bench.md) |
-| `-count games` (`positions`, `shapes`) depth [`6x6`] | Count and end | [11.3](11-solve-bench.md) |
+| `-solve file` | Solve a problem set and exit | [11.1](11-solve-bench.md) |
+| `-bench n` | Measure the speed and exit | [11.2](11-solve-bench.md) |
+| `-count games` (`positions`, `shapes`) depth [`6x6`] | Count and exit | [11.3](11-solve-bench.md) |
 | `-wtest file` | Test with a WTHOR file | |
 | `-gtp`, `-nboard`, `-xboard`, `-cassio`, `-ggs` (`-edax` is the normal screen) | Choose a protocol | [12.1](12-integration.md) |
 | `-o file` (`-option-file`) | Read one more settings file | [4.3](04-settings.md) |
@@ -128,7 +128,13 @@ They are written after `base` ([10.2](10-files.md)).
 
 ## 14.5 Settings
 
-Each of them can be given in three ways: in `config.ini` (`name = value`), on the command line (`-name value`) and while running (`name value`) ([chapter 4](04-settings.md)). The "built-in value" is the value when nothing is given.
+Each setting can be given in three ways ([chapter 4](04-settings.md)):
+
+- in `config.ini` (`name = value`)
+- on the command line (`-name value`)
+- while running (`name value`)
+
+The "built-in value" is the value used when nothing is given.
 
 ### Settings used often
 
@@ -140,7 +146,7 @@ Each of them can be given in three ways: in `config.ini` (`name = value`), on th
 | `game-time` (`t`) | time | none | | Time for the whole game |
 | `move-time` | time | none | | Time for one move |
 | `ponder` | `on` / `off` | `on` | | Think during the opponent's turn too |
-| `mode` | 0 to 3 | 3 | | The `mode` at start |
+| `mode` | 0 to 3 | 3 | | The `mode` at startup |
 | `verbose` | 0 to 4 | 1 | | How much is printed |
 | `noise` | 0 to 60 | 0 | | Do not show the progress of the search below this depth |
 | `width` | 3 to 250 | 80 | | Width of the table |
@@ -148,7 +154,7 @@ Each of them can be given in three ways: in `config.ini` (`name = value`), on th
 | `book-file` | file | `data/book.dat` | | The book file |
 | `book-usage` | `on` / `off` | `on` | `on` | Use the book in a game |
 | `book-randomness` | a number, 0 or more | 0 | | The margin for choosing a move from the book |
-| `book-depth` | 1 to 60, `auto` | `auto` | `auto` | The depth of the book at start |
+| `book-depth` | 1 to 60, `auto` | `auto` | `auto` | The depth of the book at startup |
 | `book-save-interval` | 0 to 525600 (minutes) | 60 | 360 | Saving by time while the book is grown |
 | `book-deviate-save-rounds` | 0 to 1000000 | 1 | 1 | Saving by rounds, for the `book deviate` family |
 | `book-merge-auto-save` | `on` / `off` | `on` | `on` | The `.mrg` file after `book merge` |
@@ -157,7 +163,7 @@ Each of them can be given in three ways: in `config.ini` (`name = value`), on th
 | `book-store-tasks` | 1 to the number of logical CPUs, `auto` | `auto` | `auto` | The number of games learned at the same time |
 | `book-leaf-recalculate-rounds` | 1 to 1000000 | 1 | 1 | The limit for the number of passes of the `book leaf recalculate` family |
 | `book-seed` | 0 to 2^64 - 1, `auto` | `auto` | `auto` | The seed of the random choice among book moves of equal score (`auto`: from the clock) |
-| `book-reproducible` | `on` / `off` | `off` | `off` | Book commands give the same book from a run to the next ([chapter 7](07-book-learning.md)) |
+| `book-reproducible` | `on` / `off` | `off` | `off` | Book commands give the same book from one run to the next ([chapter 7](07-book-learning.md)) |
 | `probcut-model` | `standard` / `refit` | `standard` | `standard` | The pruning method (`refit` is experimental) |
 | `book-reduce-index` | `binary` / `table` | `table` | | How `book reducecount` finds a position from its number (since v4.5.5-nikque.22; [8.4](08-book-maintenance.md)) |
 | `book-reduce-walk` | `loss` / `group` | `loss` | | The order of the walk of `book reducecount` with threads (since v4.5.5-nikque.22) |
@@ -173,7 +179,7 @@ A time is written as `seconds`, `minutes:seconds`, `hours:minutes:seconds` or `d
 
 ### Settings for development and testing
 
-Normally they are not changed. For their meaning, see the built-in help (`-help`) and the source.
+These are normally left unchanged. For their meaning, see the built-in help (`-help`) and the source.
 
 | Name | Values | Built-in value | The built-in help (summary) |
 |---|---|---|---|

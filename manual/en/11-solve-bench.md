@@ -4,13 +4,13 @@
 
 ## 11.1 Solving a problem set: -solve
 
-The positions of a problem file (OBF; [10.3](10-files.md)) are searched in order and the results are shown as a table. Given as an option at start, Edax ends when the problems are solved.
+Edax searches the positions of a problem file (OBF; [10.3](10-files.md)) in order and shows the results as a table. When given as a startup option, Edax exits once the problems are solved.
 
 ```
 wEdax-x86-64.exe -solve ..\problem\fforum-1-19.obf
 ```
 
-This is the output for the first 3 problems of the set of the package.
+This is the output for the first 3 problems of the set in the package.
 
 ```
  # | depth|score|       time   |  nodes (N)  |   N/s    | principal variation
@@ -22,27 +22,33 @@ This is the output for the first 3 problems of the set of the package.
 three.obf: 261867 nodes in  0:00.000
 ```
 
-- One line is one problem. The columns are those of the search table ([5.1](05-search.md)). When `depth` equals the number of empty squares and has no `@`, the result is an exact solution (the 3 problems above have 14 empty squares).
-- The last line gives the total of the nodes and of the time for all the problems.
-- **The strength of the search is the setting `level`** (18 in the package: positions with 21 or fewer empty squares are solved exactly). To solve problems with more empty squares exactly, add `-l 60`.
-- Options often used with it: `-n 1` (1 thread: the result and the node count are the same every time), `-l 60`, `-h 24` (a larger hash table), `-q` (no table, the last line only), `-vv` (one line each time the depth increases).
+- Each line is one problem. The columns are those of the search table ([5.1](05-search.md)).
+- When `depth` equals the number of empty squares and has no `@`, the result is an exact solution. The 3 problems above have 14 empty squares.
+- The last line gives the total nodes and time for all the problems.
+- **The search strength is set by `level`** (18 in the package: positions with 21 or fewer empty squares are solved exactly). To solve problems with more empty squares exactly, add `-l 60`.
+- Options often used with it:
+  - `-n 1`: 1 thread (the result and the node count are the same every time)
+  - `-l 60`
+  - `-h 24`: a larger hash table
+  - `-q`: no table, only the last line
+  - `-vv`: one line each time the depth increases
 
   ```
   wEdax-x86-64.exe -solve ..\problem\fforum-40-59.obf -l 60 -n 8 -h 24
   ```
-- When the problem file holds answers (`move:score;`), Edax prints `Erroneous move: D1 expected, with score +2, …` at the right of the line **when the move it found is not the best move of the answers**. This can happen when solving at a level that is not exact (the example below is a problem with 14 empty squares solved at level 6).
+- When the problem file contains answers (`move:score;`), Edax prints `Erroneous move: D1 expected, with score +2, …` at the right of the line **if the move it found is not the best move among the answers**. This can happen when solving at a level that is not exact. The example below is a problem with 14 empty squares solved at level 6.
 
   ```
     3|    6   +08        0:00.000         13193            g3 G1 b8 G2          Erroneous move: D1 expected, with score +2, error = …
   ```
 
-From a running Edax, `solve file` does the same.
+In a running Edax, `solve file` does the same.
 
 ```
 >solve ..\problem\fforum-1-19.obf
 ```
 
-The problem sets of the package (folder `problem`):
+The problem sets in the package (folder `problem`):
 
 | File | Content |
 |---|---|
@@ -51,11 +57,18 @@ The problem sets of the package (folder `problem`):
 | `fforum-40-59.obf` | Problems 40 to 59 |
 | `fforum-60-79.obf` | Problems 60 to 79 |
 
-The numbers of empty squares are 14 to 16 in `fforum-1-19`, up to 26 in `fforum-20-39`, 20 to 34 in `fforum-40-59` and up to 36 in `fforum-60-79`. The more empty squares, the longer exact solving takes (solving the last two files with `-l 60` needs a long time; the time was not measured).
+The numbers of empty squares are:
+
+- 14 to 16 in `fforum-1-19`
+- up to 26 in `fforum-20-39`
+- 20 to 34 in `fforum-40-59`
+- up to 36 in `fforum-60-79`
+
+The more empty squares, the longer exact solving takes. Solving the last two files with `-l 60` takes a long time (the time was not measured).
 
 ## 11.2 Measuring speed: bench
 
-Edax solves endgame positions that are built into it and shows the speed. This gives an idea of the speed of a PC, and lets you compare the kinds of executables (standard, `v3`, `v4`).
+Edax solves a set of built-in endgame positions and shows the speed. This gives an idea of a PC's speed and lets you compare the executable variants (standard, `v3`, `v4`).
 
 ```
 wEdax-x86-64.exe -bench 2 -n 2
@@ -70,13 +83,13 @@ wEdax-x86-64.exe -bench 2 -n 2
 2 positions solved: 12043670 nodes in  0:00.125 (96349360 nodes/s).
 ```
 
-- The n of `-bench n` is the number of positions to solve. From a running Edax: `bench n` (all the positions if n is left out).
+- In `-bench n`, n is the number of positions to solve. In a running Edax, use `bench n` (all the positions if n is omitted).
 - `nodes/s` in the last line is the number of nodes per second.
-- With few positions the time is too short and the figures are not stable. To compare, measure several times with the same n and the same `-n` (number of threads). Other running programs make it slower.
+- With few positions, the time is too short and the figures are unstable. To compare, measure several times with the same n and the same `-n` (number of threads). Other running programs slow it down.
 
 ## 11.3 Counting positions and lines
 
-These commands count the lines or the positions a few moves ahead of the position on the board. They are for testing the program and are not needed in normal use.
+These commands count the lines or positions a few moves ahead of the current position. They are for testing the program and are not needed in normal use.
 
 | Command | Meaning |
 |---|---|
@@ -86,7 +99,7 @@ These commands count the lines or the positions a few moves ahead of the positio
 | `count shapes d` | The number of shapes of discs (colours not distinguished) down to d moves ahead |
 | `estimate n` | Estimate the total number of lines by playing on at random n times |
 
-An example down to 6 moves from the initial position (4 lines after the first move, 12 after the second, …):
+An example down to 6 moves from the initial position (4 lines after the first move, 12 after the second, and so on):
 
 ```
 >count games 6
@@ -99,11 +112,11 @@ An example down to 6 moves from the initial position (4 lines after the first mo
    6,            8200,            0,            0,            0,            0,    1 - 11,        0:00.000,  …
 ```
 
-A larger d makes the time grow very fast. The option `-count games 10` at start counts as well.
+The time grows very quickly as d increases. The startup option `-count games 10` also counts.
 
 ## 11.4 Other testing commands
 
-The following commands exist too, but they were not run and checked for this manual (they are listed for completeness).
+The following commands also exist, but they were not run or checked for this manual. They are listed for completeness.
 
 | Command | The built-in help (summary) |
 |---|---|
