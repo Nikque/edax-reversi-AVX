@@ -96,7 +96,7 @@ book-merge-auto-save = on
 | `book-expand-tasks` | `auto`。level 18 以下では「2 スレッドの探索を `n-tasks ÷ 2` 個」、対象の多い周（`n-tasks` の 32 倍以上）は「1 スレッドの探索を `n-tasks` 個」になります。level 19〜24 では 4 スレッドずつ、それより上では 8 スレッドずつです。高い level では、数で指定して速さを比べてください（実測の記録では、32 スレッドなら 4 や 8 から、としています） |
 | `book-store-tasks` | `auto`（棋譜を `n-tasks` 本ずつ同時に学習） |
 | `hash-table-size` | `auto`。大きくしても、短い探索は速くなりません |
-| `book-save-interval` | 1 回の保存に約 30 秒かかり、book と同じ大きさのファイルを書くことを考えて決めます。配布版は 360 分（6 時間） |
+| `book-save-interval` | 1 回の保存に 18〜28 秒かかり、book と同じ大きさのファイルを書くことを考えて決めます。配布版は 360 分（6 時間） |
 | `book-deviate-save-rounds` | 1 周が長い（何時間も）なら `1`。1 周が短い（数分）のに毎周 29GB を書くのは無駄なので、そのときは大きくします |
 
 **前の版・元の Edax と同じ動作にする設定**：`book-expand-tasks = 1`、`book-store-tasks = 1`。

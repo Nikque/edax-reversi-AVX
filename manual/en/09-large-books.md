@@ -85,7 +85,7 @@ book-merge-auto-save = on
 | `book-expand-tasks` | `auto`. Up to level 18 this gives "`n-tasks ÷ 2` searches of 2 threads", and in rounds with many leaves (32 times `n-tasks` or more) "`n-tasks` searches of 1 thread". At levels 19 to 24 each search has 4 threads, above that 8. At high levels, set a number and compare the speeds (the test records suggest starting from 4 or 8 with 32 threads) |
 | `book-store-tasks` | `auto` (`n-tasks` games learned at the same time) |
 | `hash-table-size` | `auto`. A larger table does not make short searches faster |
-| `book-save-interval` | Keep in mind that one save takes about 30 seconds and writes a file as large as the book. The package uses 360 minutes (6 hours) |
+| `book-save-interval` | Keep in mind that one save takes 18 to 28 seconds and writes a file as large as the book. The package uses 360 minutes (6 hours) |
 | `book-deviate-save-rounds` | `1` if one round is long (hours). If a round is short (minutes), writing 29 GB every round is wasteful, so make it larger |
 
 **Settings that reproduce the behaviour of earlier versions and of the original Edax**: `book-expand-tasks = 1`, `book-store-tasks = 1`. A book made with `auto` differs from one made with `1` in the move and score of some leaves ([7.2](07-book-learning.md), [7.6](07-book-learning.md); the test records give the measured number of positions that differed).
