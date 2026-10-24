@@ -2,7 +2,7 @@
 
 [Contents](README.md) | Previous: [11. Solving problems and measuring speed](11-solve-bench.md) | Next: [13. Troubleshooting](13-troubleshooting.md)
 
-Edax is operated through text, but it can also serve as the engine (the "brain") of another program. There are three ways.
+Edax is operated through text, but it can also serve as the engine (the "brain") of another program. There are three ways to connect it (12.1 to 12.3); 12.4 describes the book analysis commands that GUI programs use.
 
 | Way | When it fits |
 |---|---|
@@ -159,7 +159,7 @@ Notes:
 - Added in v4.5.5-nikque.9:
   - `edax_book_save_checked`: saves the book and reports whether it was saved.
   - `edax_book_failed`: reports whether the last book function failed to add a position.
-- Added in v4.5.5-nikque.12: `edax_book_leaf_recalculate`, `edax_book_leaf_recalculate2`, `3` and `4` (the `book leaf-recalculate` commands).
+- Added in v4.5.5-nikque.12: `edax_book_leaf_recalculate`, `edax_book_leaf_recalculate2`, `3` and `4` (the `book leaf recalculate` commands, named `book leaf-recalculate` up to v4.5.5-nikque.13).
 
 **Differences from the original libedax (Edax 4.4)**
 
@@ -334,7 +334,7 @@ Example (a test book):
 
 - An unknown word gets `@error id=N word=…` and `@end id=N error=1`. A stopped analysis gets `@cancel id=N`.
 - If `id=` is not an int, the answer is `@error word=id` alone, and nothing is analysed or stopped.
-- The words of a command are split at spaces. A value between `…` is one value, spaces included (an `id=` inside it is not the number).
+- The words of a command are split at spaces. A value between `"…"` is one value, spaces included (an `id=` inside it is not the number).
 - The names (`id=`, …) are case-insensitive.
 - A `stop id=N` that arrives after analysis N has ended, or before it has started, gets `@cancel id=N state=none`.
   - An analysis that has ended has already answered `@end id=N`.
