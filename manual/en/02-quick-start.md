@@ -2,14 +2,16 @@
 
 [Contents](README.md) | Previous: [1. Introduction](01-introduction.md) | Next: [3. Commands for playing and analysing](03-playing.md)
 
-This chapter takes you from starting Edax to playing against it and quitting.
+This chapter covers everything from starting Edax to playing a game against it and quitting.
 
 ## 2.1 Preparation
 
-1. Download the ZIP from the Releases page (a name like `edax-4.5.5-nikque.19.zip`) and unpack it where you like. A folder with a short name, without spaces or non-ASCII characters (for example `C:\edax`), is recommended: when a book is saved, a name that is too long with its folders can make the save fail ([chapter 13](13-troubleshooting.md)).
-2. Open the `bin` folder of the unpacked package. Check that it holds the executables, `config.ini` and the `data` folder (with `eval.dat` and `book.dat`).
+1. Download the ZIP file from the Releases page (its name looks like `edax-4.5.5-nikque.19.zip`) and extract it to any folder.
+   - A folder with a short name and no spaces or non-ASCII characters (for example `C:\edax`) is recommended.
+   - The reason: when a book is saved, a path that is too long can make the save fail ([chapter 13](13-troubleshooting.md)).
+2. Open the `bin` folder of the extracted package. Check that it contains the executables, `config.ini` and the `data` folder (with `eval.dat` and `book.dat`).
 
-**An important rule: start Edax from inside the `bin` folder.** Edax looks for `data/eval.dat` from the *current folder* at the time it starts. Started from another folder, it prints this and ends:
+**Important: start Edax from inside the `bin` folder.** At startup, Edax looks for `data/eval.dat` relative to the *current folder*. If you start it from another folder, it prints this message and exits:
 
 ```
 Cannot open data/eval.dat
@@ -19,20 +21,23 @@ Cannot open data/eval.dat
 
 ### Windows
 
-Either:
+Use either method:
 
-- **From the Explorer**: double-click `wEdax-x86-64.exe` in the `bin` folder. A console window (black) opens.
-- **From a terminal**: with the `bin` folder open in the Explorer, type `powershell` in the address bar and press Enter; a terminal opens in that folder. Then type:
+- **From File Explorer**: double-click `wEdax-x86-64.exe` in the `bin` folder. A (black) console window opens.
+- **From a terminal**:
+  1. Open the `bin` folder in File Explorer.
+  2. Type `powershell` in the address bar and press Enter. A terminal opens in that folder.
+  3. Type:
 
-  ```
-  .\wEdax-x86-64.exe
-  ```
+     ```
+     .\wEdax-x86-64.exe
+     ```
 
-(The checks for this manual were made by starting from a terminal.)
+The checks for this manual were made by starting Edax from a terminal.
 
 ### Linux and macOS
 
-In a terminal, go to `bin` and run the executable. If the system refuses to run it just after unpacking, give it the permission to execute.
+In a terminal, change to `bin` and run the executable. If the system refuses to run it right after extraction, make it executable.
 
 ```
 cd edax/bin
@@ -40,7 +45,7 @@ chmod +x lEdax-x86-64
 ./lEdax-x86-64
 ```
 
-(Starting on Linux or macOS from the ZIP of the package was not tried for this manual. The behaviour of the Linux version is checked with builds made from the source.)
+Starting the Linux or macOS executables from the package ZIP was not tested for this manual. The behaviour of the Linux version was checked with builds from the source.
 
 ## 2.3 The first screen
 
@@ -70,7 +75,7 @@ When Edax starts, it shows the board and the prompt `>`.
 | `.` | A square where the side to move can play now |
 | `-` | Empty square |
 
-**The middle** holds information about Black (upper half) and White (lower half).
+**The middle column** shows information about Black (upper half) and White (lower half).
 
 | Text | Meaning |
 |---|---|
@@ -80,13 +85,16 @@ When Edax starts, it shows the board and the prompt `>`.
 | `ply  1 (60 empties)` | The number of the next move (the 1st) and the number of empty squares (60) |
 | `Black's turn (*)` | The side to move (Black). With White to move: `White's turn (O)` |
 
-**The board on the right** shows the order of the moves. The discs that were there at the start are shown as `##` (black) and `()` (white); a played disc shows the number of the move that put it there.
+**The board on the right** shows the order of the moves:
 
-When `>` is shown, Edax waits for input. Type a command and press Enter: it is executed, and the board and `>` are shown again.
+- the four starting discs are shown as `##` (black) and `()` (white);
+- every other disc shows the number of the move that placed it.
+
+When `>` is shown, Edax is waiting for input. Type a command and press Enter. Edax runs it, then shows the board and `>` again.
 
 ## 2.4 Playing against Edax
 
-Just after it starts, Edax **does not play by itself** (the setting is "two people play in turn"). To play against Edax, first tell it which side it takes, with the `mode` command.
+Right after startup, Edax **does not play any moves itself**: two human players take turns. To play against Edax, first use the `mode` command to tell it which side to play.
 
 | Input | Meaning |
 |---|---|
@@ -95,7 +103,7 @@ Just after it starts, Edax **does not play by itself** (the setting is "two peop
 | `mode 2` | Edax plays both sides to the end (you watch) |
 | `mode 3` | Edax does not play by itself (the state just after starting) |
 
-An example where you take Black: type `mode 0`, then the square you want to play (here `f5`).
+In this example you play Black: type `mode 0`, then the square you want to play (here `f5`).
 
 ```
 >mode 0
@@ -140,11 +148,11 @@ Edax plays D6
 ```
 
 - `You play F5`: your move was accepted.
-- The table in the middle (`depth|score|…`) is what Edax thought (how to read it: 2.5 below and [chapter 5](05-search.md)).
+- The table in the middle (`depth|score|…`) shows Edax's search. See 2.5 below and [chapter 5](05-search.md) for how to read it.
 - `Edax plays D6`: Edax played D6.
-- `>` is shown again: it is your turn. This goes on until the end of the game.
+- `>` appears again: it is your turn. This continues until the game ends.
 
-If you type a square that cannot be played, or an unknown word, this is printed and the position does not change:
+If you type a square that cannot be played, or an unknown word, Edax prints the following and the position does not change:
 
 ```
 WARNING: Unknown command/Illegal move: "e3 "
@@ -152,7 +160,7 @@ WARNING: Unknown command/Illegal move: "e3 "
 
 ## 2.5 Hints and taking back
 
-**Hint**: `hint 3` shows the three best moves of the current position with their scores (one move if the number is left out).
+**Hint**: `hint 3` shows the three best moves in the current position with their scores. Without a number, it shows one move.
 
 ```
 >hint 3
@@ -165,18 +173,21 @@ WARNING: Unknown command/Illegal move: "e3 "
 ------+-----+--------------+-------------+----------+----------------------
 ```
 
-One line is one move. Two columns matter most:
+Each line is one move. The two most important columns are:
 
-- `score`: the score after that move (the expected **disc difference seen from the side to move**). Above, c3 is `+00` (a draw is expected), c4 is `-01` (a loss by one disc), c5 is `-02`.
-- `principal variation`: the line of play that starts with that move, with best play by both sides. Its first move is the move of the line. **In this column Black's moves are in lower case and White's moves in upper case.**
+- `score`: the score after that move, that is, the expected **disc difference from the side to move's point of view**. Above, c3 is `+00` (a draw is expected), c4 is `-01` (a loss by one disc) and c5 is `-02`.
+- `principal variation`: the expected line of play from that move, with best play by both sides. Its first move is the move this line is about. **In this column, Black's moves are lower case and White's moves are upper case.**
 
-`18@73%` in `depth` means "read 18 moves ahead, with a confidence of 73%" ([chapter 5](05-search.md)).
+`18@73%` in the `depth` column means "searched 18 moves ahead with 73% confidence" ([chapter 5](05-search.md)).
 
-**Taking back**: `undo` (or `u`) takes a move back. With `mode 0` or `mode 1` (when Edax is your opponent) it takes back **two moves: yours and Edax's**. If you went too far, `redo` (or `r`) plays them again.
+**Taking back**: `undo` (or `u`) takes back a move.
+
+- In `mode 0` or `mode 1` (when Edax is your opponent), it takes back **two moves: yours and Edax's**.
+- If you went back too far, `redo` (or `r`) replays the moves.
 
 ## 2.6 Passing and the end of the game
 
-**Pass**: when it is your turn and you cannot play anywhere (the middle shows `0 moves`), type `ps` to pass.
+**Pass**: if it is your turn and you have no legal move (the middle column shows `0 moves`), type `ps` to pass.
 
 ```
 >ps
@@ -184,9 +195,9 @@ One line is one move. Two columns matter most:
 You play PS
 ```
 
-When Edax has to pass, it passes by itself.
+When Edax has to pass, it passes automatically.
 
-**End of the game**: when neither side can move, the middle shows `Game over` and the winner, and `*** Game Over ***` is printed under the board.
+**End of the game**: when neither side can move, the middle column shows `Game over` and the winner, and `*** Game Over ***` is printed below the board.
 
 ```
   A B C D E F G H            BLACK            A  B  C  D  E  F  G  H
@@ -212,21 +223,21 @@ In this example White wins, 39 discs to 25.
 | `init` (or `i`) | Start a new game from the usual initial position |
 | `quit` (or `q`, `exit`) | End Edax |
 
-When it ends, Edax saves the book to its file (`data/book.dat`) if the book has changed (playing games does not change the book; [chapter 6](06-book-basics.md)).
+On exit, Edax saves the book to its file (`data/book.dat`) if the book has changed. Playing games does not change the book ([chapter 6](06-book-basics.md)).
 
 ## 2.8 Changing the strength
 
-The strength of Edax is set by the **level** (0 to 60). The package is set to 18. Use a smaller number to make it weaker, a larger one to make it stronger.
+Edax's strength is set by the **level** (0 to 60). The package sets it to 18. A lower number makes Edax weaker; a higher number makes it stronger.
 
 ```
 >level 5
 ```
 
-- The larger the level, the deeper Edax reads and the longer it takes. [Chapter 5](05-search.md) explains what a level means.
-- Nothing is printed when the level changes. The `options` command shows the current value (line `search level`).
-- To have the same level at every start, change the number of `level = 18` in `config.ini` ([chapter 4](04-settings.md)).
+- The higher the level, the deeper Edax searches and the longer it takes. [Chapter 5](05-search.md) explains what a level means.
+- Nothing is printed when the level changes. The `options` command shows the current value (the `search level` line).
+- To use the same level every time Edax starts, change the number in `level = 18` in `config.ini` ([chapter 4](04-settings.md)).
 
-## 2.9 Where people stumble
+## 2.9 Common problems
 
 | What happens | Cause and what to do |
 |---|---|

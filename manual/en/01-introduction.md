@@ -4,18 +4,18 @@
 
 ## 1.1 What Edax is
 
-Edax is a program that plays Othello (Reversi). It was written by Richard Delorme; a version made faster with the instructions of recent CPUs (AVX2, AVX-512 and others) is published by Toshihiko Okuhara (Edax 4.5.x, `okuhara/edax-reversi-AVX`).
+Edax is a program that plays Othello (Reversi). It was written by Richard Delorme. Toshihiko Okuhara publishes a faster version that uses the instruction sets of recent CPUs, such as AVX2 and AVX-512 (Edax 4.5.x, `okuhara/edax-reversi-AVX`).
 
-This **fixed version** (`Nikque/edax-reversi-AVX`; its versions are named `v4.5.5-nikque.N`) starts from that v4.5.5 and adds:
+This **fixed version** (`Nikque/edax-reversi-AVX`) is based on that v4.5.5. Its versions are named `v4.5.5-nikque.N`. It adds:
 
 - bug fixes (book handling, multi-threaded search, reading and writing games, …);
 - speed and memory improvements, so that large books (hundreds of millions of positions) can be handled;
 - commands to grow and maintain a book (`book deviate2`, `deviate3`, `learn`, `leaf recalculate`, `leaf expand`, `fill2`, …);
-- a library (libedax) to call Edax from other programs.
+- a library (libedax) for calling Edax from other programs.
 
-The evaluation data (`eval.dat`) and the format of the book file are those of the original Edax 4.5.5. A book of the original Edax can be read as it is.
+The evaluation data (`eval.dat`) and the book file format are the same as in the original Edax 4.5.5. A book from the original Edax can be read without conversion.
 
-What changed and when is in `RELEASE-NOTES.md` of the package (changes of each version). This manual explains how to use the program.
+The changes in each version are listed in `RELEASE-NOTES.md` in the package. This manual explains how to use the program.
 
 ## 1.2 What you can do with Edax
 
@@ -28,11 +28,13 @@ What changed and when is in `RELEASE-NOTES.md` of the package (changes of each v
 | Convert and check game files | [10](10-files.md) |
 | Use Edax from a graphical program (GUI) or from your own program | [12](12-integration.md) |
 
-Edax itself has no window where you place discs with the mouse. **It is a program that you operate by typing** (the board is drawn with characters in a console window, and you type moves such as `f5`). To see a drawn board, connect Edax to a GUI program that supports it ([chapter 12](12-integration.md)).
+Edax itself has no window where you place discs with the mouse. **You operate it by typing.** The board is drawn with text characters in a console window, and you type moves such as `f5`.
+
+To see a graphical board, connect Edax to a GUI program that supports it ([chapter 12](12-integration.md)).
 
 ## 1.3 What the package contains
 
-The ZIP downloaded from the Releases page contains:
+The ZIP file on the Releases page contains the following:
 
 | Place | Content |
 |---|---|
@@ -47,7 +49,7 @@ The ZIP downloaded from the Releases page contains:
 
 ## 1.4 Which executable to use
 
-`bin/` holds an executable for each operating system and kind of CPU. They do the same things and give the same search results; only the speed differs.
+`bin/` holds one executable for each operating system and CPU type. They all work the same way and give the same search results. Only the speed differs.
 
 | Your machine | Executable |
 |---|---|
@@ -61,14 +63,18 @@ The ZIP downloaded from the Releases page contains:
 | macOS | `mEdax-arm64` (Apple silicon), `mEdax-x64-modern` (Intel) |
 | Android | `aEdax-arm64-v8a`, `aEdax-armeabi-v7a` |
 
-- **If in doubt, use the one without `v3` or `v4` in its name** (`wEdax-x86-64.exe` on Windows). It runs on any 64-bit CPU.
-- An executable with `v3` in its name needs a CPU with AVX2, one with `v4` a CPU with AVX-512. They do not run on a CPU without these instructions. If you do not know what your CPU supports, look up its model, or use the executable without the suffix.
-- An idea of the speed difference (Ryzen 9 9950X, one thread, exact solving of 20 endgame positions; measured for the README of the package): standard 69 million nodes per second, `v3` 81 million, `v4` 92 million.
-- According to the README of the package, the Windows ARM64 and Android executables were only built, not run on a device, and the macOS executables come from the automatic build of the release. The checks for this manual were made with the 64-bit Windows version.
+- **If in doubt, use the executable without `v3` or `v4` in its name** (`wEdax-x86-64.exe` on Windows). It runs on any 64-bit CPU.
+- The `v3` executables need a CPU with AVX2, and the `v4` executables need a CPU with AVX-512. They do not run on CPUs without these instruction sets.
+- If you do not know which instruction sets your CPU supports, look up its model, or use the executable without a suffix.
+- Approximate speed difference: standard 69 million nodes per second, `v3` 81 million, `v4` 92 million. This was measured for the package README on a Ryzen 9 9950X, with one thread, solving 20 endgame positions exactly.
+- According to the package README:
+  - the Windows ARM64 and Android executables were built but not tested on a device;
+  - the macOS executables come from the automated release build.
+- The checks for this manual were made with the 64-bit Windows version.
 
-## 1.5 Words used in this manual (the ones to know first)
+## 1.5 Key terms used in this manual
 
-The [glossary](15-glossary.md) has more.
+See the [glossary](15-glossary.md) for more.
 
 | Word | Meaning |
 |---|---|

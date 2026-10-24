@@ -2,7 +2,7 @@
 
 [Contents](README.md) | Previous: [3. Commands for playing and analysing](03-playing.md) | Next: [5. Search basics](05-search.md)
 
-The behaviour of Edax is changed with **settings**. There are three ways to give them, and all use the same names.
+You change Edax's behaviour with **settings**. There are three ways to set them, and all three use the same names.
 
 | Way | When it applies | Example |
 |---|---|---|
@@ -12,7 +12,7 @@ The behaviour of Edax is changed with **settings**. There are three ways to give
 
 ## 4.1 The order in which settings are read
 
-At start, Edax reads its settings in this order. **What is read later wins.**
+At startup, Edax reads its settings in this order. **Later values override earlier ones.**
 
 1. The values built into the program ("built-in value" in the table of 4.5)
 2. `edax.ini` in the current folder (if there is one; the package has none)
@@ -21,17 +21,17 @@ At start, Edax reads its settings in this order. **What is read later wins.**
 
 Notes:
 
-- The `config.ini` that is read is the one next to the executable. A `config.ini` in the current folder is not read when the executable is in another folder.
-- When the executable is started by its name alone, without a folder (because it is in a folder of the `PATH`), Edax does not know where the executable is and looks for `config.ini` in the current folder. If there is none, it prints this warning and runs with the built-in values:
+- Edax reads the `config.ini` next to the executable. If the executable is in another folder, a `config.ini` in the current folder is not read.
+- If the executable is started by name alone, without a folder (because it is in a folder on the `PATH`), Edax cannot tell where the executable is. It then looks for `config.ini` in the current folder. If there is none, it prints this warning and uses the built-in values:
 
   ```
   WARNING: config.ini was not found in the current folder (Edax was started without its folder name): default settings are used
   ```
-- `options`, typed after `>`, shows all the current values.
+- Typing `options` after `>` shows all current values.
 
 ## 4.2 How to write config.ini
 
-`config.ini` is a plain text file that you can edit with Notepad or any editor. One setting per line, as `name = value`.
+`config.ini` is a plain text file. You can edit it with Notepad or any text editor. Write one setting per line, as `name = value`.
 
 ```
 # strength of the search
@@ -40,20 +40,23 @@ n-tasks = auto
 book-file = data/book.dat
 ```
 
-- From `#` to the end of the line is a comment. Empty lines are skipped.
+- Everything from `#` to the end of the line is a comment. Empty lines are ignored.
 - `level = 18`, `level=18`, `level 18` and `set level 18` all mean the same.
-- Names ignore upper and lower case. Spaces, `_` and `-` inside a name are the same (`book-depth`, `book_depth` and `Book Depth` are one setting).
-- For an `on`/`off` setting, `true`/`false`, `yes`/`no` and `1`/`0` can be written as well.
-- With `=`, the whole rest of the line is the value (a file name may contain spaces).
-- Full-width spaces and the full-width "＝" are accepted. The encoding is UTF-8 (with or without a BOM); Windows and Linux line ends are both fine.
-- A wrong name gives a warning at start, with the file name and the line number (the line is ignored):
+- Names are not case-sensitive.
+- Inside a name, spaces, `_` and `-` are treated as the same character. `book-depth`, `book_depth` and `Book Depth` are the same setting.
+- For an `on`/`off` setting, you can also write `true`/`false`, `yes`/`no` or `1`/`0`.
+- With `=`, the whole rest of the line is the value, so a file name may contain spaces.
+- Full-width spaces and the full-width "＝" are accepted.
+- The encoding is UTF-8 (with or without a BOM). Both Windows and Linux line endings work.
+- An unknown name produces a warning at startup with the file name and line number, and the line is ignored:
 
   ```
   WARNING: config.ini:7: unknown or incomplete setting "levle" ignored
   ```
-- A value that is not a number (`level = abc`), or not `on`/`off`, also gives a warning and is ignored. A number out of range gives a warning and becomes the nearest value of the range.
+- A value that is not a number (`level = abc`), or not `on`/`off`, also produces a warning and is ignored.
+- A number out of range produces a warning and is clamped to the nearest valid value.
 
-Every option of the command line can be written in `config.ini` under its name without the leading `-` (`-n 16` is `n-tasks = 16`, `-book-file data/my.dat` is `book-file = data/my.dat`).
+Any command-line option can be written in `config.ini` by its name without the leading `-`. For example, `-n 16` becomes `n-tasks = 16`, and `-book-file data/my.dat` becomes `book-file = data/my.dat`.
 
 ## 4.3 Giving options on the command line
 
@@ -61,10 +64,13 @@ Every option of the command line can be written in `config.ini` under its name w
 wEdax-x86-64.exe -l 12 -n 4 -book-file data/my.dat
 ```
 
-- Any number of `-name value` pairs.
-- Some options are switches without a value: `-q` (quiet; the same as `-verbose 0`), `-vv` (verbose; the same as `-verbose 2`), `-cpu` (give each thread its own CPU: on Linux the thread is bound to that CPU; on Windows it is only a preference. On Linux, with this option the book commands do not use searches run at the same time (`book-expand-tasks`, `book-store-tasks`)).
-- `-?` or `-help` prints the list of options (English) and ends. `-v` or `-version` prints the version.
-- Besides settings, some options change what Edax does at start:
+- You can give any number of `-name value` pairs.
+- Some options are switches without a value:
+  - `-q` (quiet; the same as `-verbose 0`);
+  - `-vv` (verbose; the same as `-verbose 2`);
+  - `-cpu`: give each thread its own CPU. On Linux, the thread is bound to that CPU; on Windows, it is only a preference. On Linux, this option also stops the book commands from running searches in parallel (`book-expand-tasks`, `book-store-tasks`).
+- `-?` or `-help` prints the list of options (in English) and exits. `-v` or `-version` prints the version.
+- Some options do not change settings but change what Edax does at startup:
 
   | Option | Meaning | Chapter |
   |---|---|---|
@@ -83,18 +89,20 @@ Type the name and the value after `>`.
 >book-randomness 2
 ```
 
-- If nothing is printed, the setting was accepted. A wrong value gives a warning:
+- If nothing is printed, the setting was accepted. An invalid value produces a warning:
 
   ```
   >level abc
   WARNING: level: "abc" is not a number; ignored
   ```
-- Changing `hash-table-size` while Edax runs rebuilds the tables of the search at that size (their content is lost). With `hash-table-size = auto`, changing `n-tasks` while Edax runs rebuilds them too, for the new number of threads (started with 1 thread, typing `n-tasks 16` took the memory in use from 79 MB to 242 MB). Up to v4.5.5-nikque.12 only the output of `options` changed, and the tables kept the size they had at start.
-- Changing `book-file` while Edax runs does not load another book. What changes is where the automatic saves go from then on ([chapter 6](06-book-basics.md)). To read another book, use `book load file`.
+- Changing `hash-table-size` while Edax runs rebuilds the search tables at the new size. Their contents are lost.
+- With `hash-table-size = auto`, changing `n-tasks` while Edax runs also rebuilds the tables for the new number of threads. For example, after starting with 1 thread, typing `n-tasks 16` raised memory use from 79 MB to 242 MB.
+- Up to v4.5.5-nikque.12, only the `options` output changed; the tables kept their startup size.
+- Changing `book-file` while Edax runs does not load another book. It only changes where later automatic saves go ([chapter 6](06-book-basics.md)). To load another book, use `book load file`.
 
-## 4.5 The settings of the config.ini of the package
+## 4.5 The settings in the package's config.ini
 
-The `bin/config.ini` of the package holds these settings. The "built-in value" is the value when there is no `config.ini` (or when the line is removed).
+The package's `bin/config.ini` contains these settings. The "built-in value" is the value used when there is no `config.ini`, or when the line is removed.
 
 | Setting | In the package | Built-in value | Meaning |
 |---|---|---|---|
@@ -109,11 +117,11 @@ The `bin/config.ini` of the package holds these settings. The "built-in value" i
 | `book-expand-tasks` | `auto` | 1 | Number of positions that the automatic book commands expand at the same time. Chapters [7](07-book-learning.md) and [9](09-large-books.md) |
 | `book-leaf-recalculate-rounds` | `1` | 1 | Largest number of rounds of `book leaf recalculate` and its family. [Chapter 8](08-book-maintenance.md) |
 | `book-store-tasks` | `auto` | `auto` | Number of games learned at the same time by the commands that grow a book from games. Chapters [7](07-book-learning.md) and [9](09-large-books.md) |
-| `probcut-model` | `standard` | `standard` | Pruning model of the search. `refit` is experimental (it changes the search results; read the v4.5.5-nikque.5 section of the README of the package before using it) |
+| `probcut-model` | `standard` | `standard` | Pruning model of the search. `refit` is experimental (it changes the search results; read [v4.5.5-nikque.5 in the release notes](../../RELEASE-NOTES.md#v455-nikque5) before using it) |
 
-**A note on `level` in `config.ini`**: a `level` written in `config.ini` (or `edax.ini`) only sets the level at start. In a game with a time limit (`-t`, `-move-time`) it does not cap the reading. To cap it, give `-l` on the command line or use the `level` command ([3.8](03-playing.md)).
+**Note on `level` in `config.ini`**: a `level` in `config.ini` (or `edax.ini`) only sets the starting level. In a timed game (`-t`, `-move-time`), it does not limit the search depth. To limit it, use `-l` on the command line or the `level` command ([3.8](03-playing.md)).
 
-## 4.6 Other settings used often
+## 4.6 Other commonly used settings
 
 | Setting | Built-in value | Meaning |
 |---|---|---|
@@ -130,9 +138,9 @@ The `bin/config.ini` of the package holds these settings. The "built-in value" i
 | `ui-log-file` | none | File where the input and the display are logged |
 | `auto-start`, `auto-swap`, `auto-store`, `auto-quit`, `repeat` | `off`, 0 | What happens when games are played in a row ([3.9](03-playing.md)) |
 
-All the settings are in the tables of [chapter 14](14-reference.md).
+All settings are listed in the tables of [chapter 14](14-reference.md).
 
-## 4.7 A guide to choosing settings
+## 4.7 Choosing settings
 
 | Use | Settings |
 |---|---|

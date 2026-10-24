@@ -2,9 +2,14 @@
 
 [Contents](README.md) | Previous: [2. Starting and playing a first game](02-quick-start.md) | Next: [4. Settings](04-settings.md)
 
-This chapter explains the commands used to play and to analyse. The book commands (`book …`) are in chapters [6](06-book-basics.md) to [8](08-book-maintenance.md); the commands that handle files of many games (`base …`) are in [chapter 10](10-files.md).
+This chapter explains the commands for playing and analysing games.
 
-A command is typed after `>` and sent with Enter. Many commands have a short name (`u` for `undo`, and so on). Typing `help` (or `?`) prints the English list built into Edax (up to v4.5.5-nikque.12 some "default" values of that list were those of old versions; the right defaults are in chapters [4](04-settings.md) and [14](14-reference.md)).
+- The book commands (`book …`) are in chapters [6](06-book-basics.md) to [8](08-book-maintenance.md).
+- The commands for files of many games (`base …`) are in [chapter 10](10-files.md).
+
+Type a command after `>` and press Enter. Many commands have a short form (`u` for `undo`, and so on).
+
+`help` (or `?`) prints Edax's built-in command list (in English). Up to v4.5.5-nikque.12, some of the "default" values in that list were those of old versions. The correct defaults are in chapters [4](04-settings.md) and [14](14-reference.md).
 
 ## 3.1 Playing moves
 
@@ -17,9 +22,9 @@ A command is typed after `>` and sent with Enter. Many commands have a short nam
 | `go` | Make Edax play one move for the side to move |
 | `stop` | Stop Edax while it thinks (it plays the move found so far, and the mode becomes `mode 3`) |
 
-`play` goes on from the current position. To start again from the initial position, type `init` first.
+`play` continues from the current position. To start again from the initial position, type `init` first.
 
-**Opening names**: as in `play tiger`, the (English) name of an opening that Edax knows can be given to `play`. The other way round, `opening` (English) and `ouverture` (French) print the name of the opening of the current position (`?` if the position has no name).
+**Opening names**: as in `play tiger`, you can give `play` the English name of any opening that Edax knows. Conversely, `opening` (English) and `ouverture` (French) print the name of the opening of the current position. If the position has no name, they print `?`.
 
 ```
 >play tiger
@@ -38,9 +43,9 @@ tigre
 | `mode 2` | Edax | Edax |
 | `mode 3` (at start) | You | You |
 
-- `mode 2` plays on from the current position to the end of the game, Edax against Edax.
-- With `mode 3` Edax does not play by itself. It suits setting up positions and looking at them with `hint`, or making Edax play one move at a time with `go`.
-- `m` is the short name of `mode`. Without a number it is `mode 3`.
+- `mode 2` makes Edax play against itself from the current position to the end of the game.
+- In `mode 3`, Edax does not play by itself. This mode is useful for setting up positions and examining them with `hint`, or for making Edax play one move at a time with `go`.
+- `m` is the short form of `mode`. Without a number, it means `mode 3`.
 
 ## 3.3 Back, forward, again
 
@@ -51,25 +56,29 @@ tigre
 | `init` (`i`) | Set the usual initial position and start a new game |
 | `new` (`n`) | Start a new game from the *first position* of the current game. Use it to play again from a position made with `setboard` or from the first position of a loaded game |
 
-## 3.4 Looking at moves: hint and analyze
+## 3.4 Examining moves: hint and analyze
 
-### hint: the good moves of the current position
+### hint: the best moves in the current position
 
 ```
 >hint 3
 ```
 
-It shows the three best moves of the current position, best first (1 to 60; 1 if left out). How to read the table: [2.5](02-quick-start.md) and [chapter 5](05-search.md). With a number larger than the number of playable moves, all the moves are shown.
+This shows the three best moves in the current position, best first. The number can be 1 to 60 (1 if omitted). If the number is larger than the number of legal moves, all moves are shown. For how to read the table, see [2.5](02-quick-start.md) and [chapter 5](05-search.md).
 
-`hint` does not change the position. Its strength is the current `level`. When the book is in use and holds the current position, the moves recorded in the book are shown first (lines with `book` in the `depth` column; [6.5](06-book-basics.md)).
+- `hint` does not change the position.
+- It searches at the current `level`.
+- When the book is in use and contains the current position, the book moves are shown first (lines with `book` in the `depth` column; [6.5](06-book-basics.md)).
 
-### analyze: looking back at a finished game
+### analyze: reviewing a finished game
 
 ```
 >analyze 6
 ```
 
-It examines **the last 6 moves** of the current game, one at a time from the end, and compares the move that was played with the best of the other moves (without a number: all the moves). The strength is the current `level`. Many moves take a long time.
+This examines **the last 6 moves** of the current game, one at a time from the end. For each, it compares the move that was played with the best alternative. Without a number, it examines all moves.
+
+The search uses the current `level`. Analysing many moves takes a long time.
 
 ```
               N     played        alternative
@@ -104,9 +113,13 @@ When another move was better, the line ends with one of these:
 | `<- Possible mistake` | Judged by a search that read to the end but with a confidence below 100% |
 | `<- Edax disagrees` (`strongly` if the difference is 5 discs or more) | Judged by a midgame search (not certain) |
 
-The two lines at the bottom sum up Black and White. `rejections`: how many times "another move is better" was found by a search that was not exact (out of the moves examined that way), and the total of discs; `errors`: the number of bad moves confirmed by exact solving (out of the moves examined exactly), and the total of discs; `error rate`: the discs lost per move examined exactly. For a colour with no move examined exactly, `error rate` is `-`, a dash (up to v4.5.5-nikque.12 it showed something that is not a number, such as `-nan(ind)`).
+The two lines at the bottom summarise the results for Black and White:
 
-**Looking back with the book**: `book analyze 6` does the same with the scores of the book instead of a search (only for the positions that are in the book; [chapter 6](06-book-basics.md)).
+- `rejections`: how many times a non-exact search found a better alternative (out of the moves examined that way), and the total number of discs lost.
+- `errors`: the number of bad moves confirmed by exact solving (out of the moves examined exactly), and the total number of discs lost.
+- `error rate`: the discs lost per move examined exactly. If no move of a colour was examined exactly, it shows a dash, `-`. Up to v4.5.5-nikque.12, it showed a non-numeric value such as `-nan(ind)`.
+
+**Reviewing with the book**: `book analyze 6` does the same using the book's scores instead of a search. It works only for positions that are in the book ([chapter 6](06-book-basics.md)).
 
 ## 3.5 Setting up a position: setboard
 
@@ -116,16 +129,17 @@ To start from any position, give `setboard` the 64 squares of the board and the 
 >setboard -------- -------- -------- ---OX--- ---XO--- -------- -------- -------- X
 ```
 
-- The board is written square by square in the order A1, B1, …, H1, A2, …, H8: 64 squares.
-- A black disc is `X` (or `*`, `b`), a white disc `O` (or `w`), an empty square `-` (or `.`). Other characters (spaces, for instance) are skipped, so the board can be written with a space every 8 squares, as above.
-- After the 64 squares, write the side to move as one character (`X`: Black to move, `O`: White to move).
-- **If fewer than 64 squares are given, the character of the side to move is read as a square.** Edax then prints `WARNING: board_set: bad string input` and chooses the side to move itself (Black if the number of empty squares is even, White if it is odd). Count carefully.
+- Write the 64 squares in the order A1, B1, …, H1, A2, …, H8.
+- A black disc is `X` (or `*`, `b`), a white disc is `O` (or `w`), and an empty square is `-` (or `.`).
+- Other characters (such as spaces) are ignored. So you can put a space after every 8 squares, as above.
+- After the 64 squares, write the side to move as one character: `X` for Black, `O` for White.
+- **If fewer than 64 squares are given, the side-to-move character is read as a square.** Edax then prints `WARNING: board_set: bad string input` and picks the side to move itself: Black if the number of empty squares is even, White if it is odd. Count carefully.
 
-After `setboard`, that position is the *first position* of the game: `new` starts again from it, `init` goes back to the usual initial position.
+After `setboard`, that position becomes the *first position* of the game. `new` restarts from it; `init` returns to the usual initial position.
 
 ### Mirroring and rotating the board
 
-These move the current game (with its moves) to a symmetric one.
+These commands transform the current game (including its moves) into a symmetric one.
 
 | Input | Meaning |
 |---|---|
@@ -141,7 +155,7 @@ These move the current game (with its moves) to a symmetric one.
 >load mygame.txt
 ```
 
-`save` (`s`) saves the current game; `load` (`o`, `open`) reads a game and goes to its last position. **The format is chosen by the end of the file name (the extension).**
+`save` (`s`) saves the current game. `load` (`o`, `open`) loads a game and goes to its last position. **The format is determined by the file name extension.**
 
 | Extension | Format | Save | Load |
 |---|---|---|---|
@@ -152,11 +166,14 @@ These move the current game (with its moves) to a symmetric one.
 | `.edx` | Edax's own binary format | yes | yes |
 | `.eps`, `.svg` | A picture of the board | yes | no |
 
-- The file name is relative to the current folder (`bin`). A folder can be given, as in `save games/mygame.txt` (create the folder first).
-- With an unknown extension, `WARNING: Unknown game format extension: .abc` is printed and nothing is saved.
-- When a load fails, the reason is printed and the position does not change (`WARNING: Cannot open file nofile.txt`, `WARNING: Unknown game format extension: .abc`, `WARNING: Illegal move #2: A1`, …). Up to v4.5.5-nikque.12 nothing was printed.
-- **A game that started from a set-up position (after `setboard`) should be saved as `.ggf`, `.pgn` or `.edx`.** `.txt` and `.sgf` can be written, but they cannot be read back ([10.1](10-files.md)).
-- A game that holds a move that cannot be played is not loaded, and the board stays as it was before the load (with `.ggf`, `.sgf` and `.pgn`, a warning such as `WARNING: error while importing a GGF game` is printed). `.txt` is the exception: a warning is printed and the moves before the unplayable one are loaded. Up to v4.5.5-nikque.12, a move that turns over no disc was put on the board as it was, and the game was loaded ([10.1](10-files.md)).
+- The file name is relative to the current folder (`bin`). You can include a folder, as in `save games/mygame.txt`; create the folder first.
+- With an unknown extension, Edax prints `WARNING: Unknown game format extension: .abc` and saves nothing.
+- When loading fails, Edax prints the reason and the position does not change. Examples: `WARNING: Cannot open file nofile.txt`, `WARNING: Unknown game format extension: .abc`, `WARNING: Illegal move #2: A1`. Up to v4.5.5-nikque.12, nothing was printed.
+- **Save a game that started from a custom position (after `setboard`) as `.ggf`, `.pgn` or `.edx`.** `.txt` and `.sgf` files can be written, but they cannot be loaded back ([10.1](10-files.md)).
+- A game that contains an illegal move is not loaded, and the board stays as it was before the load.
+  - With `.ggf`, `.sgf` and `.pgn`, a warning such as `WARNING: error while importing a GGF game` is printed.
+  - `.txt` is the exception: a warning is printed and the moves before the illegal one are loaded.
+  - Up to v4.5.5-nikque.12, a move that flips no disc was placed on the board anyway, and the game was loaded ([10.1](10-files.md)).
 - The game formats are described in [chapter 10](10-files.md).
 
 ## 3.7 Making Edax play a given opening: force
@@ -165,10 +182,11 @@ These move the current game (with its moves) to a symmetric one.
 >force f5d6c3
 ```
 
-From then on, as long as the position is on this line (or on a symmetric one), Edax plays the moves of the line when it is its turn. When the line ends, or when the opponent leaves it, Edax thinks and plays as usual. An opening name can be given too (`force tiger`).
+From then on, as long as the game follows this line (or a symmetric one), Edax plays the moves of the line on its turn. When the line ends, or when the opponent leaves it, Edax searches and plays as usual. You can also give an opening name (`force tiger`).
 
-- The line is read as starting from the *first position* of the current game.
-- `init` sets the forced line back to "the first move is F5" (this is also the state just after starting: the four moves of the initial position are the same by symmetry, so Edax plays F5 as Black's first move without thinking). `setboard` removes the forced line.
+- The line starts from the *first position* of the current game.
+- `init` resets the forced line to "the first move is F5". This is also the state right after startup. The four first moves are equivalent by symmetry, so Edax plays F5 as Black's first move without searching.
+- `setboard` removes the forced line.
 
 ## 3.8 Strength and time
 
@@ -180,12 +198,14 @@ From then on, as long as the position is on this line (or on a symmetric one), E
 | `ponder on` / `ponder off` | Think during the opponent's turn or not (on by default) |
 
 - A time is written as `seconds`, `minutes:seconds` or `hours:minutes:seconds` (`30`, `5:00`, `1:30:00`).
-- With `game-time` or `move-time`, Edax thinks by **time**, not by level. If you **gave a level yourself** (the `level` command, or `-l` on the command line), that level caps the reading. Otherwise Edax reads as deep as the time allows (a `level` written in `config.ini` is not a cap).
-- Typing `level` goes back to thinking by level instead of by time.
-- When `game-time` is changed during a game, the new time applies from the next game (`init`, `new`).
-- To set it at start, write `-t 5:00` (the same as `-game-time`) or `-move-time 10` on the command line.
+- With `game-time` or `move-time`, Edax's search is limited by **time**, not by level.
+  - If **you set a level yourself** (with the `level` command or `-l` on the command line), that level is the maximum search depth.
+  - Otherwise, Edax searches as deep as the time allows. A `level` in `config.ini` does not act as a maximum.
+- Typing `level` switches back from time-based to level-based search.
+- If you change `game-time` during a game, the new time applies from the next game (`init`, `new`).
+- To set it at startup, use `-t 5:00` (the same as `-game-time`) or `-move-time 10` on the command line.
 
-An example started with 20 seconds for the game (part of the output of `options`):
+Example: Edax started with 20 seconds for the game (part of the `options` output):
 
 ```
 	search alloted time: 0:20.000
@@ -194,7 +214,7 @@ An example started with 20 seconds for the game (part of the output of `options`
 
 ## 3.9 Playing many games in a row
 
-These settings decide what happens when a game ends (all are `off` by default; type `auto-start on`, or write `-auto-start on` at start).
+These settings control what happens when a game ends. All are `off` by default. Type, for example, `auto-start on`, or give `-auto-start on` at startup.
 
 | Setting | What happens when a game ends |
 |---|---|
@@ -204,7 +224,7 @@ These settings decide what happens when a game ends (all are `off` by default; t
 | `auto-quit on` | Edax ends |
 | `repeat n` | Play n games (`-repeat n` at start) |
 
-The current values are at the very end of the output of the `options` command (under `Game play`). This is the output after starting with `-auto-store on -auto-swap on` (from top to bottom: `mode`, `auto-start`, `auto-store`, `auto-swap`, `auto-quit`, `repeat`).
+The current values appear at the very end of the `options` output, under `Game play`. Below is the output after starting with `-auto-store on -auto-swap on`. From top to bottom, the lines are `mode`, `auto-start`, `auto-store`, `auto-swap`, `auto-quit` and `repeat`.
 
 ```
 Game play
@@ -216,8 +236,8 @@ Game play
 	repeat 0 games (before exiting)
 ```
 
-- The `mode:` line is **the value at start** (`-mode`, or `mode` in `config.ini`). Typing `mode 0` and the like while running does not change this line (the current mode shows in whether Edax plays by itself).
-- Up to v4.5.5-nikque.12, the lines of `auto-store`, `auto-swap` and `auto-quit` all showed the value of `auto-start` (a display fault only: the behaviour followed the settings).
+- The `mode:` line shows **the startup value** (`-mode`, or `mode` in `config.ini`). Typing `mode 0` or similar while running does not change this line. You can tell the current mode by whether Edax plays by itself.
+- Up to v4.5.5-nikque.12, the `auto-store`, `auto-swap` and `auto-quit` lines all showed the value of `auto-start`. This was only a display bug: the behaviour followed the actual settings.
 
 ## 3.10 Changing what is displayed
 

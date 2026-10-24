@@ -2,28 +2,28 @@
 
 [Contents](README.md) | Previous: [6. Book basics](06-book-basics.md) | Next: [8. Maintaining a book](08-book-maintenance.md)
 
-This manual calls adding positions to a book "growing" it (Edax's own word is "learning"). There are two main ways.
+This manual calls adding positions to a book "growing" it (Edax itself calls it "learning"). There are two main methods.
 
 | Way | Commands | When it fits |
 |---|---|---|
 | **From games**: the positions of games you played, or of game files, are put into the book | `book store`, `book add`, `book learn` | Taking in your own games, or games of strong players and programs. Entering the openings you want to study |
 | **Automatic expansion**: Edax itself chooses "promising leaves" of the book and expands them | `book deviate`, `book deviate2`, `book deviate3`, `book enhance`, `book fill`, `book play` | Making the book wider and deeper along the lines with good scores |
 
-In practice both are combined (a skeleton from games, then automatic expansion).
+In practice, both are combined: first build a skeleton from games, then expand it automatically.
 
-**Before you start**: read [6.6](06-book-basics.md) (which file is read, where the book is saved) and [6.7](06-book-basics.md) (`book new` and the file of the previous book).
+**Before you start**, read [6.6](06-book-basics.md) (which file is read and where the book is saved) and [6.7](06-book-basics.md) (`book new` and the previous book file).
 
 ## 7.1 Try a small book first
 
-Before growing a large book, it is a good idea to watch what the commands do on a small book at a low level. The following example ends in about a minute (the output is real; the numbers may differ a little with the PC and from run to run).
+Before growing a large book, it is a good idea to see what the commands do on a small, low-level book. The following example takes about a minute. The output is real; the numbers may differ slightly depending on the PC and from run to run.
 
-Start with a new name for the book file (`data/my.dat` does not exist yet; `-n 2` means 2 threads, `-l 8` level 8).
+Start with a new book file name. `data/my.dat` does not exist yet; `-n 2` means 2 threads and `-l 8` means level 8.
 
 ```
 wEdax-x86-64.exe -book-file data/my.dat -n 2 -l 8
 ```
 
-Make it a book of level 8 and depth 12, and expand it automatically.
+Create a book of level 8 and depth 12, and expand it automatically.
 
 ```
 >book new 8 12
@@ -44,7 +44,7 @@ Level 8 : 110 nodes
 Depth: 12
 ```
 
-The book of 1 position now has 110. Another command, with wider conditions, expands it further.
+The book has grown from 1 position to 110. Another command with wider conditions expands it further.
 
 ```
 >book deviate2 2 4
@@ -59,13 +59,13 @@ Book deviate2 2 4...finished
 Positions: 1952 (moves = 1989 links + 1949 leaves);
 ```
 
-When you end with `quit`, the book is saved to `data/my.dat`. The intermediate files `data/my.dat.dev` and `data/my.dat.dev2` exist too ([6.6](06-book-basics.md)).
+When you exit with `quit`, the book is saved to `data/my.dat`. The intermediate files `data/my.dat.dev` and `data/my.dat.dev2` are also present ([6.6](06-book-basics.md)).
 
 ## 7.2 Growing from games
 
 ### book store: adding the current game
 
-The game played on the board (a sequence entered with `play` will do) is put into the book.
+This adds the game on the board to the book. A sequence entered with `play` also works.
 
 ```
 >play f5d6c3d3c4
@@ -77,9 +77,10 @@ Linking book...3 done
 Negamaxing book...done
 ```
 
-- Among the positions of the game, those within the depth of the book (and the one just beyond, which becomes a position of the deepest layer) are searched **from the end backwards** and added to the book. Positions further on are not added. An unfinished game is fine.
-- After adding, the links are made again, negamax is run, and the book is saved to `<book file name>.store`.
-- With the setting `auto-store on`, `book store` runs by itself each time a game ends ([3.9](03-playing.md)).
+- The positions of the game within the book's depth are searched **from the end backwards** and added to the book. The one position just beyond the depth is added too, as a deepest-layer position.
+- Positions further on are not added. An unfinished game is fine.
+- After adding, Edax rebuilds the links, runs negamax and saves the book to `<book file name>.store`.
+- With the setting `auto-store on`, `book store` runs automatically each time a game ends ([3.9](03-playing.md)).
 
 ### book add: adding a file of games
 
@@ -91,9 +92,9 @@ Searching positions...4 done
 Adding games...3/3 done: 3 positions, 3 links
 ```
 
-All the games of a game file (the format follows the extension: `.txt`, `.ggf`, `.sgf`, `.pgn`, `.wtb`, `.edx`; [chapter 10](10-files.md)) are added as `book store` does. The result is saved to `<book file name>.gam`.
+This adds all the games of a game file, in the same way as `book store`. The format is determined by the extension: `.txt`, `.ggf`, `.sgf`, `.pgn`, `.wtb`, `.edx` ([chapter 10](10-files.md)). The result is saved to `<book file name>.gam`.
 
-In a `.txt` file, each line is one game, the moves written one after the other.
+In a `.txt` file, each line is one game, with the moves written one after another.
 
 ```
 f5d6c3d3c4f4c5b3c2
@@ -108,7 +109,7 @@ Checking 3 games to book...
 Positions : 0 missing, 20 good, 4 bad (16.67% bad)
 ```
 
-It counts the pairs "position, move played there" of the games against the book (within the depth of the book only; only games that start from the usual initial position).
+This checks each pair "position, move played there" of the games against the book. Only positions within the book's depth are checked, and only games that start from the usual initial position.
 
 | Word | Meaning |
 |---|---|
@@ -131,9 +132,15 @@ Negamaxing book...done
 3/3 games learned
 ```
 
-For each line of the file: "play these moves → Edax plays against itself from there to the end of the game → `book store` of that game". List the opening lines you want to examine, and Edax plays them out and puts them into the book.
+For each line of the file, Edax:
 
-How to write the file:
+1. plays these moves;
+2. plays against itself from there to the end of the game;
+3. adds that game with `book store`.
+
+So you can list the opening lines you want to examine, and Edax plays them out and adds them to the book.
+
+File format:
 
 ```
 f5d6c4
@@ -142,16 +149,16 @@ f5d6c4
 f5f4e3
 ```
 
-- One game per line, the moves one after the other (spaces are allowed).
-- A number and a comma at the head, as in `2,moves`, sets the margin for choosing from the book (`book-randomness`) to that number for this game only.
-- Empty lines, lines that start with `#` and lines that contain `//` are skipped.
-- The games are played out at the current `level`. In positions that are in the book, the move of the book is played (when `book on`).
-- At the end `N/M games learned` is printed (N games learned out of M lines). A line with a move that cannot be played gives a warning and is not learned.
+- One game per line, with the moves one after another (spaces are allowed).
+- A number and a comma at the start, as in `2,moves`, sets the book randomness (`book-randomness`) to that number for this game only.
+- Empty lines, lines starting with `#` and lines containing `//` are skipped.
+- The games are played at the current `level`. In positions that are in the book, the book move is played (when `book on`).
+- At the end, `N/M games learned` is printed (N games learned out of M lines). A line with an illegal move produces a warning and is not learned.
 - The result is saved to `<book file name>.store`.
 
-### Learning several games at the same time: book-store-tasks
+### Learning several games in parallel: book-store-tasks
 
-With the setting `book-store-tasks`, `book store`, `book add` and `book learn` work on **several games (the searches of their positions) at the same time**.
+With the setting `book-store-tasks`, `book store`, `book add` and `book learn` process **several games (the searches of their positions) in parallel**.
 
 | `book-store-tasks` | Behaviour |
 |---|---|
@@ -159,33 +166,42 @@ With the setting `book-store-tasks`, `book store`, `book add` and `book learn` w
 | A number n (2 or more) | n games at the same time (`n-tasks ÷ n` threads per game) |
 | `1` | The positions are searched one at a time with all the threads (the behaviour of the original Edax; the resulting book is the same too) |
 
-- In the measurement of the README of the package (32 logical CPUs, level 18, 128 games), `auto` was 2.8 to 3.3 times as fast as `1`.
-- The book made with `auto` is not exactly the book made with `1` (the move and the score of some leaves may differ by 1 or 2 discs). The difference is of the same size as when the number of search threads is changed. Use `1` only when you need the same book as the original Edax.
-- `book learn` plays the games in groups of `book-store-tasks` at the same time. The games of one group are played without using what the others learn (each time a group ends, its games go into the book together).
+- In the package README measurement (32 logical CPUs, level 18, 128 games), `auto` was 2.8 to 3.3 times as fast as `1`.
+- The book made with `auto` is not identical to the book made with `1`: the move and score of some leaves may differ by 1 or 2 discs. The difference is of the same size as when the number of search threads changes. Use `1` only when you need exactly the same book as the original Edax.
+- `book learn` plays the games in groups of `book-store-tasks` games at a time. The games in a group do not see what the others learn. When a group finishes, its games are added to the book together.
 
 ## 7.3 Automatic expansion: book deviate and its family
 
 ### How it works
 
-These commands start **from the position on the board**, follow the links of the book, **choose leaves** that meet a condition **and expand them**. "Expanding" a leaf means: the position after the move of the leaf is searched and added to the book (the leaf becomes a link), and in the original position the next leaf is searched among the remaining moves. Each expansion runs two searches.
+These commands start **from the current board position** and follow the links of the book. They **select the leaves** that meet a condition **and expand them**.
 
-One pass (called a "round" here):
+"Expanding" a leaf means:
+
+- the position after the leaf move is searched and added to the book, so the leaf becomes a link;
+- in the original position, a new leaf is searched for among the remaining moves.
+
+So each expansion runs two searches.
+
+One pass is called a "round" here:
 
 1. negamax (bring the scores up to date)
 2. choose all the leaves that meet the condition; their number is printed as `todo`
 3. expand the chosen leaves, one at a time (or several at the same time)
 4. negamax, and save at the chosen interval
 
-The expansions change scores, which makes new leaves meet the condition, so **the rounds are repeated until nothing is added any more**. At the end `...finished` is printed. With wide conditions, there are hundreds of rounds and the time goes to hours and days.
+Expansions change scores, so new leaves start to meet the condition. **The rounds are therefore repeated until nothing more is added.** At the end, `...finished` is printed. With wide conditions, there can be hundreds of rounds, taking hours or days.
 
-- The starting position is **the current board**. To expand the whole book from the initial position, type `init` first; to dig into one opening, advance with something like `play f5d6c3` and then type the command.
-- **If the position on the board is not in the book, the command does nothing** (nothing is printed and the `>` comes back at once). To start from a position that is not in the book, first put the moves up to it into the book with `book store`.
+- The starting position is **the current board**.
+  - To expand the whole book from the initial position, type `init` first.
+  - To focus on one opening, advance to it with something like `play f5d6c3`, then type the command.
+- **If the current board position is not in the book, the command does nothing.** Nothing is printed, and `>` appears again at once. To start from a position that is not in the book, first add the moves leading to it with `book store`.
 - Nothing is expanded beyond the depth of the book ([6.4](06-book-basics.md)).
-- The line `Book deviate2...11/32 done: 11 positions, 11 links` means "11 of the 32 chosen leaves have been expanded; this round added 11 positions and 11 links".
+- A line such as `Book deviate2...11/32 done: 11 positions, 11 links` means "11 of the 32 selected leaves have been expanded; this round has added 11 positions and 11 links".
 
 ### The conditions of the three commands
 
-Each takes two numbers.
+Each command takes two numbers.
 
 | Command | First number | Second number | Leaves of exactly solved positions |
 |---|---|---|---|
@@ -195,9 +211,15 @@ Each takes two numbers.
 
 Without the numbers, all three use `2 4`.
 
-**book deviate X Y** (the method of the original Edax): within one round, choosing and expanding are done twice. The first time follows the lines where "the side to move of the starting position may also choose moves up to X discs worse than the best, and the opponent plays best moves only"; the second time, the other way round. In both, only moves whose score is within "the score of the starting position ± Y" are considered. In short, it expands the lines where "**one side makes small mistakes and the other plays correctly**".
+**book deviate X Y** (the method of the original Edax): each round selects and expands leaves twice.
 
-**book deviate2 X Y** (added by this fixed version): each time a move is chosen, "the difference between its score and the best move of that position" is counted as "discs lost". It follows the lines where **one move loses at most X discs and the total from the starting position (Black and White together) is at most Y discs**, and expands the leaves within that range.
+- The first time, it follows lines where the side to move in the starting position may also play moves up to X discs worse than the best, while the opponent plays only best moves.
+- The second time, the roles are reversed.
+- In both cases, only moves whose score is within "the starting position's score ± Y" are considered.
+
+In short, it expands the lines where "**one side makes small mistakes and the other plays correctly**".
+
+**book deviate2 X Y** (added in this fixed version): each time a move is chosen, the difference between its score and the score of the best move in that position is counted as "discs lost". It follows the lines where **each move loses at most X discs and the total from the starting position (Black and White together) is at most Y discs**, and expands the leaves within that range.
 
 An example with `deviate2 5 5`:
 
@@ -208,15 +230,15 @@ An example with `deviate2 5 5`:
 | 6 discs in one move | No (over the limit for one move) |
 | Black 3 discs, White 3 discs (total 6) | No (over the limit for the total) |
 
-`deviate2` **does not expand the leaves of exactly solved positions** (positions whose number of empty squares is within the exact range of their level: 21 or fewer at level 18). In such a position the score of the leaf is already exact, so adding what comes after it would not change any score. This avoids expanding the last layers of the book for nothing.
+`deviate2` **does not expand the leaves of exactly solved positions**. These are positions whose number of empty squares is within the exact range of their level (21 or fewer at level 18). In such a position, the leaf score is already exact, so adding the positions after it would not change any score. This avoids pointless expansion of the last layers of the book.
 
-**book deviate3 X Y**: the same conditions as `deviate2`, and the leaves of exactly solved positions are expanded too.
+**book deviate3 X Y**: the same conditions as `deviate2`, but the leaves of exactly solved positions are expanded too.
 
 ### Which one to use, and choosing the numbers
 
-- **`book deviate2` is recommended in general.** Its range is set by "the total of the mistakes of both sides", so the lines that really occur in games are expanded evenly.
-- Larger numbers make the work grow very fast. On the small book above (level 8, depth 12), `deviate 1 2` gave 110 positions and `deviate2 2 4` after it 1,952 (**figures of a small book: they are no forecast for a large one**). Start with small numbers (`1 2`, `2 4`) and widen them while watching the time and the number of positions.
-- If the command is stopped on the way, what was saved up to then remains (7.5 below). Typing the same command again goes on from there (leaves already expanded are links now and are not chosen again).
+- **`book deviate2` is generally recommended.** Its range is defined by the total of both sides' mistakes, so the lines that actually occur in games are expanded evenly.
+- The workload grows very quickly with larger numbers. On the small book above (level 8, depth 12), `deviate 1 2` gave 110 positions, and `deviate2 2 4` after it gave 1,952. (**These figures come from a small book and do not predict those for a large one.**) Start with small numbers (`1 2`, `2 4`) and widen them while watching the time and the number of positions.
+- If the command is interrupted, everything saved up to then remains (7.5 below). Typing the same command again continues from there: leaves that were already expanded are now links and are not selected again.
 
 ## 7.4 Automatic expansion: the other commands
 
@@ -228,11 +250,16 @@ An example with `deviate2 5 5`:
 | `book leaf expand` | Expands the leaf of **the positions whose leaf scores better than every link** (their best move is still out of the book). After an expansion the next leaf may be better than the links again, so this is repeated until no such position remains. Positions without a link do not count | `.lexp` |
 | `book play` | Expands the leaf of positions that have no link at all (the tips of the lines), and repeats until no such position remains within the depth of the book. That is, **every line is extended with best moves down to the depth of the book** | `.play` |
 
-`book enhance`, `book fill` and `book play` come from the original Edax. `book fill2` and `book leaf expand` were added by this fixed version (since v4.5.5-nikque.14), and the same version changed `book fill` (except `book fill 1`). There is less experience with all of them on large books than with the `book deviate` family. Watch what they do on a small book first.
+- `book enhance`, `book fill` and `book play` come from the original Edax.
+- `book fill2` and `book leaf expand` were added in this fixed version (since v4.5.5-nikque.14). The same version changed `book fill` (except `book fill 1`).
+- All of these commands have been used less on large books than the `book deviate` family. Try them on a small book first.
 
 ### Limiting the range: the two numbers of book fill, fill2 and leaf expand
 
-With two more numbers X and Y, as in `book fill 2 5 5`, `book fill2 2 5 5` or `book leaf expand 5 5`, **only the range that `book deviate3 X Y` follows from the current position** is concerned. X is the largest loss of one move and Y the largest total loss (both sides together), as for `deviate2` and `deviate3` in 7.3. Without the numbers, the whole book is concerned.
+With two extra numbers X and Y, as in `book fill 2 5 5`, `book fill2 2 5 5` or `book leaf expand 5 5`, the command applies **only to the range that `book deviate3 X Y` follows from the current position**.
+
+- X is the maximum loss per move and Y the maximum total loss (both sides together), as for `deviate2` and `deviate3` in 7.3.
+- Without the numbers, the command applies to the whole book.
 
 | Command | Positions filled or expanded from |
 |---|---|
@@ -241,12 +268,23 @@ With two more numbers X and Y, as in `book fill 2 5 5`, `book fill2 2 5 5` or `b
 | `book leaf expand X Y` | The positions that `deviate3 X Y` follows whose leaf is better than every link |
 
 - The leaves of exactly solved positions count too (as with `deviate3`).
-- The n of `book fill` and `fill2` means "**exactly n moves**": a gap closer than n moves is not filled. Where a single position is missing (position → missing position → position of the book), n = 2 fills it. Without a number, `book fill2` uses 2 (`book fill2 1` adds no position, so it does nothing).
-- The number of searches done at the same time follows `book-expand-tasks` (7.6), as for `book deviate`. Without that setting (1), the positions are searched one after the other.
-- The positions to fill or expand from are found by several threads, without any copy of the book.
-- **Every round first adds links.** `book fill` and `fill2` link "the positions with a move (any move) that leads to a position already in the book but is not a link"; `book leaf expand` picks "the positions whose leaf move leads to a position already in the book" and adds all their missing links (a position whose leaf became a link searches its leaf again). These positions appear when the same position is added from another line (`book deviate` makes them too). `book fix` links them as well, but a leaf searched again may be better than the links again, so these commands link them themselves and repeat until nothing is left to link, fill or expand. With the two numbers, only in the positions that `deviate3 X Y` follows. After `book fill` and `fill2`, no missing link is left in the range (up to v4.5.5-nikque.13, `book fill` also added the missing links of the positions around the positions it filled from). `book leaf expand` does not link the positions whose leaf does not lead to a position of the book: `book fix` adds their missing links.
+- The n of `book fill` and `fill2` means "**exactly n moves**": a gap shorter than n moves is not filled.
+  - Where a single position is missing (book position → missing position → book position), n = 2 fills it.
+  - Without a number, `book fill2` uses 2. `book fill2 1` adds no position, so it does nothing.
+- The number of parallel searches follows `book-expand-tasks` (7.6), as for `book deviate`. With the built-in value (1), the positions are searched one after another.
+- The positions to fill or expand from are found by several threads, without copying the book.
 
-An example of the output (the small book of 7.1, after `deviate2 2 4`):
+**Every round first adds links.**
+
+- `book fill` and `fill2` link the positions that have a move (any move) that leads to a position already in the book but is not a link.
+- `book leaf expand` picks the positions whose leaf move leads to a position already in the book, and adds all their missing links. A position whose leaf became a link searches for a new leaf.
+- Such positions appear when the same position is added from another line (`book deviate` also creates them).
+- `book fix` links them as well. However, a newly searched leaf may again be better than the links, so these commands do the linking themselves and repeat until nothing is left to link, fill or expand.
+- With the two numbers, this applies only to the positions that `deviate3 X Y` follows.
+- After `book fill` and `fill2`, no missing link remains in the range. (Up to v4.5.5-nikque.13, `book fill` also added the missing links of the positions around the positions it filled from.)
+- `book leaf expand` does not link the positions whose leaf does not lead to a book position. Use `book fix` to add their missing links.
+
+Example output (the small book of 7.1, after `deviate2 2 4`):
 
 ```
 >book fill2 2
@@ -276,9 +314,12 @@ Book leaf expand...1/3 done: 1 positions, 1 links
 Book leaf expand 3 6...finished
 ```
 
-The `(links)` lines give the positions linked. `positions selected` is the number of positions chosen by the walk of `deviate3`, `to fill from` the number of them that are really filled from, and `positions, links` the positions and links added.
+- The `(links)` lines give the number of positions linked.
+- `positions selected` is the number of positions selected by the `deviate3` traversal.
+- `to fill from` is the number of those positions that are actually filled from.
+- `positions, links` gives the positions and links added.
 
-An example of the output on a small book:
+Example output on a small book:
 
 ```
 >book play
@@ -288,35 +329,39 @@ Book play...1/153 done: 1 positions, 1 links
  …
 ```
 
-## 7.5 Saving on the way, and stopping
+## 7.5 Saving progress, and stopping
 
-The commands of automatic expansion run for a long time. **When they stop (power cut, restart of the PC, stopped by you), what is lost is what came after the last save.** Two settings decide how often the book is saved.
+The automatic expansion commands run for a long time. **If they stop (power failure, PC restart, or stopped by you), everything after the last save is lost.** Two settings control how often the book is saved.
 
 | Setting | Value in the package | Meaning |
 |---|---|---|
 | `book-save-interval` | 360 (minutes) | During the expansions, save each time this much time has passed. `0`: no save by time |
 | `book-deviate-save-rounds` | 1 | For the `book deviate` family: save each time this many rounds that added positions or links have ended. `0`: only when the command ends |
 
-- The save goes to `<book file name>.dev2` and so on (table of [6.6](06-book-basics.md)). `book.dat` itself is not rewritten while a command runs.
-- With a large book, one save takes time and free disk space ([chapter 9](09-large-books.md)). Saving every round when the rounds are short means doing little else than saving: make `book-deviate-save-rounds` larger then (10, for example). When one round takes hours, make `book-save-interval` shorter instead.
-- **With `0` and `0` (neither kind of save), nothing is saved until the command ends.** If it stops on the way, everything is lost.
+- The save goes to `<book file name>.dev2` and so on (table in [6.6](06-book-basics.md)). `book.dat` itself is not rewritten while a command runs.
+- With a large book, each save takes time and free disk space ([chapter 9](09-large-books.md)).
+  - If the rounds are short, saving every round means spending most of the time saving. In that case, increase `book-deviate-save-rounds` (to 10, for example).
+  - If one round takes hours, shorten `book-save-interval` instead.
+- **With `0` and `0` (neither kind of save), nothing is saved until the command ends.** If it stops partway, everything is lost.
 
-**Stopping**: the book commands accept no input that makes them give up.
+**Stopping**: the book commands cannot be cancelled by input.
 
-- Typing `stop` does not stop them (since v4.5.5-nikque.13; a message says that nothing was stopped. In earlier versions the one position being searched was cut short and its unfinished result went into the book).
-- Typing `quit` ends Edax **after the command has ended**.
-- To stop at once, stop the Edax program itself (close the window, press Ctrl+C). The book in memory is lost; what remains is the last file saved. Even when Edax is stopped during a save, a half-written file never takes the place of the real one ("How saving works" in [6.6](06-book-basics.md)).
+- Typing `stop` does not stop them (since v4.5.5-nikque.13; a message says that nothing was stopped). In earlier versions, the position being searched was cut short and its incomplete result went into the book.
+- Typing `quit` ends Edax **after the command has finished**.
+- To stop at once, terminate the Edax program itself (close the window, or press Ctrl+C).
+  - The book in memory is lost; what remains is the last saved file.
+  - Even if Edax is terminated during a save, a partially written file never replaces the real one ("How saving works" in [6.6](06-book-basics.md)).
 
-**Going on after a stop**: the last intermediate file (`data/book.dat.dev2`, for example) should be newer than `data/book.dat`. Go on in one of these ways:
+**Resuming after a stop**: the last intermediate file (`data/book.dat.dev2`, for example) should be newer than `data/book.dat`. Resume in one of these ways:
 
 - Rename the files: keep `book.dat` under another name, rename `book.dat.dev2` to `book.dat`, then start Edax.
-- Start Edax and type `book load data/book.dat.dev2` (in this case too, the automatic save goes to `book-file`: note 2 of [6.6](06-book-basics.md)).
+- Start Edax and type `book load data/book.dat.dev2`. In this case too, the automatic save goes to `book-file` (note 2 of [6.6](06-book-basics.md)).
 
-Then type the same command (`book deviate2 5 5`, for example) again.
+Then type the same command again (`book deviate2 5 5`, for example).
 
-## 7.6 Expanding several leaves at the same time: book-expand-tasks
+## 7.6 Expanding several leaves in parallel: book-expand-tasks
 
-Searches at a low level are short, so using many threads for one search does not make it much faster ([5.5](05-search.md)). With the setting `book-expand-tasks`, **several leaves are expanded at the same time** and the CPU is used fully. It applies to `book deviate`, `deviate2`, `deviate3`, `enhance` and `play`.
+Low-level searches are short, so giving many threads to one search does not make it much faster ([5.5](05-search.md)). With the setting `book-expand-tasks`, **several leaves are expanded in parallel**, which makes full use of the CPU. It applies to `book deviate`, `deviate2`, `deviate3`, `enhance` and `play`.
 
 | `book-expand-tasks` | Behaviour |
 |---|---|
@@ -324,38 +369,45 @@ Searches at a low level are short, so using many threads for one search does not
 | A number n | n leaves at the same time. One search uses `n-tasks ÷ n` threads |
 | `auto` (the value in the `config.ini` of the package) | Decided from the level of the book: 2 threads per search up to level 18, 4 up to level 24, 8 above (the number of leaves expanded at the same time is `n-tasks` divided by that). In addition, up to level 18, when a round has at least 32 times `n-tasks` leaves to expand, `n-tasks` searches of 1 thread run at the same time |
 
-- In the measurement of the README of the package (32 logical CPUs, level 18, a book of 656.88 million positions, the first 10,000 leaves of `book deviate3 2 5`): about 805 to 832 seconds with `1`, about 174 seconds with `16` (2 threads each).
-- **The resulting book is not the same as with `1`.** The positions added and the moves of the links are the same, but the move and the score of some leaves may differ by 1 or 2 discs. Also, a position being expanded at the same time as others only sees the ones already put into the book (when two positions of the same round reach the same new position, the link may not be made on the spot; it is made in a later round, or by `book fix`. Which one happens depends on the order in which the searches end: see `book-reproducible` below).
-- Each of the searches that run at the same time has its own hash table, so more memory is used ([chapter 9](09-large-books.md)).
-- A round with a single leaf is the same as expanding one at a time. In a round with few leaves, fewer searches run at the same time.
+- In the package README measurement (32 logical CPUs, level 18, a book of 656.88 million positions, the first 10,000 leaves of `book deviate3 2 5`): about 805 to 832 seconds with `1`, about 174 seconds with `16` (2 threads each).
+- **The resulting book is not the same as with `1`.**
+  - The positions added and the link moves are the same, but the move and score of some leaves may differ by 1 or 2 discs.
+  - Also, a position being expanded in parallel with others only sees the positions already added to the book. When two positions in the same round lead to the same new position, the link may not be created immediately. It is created in a later round or by `book fix`. Which happens depends on the order in which the searches finish (see `book-reproducible` below).
+- Each parallel search has its own hash table, so more memory is used ([chapter 9](09-large-books.md)).
+- A round with a single leaf behaves the same as expanding one at a time. A round with few leaves runs fewer searches in parallel.
 - For exactly the behaviour of the original Edax, set `book-expand-tasks = 1`.
 
-### The same book from a run to the next: book-reproducible and book-seed
+### The same book from run to run: book-reproducible and book-seed
 
-When `book-expand-tasks` is 2 or more (`auto` included), a position being expanded sees the result of another one if that result was put into the book first, and does not see it otherwise. Which one happens depends on the order in which the searches end, so the same command can give a slightly different book from a run to the next. Also, the choice among book moves of equal score (even with `book-randomness = 0`) is random, and its seed is taken from the clock: `book learn` learns other games from a run to the next.
+When `book-expand-tasks` is 2 or more (including `auto`), a position being expanded sees the result of another one only if that result was added to the book first. This depends on the order in which the searches finish, so the same command can produce a slightly different book on each run.
+
+In addition, the choice among book moves of equal score is random (even with `book-randomness = 0`), and its seed comes from the clock. So `book learn` learns different games on each run.
 
 | Setting | Behaviour |
 |---|---|
 | `book-reproducible = on` | Every search of the book commands has one thread, and the results of the expansions done at the same time are put into the book in the order they were chosen. Before that, an expansion whose new position got other links since it was searched is searched again. The commands that expand give the book of `n-tasks 1`, whatever the number of threads |
 | `book-seed = a number` | The seed of the random numbers of the book. `book learn` learns the same games from a run to the next |
 
-- The defaults are the previous behaviour (`off`, `auto`).
-- With `on`, each one-thread search has the hash table of a one-thread run (57 MB with `hash-table-size = auto`): about 1.8 GB with `n-tasks` 32.
-- What is the same is the content except the save date (8 bytes at the start of the file).
-- `book store`, `add` and `learn` with several threads give the same book from a run to the next, but not the book of `n-tasks 1`. The searches of the moves of games (`play`, `go`, the games of `book learn` with `n-tasks 1` or `book-store-tasks 1`) and the searches with a time limit are not changed.
+- The defaults keep the previous behaviour (`off`, `auto`).
+- With `on`, each one-thread search has the hash table of a one-thread run (57 MB with `hash-table-size = auto`). That is about 1.8 GB with `n-tasks` 32.
+- "The same book" means identical content except the save date (8 bytes at the start of the file).
+- With several threads, `book store`, `add` and `learn` produce the same book on each run, but not the book of `n-tasks 1`.
+- These settings do not affect the searches for game moves (`play`, `go`, the games of `book learn` with `n-tasks 1` or `book-store-tasks 1`) or time-limited searches.
 
 ## 7.7 Examples of growing
 
-**Example 1: digging into an opening you want to study**
+**Example 1: exploring an opening you want to study**
 
 ```
 >play f5d6c3d3c4
 >book deviate2 3 6
 ```
 
-Only what follows the position on the board (the opening called `tiger`) is expanded. If this position is not in the book yet, the command does nothing: type `book store` first to put the moves up to it into the book (in this order: `play f5d6c3d3c4`, `book store`, `book deviate2 3 6`).
+Only the lines that follow the current board position (the opening called `tiger`) are expanded.
 
-**Example 2: adding a file of games, then tidying the whole**
+If this position is not in the book yet, the command does nothing. Type `book store` first to add the moves leading to it. The full order is: `play f5d6c3d3c4`, `book store`, `book deviate2 3 6`.
+
+**Example 2: adding a file of games, then expanding the whole book**
 
 ```
 >book add mygames.txt
@@ -369,9 +421,14 @@ Only what follows the position on the board (the opening called `tiger`) is expa
 >book learn openings.txt
 ```
 
-**Example 4: expanding a little every day (a large book)**
+**Example 4: expanding a large book a little every day**
 
-Set the save intervals and the number of simultaneous expansions in `config.ini`, start Edax, type `book deviate2 5 5`, and stop it when time is up. The next day, go on from the last intermediate file (7.5). The cautions for books of hundreds of millions of positions are gathered in [chapter 9](09-large-books.md).
+1. Set the save intervals and the number of parallel expansions in `config.ini`.
+2. Start Edax and type `book deviate2 5 5`.
+3. Stop it when your time is up.
+4. The next day, resume from the last intermediate file (7.5).
+
+The cautions for books of hundreds of millions of positions are collected in [chapter 9](09-large-books.md).
 
 ## 7.8 The commands of this chapter
 
