@@ -4,7 +4,7 @@
 
 This fixed version is designed so that a book of tens to hundreds of millions of positions can be grown and maintained on a single PC. This chapter covers rough memory, disk and time requirements for such books, the recommended settings, and the precautions to take.
 
-The figures are measurements recorded in the package README. **Each figure comes from one PC and one book; it is not a prediction for other environments.** Unless stated otherwise, the measurements were taken under Windows on a Ryzen 9 9950X (32 logical CPUs), with a book of level 18 and depth 40 (about 660 million positions, a file of about 29 GB).
+The figures are measurements from the test records (`docs/validation/`). **Each figure comes from one PC and one book; it is not a prediction for other environments.** Unless stated otherwise, the measurements were taken under Windows on a Ryzen 9 9950X (32 logical CPUs), with a book of level 18 and depth 40 (about 660 million positions, a file of about 29 GB).
 
 ## 9.1 Memory
 
@@ -55,7 +55,7 @@ The figures are measurements recorded in the package README. **Each figure comes
   - 937 seconds for a negamax,
   - four and a half hours to merge two books of 600 million positions
 
-  (from the section on v4.5.5-nikque.3 in the README).
+  (from the section on v4.5.5-nikque.3 in the test records).
 
 **Growing time is almost entirely search time.**
 
@@ -82,13 +82,13 @@ book-merge-auto-save = on
 | Setting | How to choose it |
 |---|---|
 | `n-tasks` | `auto` to use all the logical CPUs. **Lower it if you also do other work** (half of them, for example). Negamax, the selection of what to expand and the linking also run in parallel on this number of threads |
-| `book-expand-tasks` | `auto`. Up to level 18 this gives "`n-tasks ÷ 2` searches of 2 threads", and in rounds with many leaves (32 times `n-tasks` or more) "`n-tasks` searches of 1 thread". At levels 19 to 24 each search has 4 threads, above that 8. At high levels, set a number and compare the speeds (the README suggests starting from 4 or 8 with 32 threads) |
+| `book-expand-tasks` | `auto`. Up to level 18 this gives "`n-tasks ÷ 2` searches of 2 threads", and in rounds with many leaves (32 times `n-tasks` or more) "`n-tasks` searches of 1 thread". At levels 19 to 24 each search has 4 threads, above that 8. At high levels, set a number and compare the speeds (the test records suggest starting from 4 or 8 with 32 threads) |
 | `book-store-tasks` | `auto` (`n-tasks` games learned at the same time) |
 | `hash-table-size` | `auto`. A larger table does not make short searches faster |
 | `book-save-interval` | Keep in mind that one save takes about 30 seconds and writes a file as large as the book. The package uses 360 minutes (6 hours) |
 | `book-deviate-save-rounds` | `1` if one round is long (hours). If a round is short (minutes), writing 29 GB every round is wasteful, so make it larger |
 
-**Settings that reproduce the behaviour of earlier versions and of the original Edax**: `book-expand-tasks = 1`, `book-store-tasks = 1`. A book made with `auto` differs from one made with `1` in the move and score of some leaves ([7.2](07-book-learning.md), [7.6](07-book-learning.md); the README gives the measured number of positions that differed).
+**Settings that reproduce the behaviour of earlier versions and of the original Edax**: `book-expand-tasks = 1`, `book-store-tasks = 1`. A book made with `auto` differs from one made with `1` in the move and score of some leaves ([7.2](07-book-learning.md), [7.6](07-book-learning.md); the test records give the measured number of positions that differed).
 
 ## 9.5 Precautions for working on a large book
 
@@ -106,8 +106,8 @@ book-merge-auto-save = on
 
 ## 9.6 Book size, depth and level
 
-- A higher level makes adding each position take longer. In the README measurement (level 18, `book deviate2 5 5` on the book of about 660 million positions), expanding one leaf took a search of about 33 million nodes.
-- Each additional move of depth adds a very large number of positions. In the README example, reducing the depth of the same book from 40 to 39 reduced it from 661.62 million positions to 524.08 million (the deepest layer alone held 137.54 million positions).
+- A higher level makes adding each position take longer. In the recorded measurement (level 18, `book deviate2 5 5` on the book of about 660 million positions), expanding one leaf took a search of about 33 million nodes.
+- Each additional move of depth adds a very large number of positions. In the recorded example, reducing the depth of the same book from 40 to 39 reduced it from 661.62 million positions to 524.08 million (the deepest layer alone held 137.54 million positions).
 - Increasing either number of `book deviate2 X Y` by one multiplies the work several times. Always try small numbers first.
 
 Next: [10. Game and problem files](10-files.md)

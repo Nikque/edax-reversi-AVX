@@ -306,9 +306,9 @@ By default, the command **traverses the range once and ends**. However, recomput
 
 With the setting `book-leaf-recalculate-rounds = n` (since v4.5.5-nikque.13), the cycle "traverse → recompute → negamax" is repeated up to n times. It **stops after the first pass in which no leaf changed**. The default is 1.
 
-- Example from the package README (a book of 6.49 million positions, `book leaf recalculate4 1 1`): repeated one pass at a time, the number of leaves to recompute was 4,066 → 780 → 247 → 485 → 386, and the number of changed scores was 1,419 → 411 → 42 → 46 → 0. With `book-leaf-recalculate-rounds = 10`, it stopped after 5 passes.
+- Example from the test records (`docs/validation/`) (a book of 6.49 million positions, `book leaf recalculate4 1 1`): repeated one pass at a time, the number of leaves to recompute was 4,066 → 780 → 247 → 485 → 386, and the number of changed scores was 1,419 → 411 → 42 → 46 → 0. With `book-leaf-recalculate-rounds = 10`, it stopped after 5 passes.
 - Values from a multi-threaded search vary slightly between runs, so a pass with no changes may never come. The command then ends after n passes.
-- **Even if `eval.dat` was not replaced, some leaves get a different value when recomputed.** This is because the search that created the leaf and a separate search run afterwards do not have exactly the same conditions. Detailed figures are in the v4.5.5-nikque.12 and 13 sections of the README.
+- **Even if `eval.dat` was not replaced, some leaves get a different value when recomputed.** This is because the search that created the leaf and a separate search run afterwards do not have exactly the same conditions. Detailed figures are in the v4.5.5-nikque.12 and 13 sections of the test records (`docs/validation/nikque.en.md`).
 
 ### Example steps after replacing eval.dat
 
@@ -317,7 +317,7 @@ With the setting `book-leaf-recalculate-rounds = n` (since v4.5.5-nikque.13), th
 3. After `init`, type `book leaf recalculate4 X Y` (X and Y: the numbers you usually give to `book deviate2`).
 4. When it has finished, check with `book info` and `book show`, and save with `book save`.
 
-The time is proportional to the number of leaves. In the README measurement (a book of 661.62 million positions, level 18, 32 threads), `book leaf recalculate2 5 5` had 2.75 million leaves to recompute and processed about 2,350 per minute. The total time was not measured.
+The time is proportional to the number of leaves. In the recorded measurement (a book of 661.62 million positions, level 18, 32 threads), `book leaf recalculate2 5 5` had 2.75 million leaves to recompute and processed about 2,350 per minute. The total time was not measured.
 
 ## 8.7 Other maintenance
 

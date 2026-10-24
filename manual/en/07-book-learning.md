@@ -166,7 +166,7 @@ With the setting `book-store-tasks`, `book store`, `book add` and `book learn` p
 | A number n (2 or more) | n games at the same time (`n-tasks ÷ n` threads per game) |
 | `1` | The positions are searched one at a time with all the threads (the behaviour of the original Edax; the resulting book is the same too) |
 
-- In the package README measurement (32 logical CPUs, level 18, 128 games), `auto` was 2.8 to 3.3 times as fast as `1`.
+- In the recorded measurement (`docs/validation/`) (32 logical CPUs, level 18, 128 games), `auto` was 2.8 to 3.3 times as fast as `1`.
 - The book made with `auto` is not identical to the book made with `1`: the move and score of some leaves may differ by 1 or 2 discs. The difference is of the same size as when the number of search threads changes. Use `1` only when you need exactly the same book as the original Edax.
 - `book learn` plays the games in groups of `book-store-tasks` games at a time. The games in a group do not see what the others learn. When a group finishes, its games are added to the book together.
 
@@ -369,7 +369,7 @@ Low-level searches are short, so giving many threads to one search does not make
 | A number n | n leaves at the same time. One search uses `n-tasks ÷ n` threads |
 | `auto` (the value in the `config.ini` of the package) | Decided from the level of the book: 2 threads per search up to level 18, 4 up to level 24, 8 above (the number of leaves expanded at the same time is `n-tasks` divided by that). In addition, up to level 18, when a round has at least 32 times `n-tasks` leaves to expand, `n-tasks` searches of 1 thread run at the same time |
 
-- In the package README measurement (32 logical CPUs, level 18, a book of 656.88 million positions, the first 10,000 leaves of `book deviate3 2 5`): about 805 to 832 seconds with `1`, about 174 seconds with `16` (2 threads each).
+- In the recorded measurement (`docs/validation/`) (32 logical CPUs, level 18, a book of 656.88 million positions, the first 10,000 leaves of `book deviate3 2 5`): about 805 to 832 seconds with `1`, about 174 seconds with `16` (2 threads each).
 - **The resulting book is not the same as with `1`.**
   - The positions added and the link moves are the same, but the move and score of some leaves may differ by 1 or 2 discs.
   - Also, a position being expanded in parallel with others only sees the positions already added to the book. When two positions in the same round lead to the same new position, the link may not be created immediately. It is created in a later round or by `book fix`. Which happens depends on the order in which the searches finish (see `book-reproducible` below).

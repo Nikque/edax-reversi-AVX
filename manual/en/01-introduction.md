@@ -66,8 +66,8 @@ The ZIP file on the Releases page contains the following:
 - **If in doubt, use the executable without `v3` or `v4` in its name** (`wEdax-x86-64.exe` on Windows). It runs on any 64-bit CPU.
 - The `v3` executables need a CPU with AVX2, and the `v4` executables need a CPU with AVX-512. They do not run on CPUs without these instruction sets.
 - If you do not know which instruction sets your CPU supports, look up its model, or use the executable without a suffix.
-- Approximate speed difference: standard 69 million nodes per second, `v3` 81 million, `v4` 92 million. This was measured for the package README on a Ryzen 9 9950X, with one thread, solving 20 endgame positions exactly.
-- According to the package README:
+- Approximate speed difference: standard 69 million nodes per second, `v3` 81 million, `v4` 92 million. This was measured for the test records (`docs/validation/`) on a Ryzen 9 9950X, with one thread, solving 20 endgame positions exactly.
+- According to the test records (`docs/validation/`):
   - the Windows ARM64 and Android executables were built but not tested on a device;
   - the macOS executables come from the automated release build.
 - The checks for this manual were made with the 64-bit Windows version.

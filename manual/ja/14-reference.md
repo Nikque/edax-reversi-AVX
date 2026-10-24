@@ -2,7 +2,7 @@
 
 [目次](README.md) ｜ 前：[13. 困ったときは](13-troubleshooting.md) ｜ 次：[15. 用語集](15-glossary.md)
 
-v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧から作りました）。「章」の欄が空のものは、このマニュアルでは説明していない、開発・検査用のものです。
+この版の、全部のコマンドと設定です（ソースの一覧から作りました）。「章」の欄が空のものは開発・検査用で、このマニュアルでは説明していません。
 
 ## 14.1 対局・解析のコマンド
 
@@ -22,7 +22,7 @@ v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧
 | `force` | | 手順、または定石の名前 | Edax に決まった序盤を打たせる | [3.7](03-playing.md) |
 | `go` | | | Edax に 1 手打たせる | [3.1](03-playing.md) |
 | `hint` | | ［1〜60］（省くと 1） | 良い手を表示 | [3.4](03-playing.md) |
-| `stop` | ［`id=N`］ | | 考えるのを止める（`mode 3` になる）。待っている命令は消える。`id=N` を書くと、book の解析 N だけを止める（ほかは変わらない） | [3.1](03-playing.md)・[12.4](12-integration.md) |
+| `stop` | ［`id=N`］ | | 考えるのを止める（`mode 3` になる）。待っているコマンドは消える。`id=N` を書くと、book の解析 N だけを止める（ほかは変わらない） | [3.1](03-playing.md)・[12.4](12-integration.md) |
 | `analyze` | `a`、`analyse` | ［手数］（省くと全部） | 棋譜の最後の n 手を振り返る | [3.4](03-playing.md) |
 | `setboard` | | 盤 手番 | 局面を作る | [3.5](03-playing.md) |
 | `vmirror`・`hmirror` | | | 上下・左右を入れ替える | [3.5](03-playing.md) |
@@ -47,7 +47,7 @@ v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧
 
 ## 14.2 book のコマンド
 
-`book`（または `b`）の後に書きます。後ろの言葉は、大文字でも通ります。
+`book`（または `b`）の後に書きます。後ろの語は、大文字でも通ります。
 
 | コマンド | 引数（［ ］は省ける。（ ）は省いたときの値） | 意味 | 自分で保存するファイル | 章 |
 |---|---|---|---|---|
@@ -88,12 +88,12 @@ v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧
 | `extract` | ファイル | 最善の手順を棋譜に書き出す | | [8.8](08-book-maintenance.md) |
 | `problem` | ［空き］（24） ［個数］（10） | 局面を問題の形で表示 | | [8.8](08-book-maintenance.md) |
 | `feed-hash` | | book の値をハッシュ表に入れる | | [8.7](08-book-maintenance.md) |
-| `moveinfo` | `id=N` ［`base=`・`stages=`・`umi=`・`parts=` など］ | 全部の合法手の book の評価値・精度の段階・足りない Leaf の数・うみがめ数・局面の数（裏で動く。答えは `@` の行） | | [12.4](12-integration.md) |
-| `missing` | `id=N` ［`sq=`・`stage=`・`x= y=`・`n=`］ | 次の段階に足りない Leaf までの手順（裏で動く） | | [12.4](12-integration.md) |
-| `levels` | `id=N` ［`scope=all`］ | level ごとの局面の数（裏で動く） | | [12.4](12-integration.md) |
-| `bestlines` | `id=N` ［`loss=`・`depth=`・`solved=`・`file=`・`which=`］ | 最善の進行の数と、その端までの手順の書き出し（裏で動く） | 指定のファイル | [12.4](12-integration.md) |
-| `findline` | `id=N` `target=局面` ［`n=`］ | 今の局面から局面までの、book の局面だけを通る手順（裏で動く） | | [12.4](12-integration.md) |
-| `reducecount` | `id=N` ［`x=`（2）・`y=`（4）］ | `reduce X Y` で残る局面と消える局面の数（裏で動く。book は変えない） | | [12.4](12-integration.md) |
+| `moveinfo` | `id=N` ［`base=`・`stages=`・`umi=`・`parts=` など］ | 全部の合法手の book の評価値・精度の段階・足りない Leaf の数・うみがめ数・局面の数（バックグラウンドで動く。答えは `@` の行） | | [12.4](12-integration.md) |
+| `missing` | `id=N` ［`sq=`・`stage=`・`x= y=`・`n=`］ | 次の段階に足りない Leaf までの手順（バックグラウンドで動く） | | [12.4](12-integration.md) |
+| `levels` | `id=N` ［`scope=all`］ | level ごとの局面の数（バックグラウンドで動く） | | [12.4](12-integration.md) |
+| `bestlines` | `id=N` ［`loss=`・`depth=`・`solved=`・`file=`・`which=`］ | 最善の進行の数と、その端までの手順の書き出し（バックグラウンドで動く） | 指定のファイル | [12.4](12-integration.md) |
+| `findline` | `id=N` `target=局面` ［`n=`］ | 今の局面から局面までの、book の局面だけを通る手順（バックグラウンドで動く） | | [12.4](12-integration.md) |
+| `reducecount` | `id=N` ［`x=`（2）・`y=`（4）］ | `reduce X Y` で残る局面と消える局面の数（バックグラウンドで動く。book は変えない） | | [12.4](12-integration.md) |
 
 ## 14.3 base のコマンド
 
@@ -106,7 +106,7 @@ v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧
 | `compare` | ファイル1 ファイル2 | 共通する局面を数える |
 | `check` | ファイル ［空き］（24） | 終盤の悪手を探す |
 | `correct` | ファイル ［空き］（24） | 終盤の悪手を直す（ファイルを書き換える） |
-| `complete` | ファイル | 未完の対局を打ち継ぐ（ファイルを書き換える） |
+| `complete` | ファイル | 終局していない対局の続きを打つ（ファイルを書き換える） |
 | `problem` | ファイル ［空き］（24） 出力 | 局面を問題のファイルに書き出す |
 | `tofen` | ファイル ［空き］（24） 出力 | 局面を FEN で書き出す |
 
@@ -132,7 +132,7 @@ v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧
 
 ### よく使う設定
 
-| 名前（短い名前） | 値 | 組み込みの値 | 配布物の `config.ini` | 意味 |
+| 名前（短い名前） | 値 | 組み込みの値 | 配布版の `config.ini` | 意味 |
 |---|---|---|---|---|
 | `level`（`l`） | 0〜60 | 18 | 18 | 探索の強さ |
 | `n-tasks`（`n`） | 1〜論理 CPU の数（64 まで）、`auto` | 論理 CPU の数 | `auto` | 探索のスレッドの数 |
@@ -150,22 +150,22 @@ v4.5.5-nikque.19 の、全部のコマンドと設定です（ソースの一覧
 | `book-randomness` | 0 以上の数 | 0 | | book から手を選ぶ幅 |
 | `book-depth` | 1〜60、`auto` | `auto` | `auto` | 起動のときの book の深さ |
 | `book-save-interval` | 0〜525600（分） | 60 | 360 | 育てている途中の、時間ごとの保存 |
-| `book-deviate-save-rounds` | 0〜1000000 | 1 | 1 | `book deviate` 系の、周ごとの保存 |
+| `book-deviate-save-rounds` | 0〜1000000 | 1 | 1 | `book deviate` 系列の、周ごとの保存 |
 | `book-merge-auto-save` | `on`／`off` | `on` | `on` | `book merge` の後の `.mrg` |
 | `book-store-auto-save` | `on`／`off` | `on` | | `book store`・`learn` の後の `.store` |
 | `book-expand-tasks` | 1〜論理 CPU の数、`auto` | 1 | `auto` | 同時に広げる局面の数 |
 | `book-store-tasks` | 1〜論理 CPU の数、`auto` | `auto` | `auto` | 同時に学習する棋譜の数 |
-| `book-leaf-recalculate-rounds` | 1〜1000000 | 1 | 1 | `book leaf recalculate` 系の回数の上限 |
+| `book-leaf-recalculate-rounds` | 1〜1000000 | 1 | 1 | `book leaf recalculate` 系列の回数の上限 |
 | `book-seed` | 0〜2^64−1、`auto` | `auto` | `auto` | book の同点候補を選ぶ乱数の種（`auto` は時計から） |
 | `book-reproducible` | `on`／`off` | `off` | `off` | book のコマンドを、毎回同じ book になるように行う（[7章](07-book-learning.md)） |
 | `probcut-model` | `standard`／`refit` | `standard` | `standard` | 枝刈りの方式（`refit` は実験用） |
 | `book-reduce-index` | `binary`／`table` | `table` | | `book reducecount` で番号から局面を引く方法（v4.5.5-nikque.22 から。[8.4](08-book-maintenance.md)） |
-| `book-reduce-walk` | `loss`／`group` | `loss` | | `book reducecount` の並列の歩きの順（v4.5.5-nikque.22 から） |
+| `book-reduce-walk` | `loss`／`group` | `loss` | | `book reducecount` を並列で行うときの、たどる順（v4.5.5-nikque.22 から） |
 | `book-reduce-reuse` | `on`／`off` | `on` | | `book reduce` で直前の `book reducecount` の結果を使う（v4.5.5-nikque.22 から） |
 | `book-reduce-shrink` | `on`／`off` | `on` | | `book reduce` の後にバケツの数を減らす（v4.5.5-nikque.22 から） |
 | `auto-start`・`auto-swap`・`auto-store`・`auto-quit` | `on`／`off` | `off` | | 終局したときの動作（[3.9](03-playing.md)） |
 | `repeat` | 数 | 0 | | 続けて打つ局数 |
-| `search-log-file`・`ui-log-file` | ファイル | なし | | 記録のファイル |
+| `search-log-file`・`ui-log-file` | ファイル | なし | | ログのファイル |
 | `name` | 文字 | `Edax 4.5.5` | | プロトコルで名乗る名前 |
 | `echo` | `on`／`off` | `off` | | 受け取ったコマンドを表示する |
 

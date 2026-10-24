@@ -2,14 +2,17 @@
 
 [目次](README.md) ｜ 前：[12. ほかのプログラムから使う](12-integration.md) ｜ 次：[14. コマンドと設定の一覧](14-reference.md)
 
-よく出る表示と、起きやすいことを、場面ごとにまとめます。Edax の表示は英語です。`WARNING:` は「続けられるが、気を付けて」、`ERROR:` は「その操作は行われなかった」という意味です（`ERROR:` の行には、ソースのファイル名と行の番号も出ます）。
+よく出る表示と、起きやすいことを、場面ごとにまとめます。Edax の表示は英語です。
+
+- `WARNING:` は「続けられるが、気を付けて」という意味です。
+- `ERROR:` は「その操作は行われなかった」という意味です。`ERROR:` の行には、ソースのファイル名と行の番号も出ます。
 
 ## 13.1 起動のとき
 
 | 表示・起きたこと | 意味 | 対処 |
 |---|---|---|
 | `Cannot open data/eval.dat` と出て終わる | 評価データが見つからない。Edax は、今いるフォルダーの `data/eval.dat` を探す | `bin` フォルダーの中から起動する。または `-eval-file フォルダー/eval.dat` で場所を教える |
-| 何も出ずに、すぐ終わる（`v3`・`v4` の実行ファイル） | CPU が、その命令（AVX2・AVX-512）に対応していない可能性 | 名前に `v3`・`v4` の付かない実行ファイルを使う（この場合の表示は、確かめていません） |
+| 何も出ずに、すぐ終わる（`v3`・`v4` の実行ファイル） | CPU が、その命令セット（AVX2・AVX-512）に対応していない可能性 | 名前に `v3`・`v4` の付かない実行ファイルを使う（この場合の表示は、確かめていません） |
 | `WARNING: config.ini was not found in the current folder (Edax was started without its folder name): default settings are used` | 実行ファイルをフォルダー名なしで起動したので、`config.ini` の場所が分からなかった | フォルダーを付けて起動する（`.\wEdax-x86-64.exe`）。または、今いるフォルダーに `config.ini` を置く |
 | `WARNING: config.ini:7: unknown or incomplete setting "levle" ignored` | `config.ini` の 7 行目の名前が間違っている | その行を直す（[4.2](04-settings.md)） |
 | `WARNING: level: "abc" is not a number; ignored` | 数を書くところに、数でないものが書いてある | 値を直す |
@@ -26,7 +29,7 @@
 | 打てるマスがなくて進まない | パスの番 | `ps` |
 | Edax が考え続けて戻ってこない | level が高い、または持ち時間が長い | `stop`。その後 `level` を下げて `mode 0`／`mode 1` |
 | Edax が、考えずにすぐ打つ | book の手を打っている（表の `depth` が `book`）。または level が低い | book を使いたくなければ `book off` |
-| 同じ局面なのに、毎回違う手を打つ | book の中の、同じ評価値の手から、でたらめに選んでいる。または複数スレッドの探索の揺れ | [6.5](06-book-basics.md)・[5.7](05-search.md) |
+| 同じ局面なのに、毎回違う手を打つ | book の中の、同じ評価値の手から、ランダムに選んでいる。または複数スレッドの探索の揺れ | [6.5](06-book-basics.md)・[5.7](05-search.md) |
 | `WARNING: Cannot open file mygame.txt` | `load` のファイルが開けない（名前・フォルダーの間違い）。盤は前のまま | ファイルの名前と場所を確かめる。フォルダーは、今いるフォルダー（`bin`）から見た場所 |
 | `WARNING: Illegal move #2: A1` | `load` の棋譜の中に、打てない手がある（`#2` は、0 から数えた手の番号）。その棋譜は読み込まれず、盤は前のまま | 棋譜のファイルを直す（[10.1](10-files.md)） |
 | `WARNING: game text: "A1F4" is not a move that can be played here: the rest of the line is not read` | `.txt` の棋譜の行に、打てない手（または、手として読めない文字）がある。その手前までが読み込まれた | 行を直す。途中の局面から始まる対局を `.txt` で保存した行は、読み戻せない（[10.1](10-files.md)） |
@@ -42,7 +45,7 @@
 | 表示・起きたこと | 意味 | 対処 |
 |---|---|---|
 | `book show` で何も表示されない | 今の局面が book にない | 正常。`book store` などで入れる |
-| `@error word=id`（番号のない 1 行） | book の解析の命令（`book moveinfo` など）か `stop` の `id=` が、int の範囲の整数でない。何も行わず、何も止めない（v4.5.5-nikque.19 から） | `id=` を整数にする。ファイルの名前に `id=` があるときは `"…"` で囲む（[12.4](12-integration.md)） |
+| `@error word=id`（番号のない 1 行） | book の解析のコマンド（`book moveinfo` など）か `stop` の `id=` が、int の範囲の整数でない。何も行わず、何も止めない（v4.5.5-nikque.19 から） | `id=` を整数にする。ファイルの名前に `id=` があるときは `"…"` で囲む（[12.4](12-integration.md)） |
 | `book deviate`（`deviate2` など）が、何も表示せずにすぐ終わる | 今の盤の局面が book にない | 初期局面から始めるなら `init`。途中の局面から始めるなら、先に `book store` |
 | `Book deviate2 0 todo` で終わる | 条件に合う Leaf がない（もう広げ終えた、または数が小さすぎる） | 数（X・Y）を大きくする。book の深さ（`book info` の Depth）も確かめる |
 | `Cannot save book to ; existing book was not replaced` | v4.5.5-nikque.12 までの版で、`book save` にファイル名を書いていない | `book save data/my.dat` のように名前を書く（v4.5.5-nikque.13 からは、名前を省くと `book-file` のファイルに保存する） |
@@ -55,8 +58,8 @@
 | `(2245 positions have another level than the book: only the first 10 are shown)` | `book info` の表示。book の level と違う level の局面が 11 個以上ある（level の違う book を merge した、など） | 正常。level の違う局面を混ぜたくなければ、同じ level で育てた book どうしを merge する（[8.3](08-book-maintenance.md)） |
 | `cannot open …`、`WARNING: Book … was not merged` | `book merge` のファイルが読めなかった。今の book は、そのまま | 名前と場所を確かめる |
 | `WARNING: Unknown book command: "book link"` | そういう book のコマンドはない | [14 章](14-reference.md)の一覧を見る。Link を張り直したいときは `book fix` |
-| `[stop: nothing is stopped while a book or base command is running]` | book・base のコマンドの実行中に `stop` を打った。何も止めていない | すぐ止めたいなら、Edax そのものを止める（[7.5](07-book-learning.md)） |
-| `quit` を打ったのに終わらない | book のコマンドが終わるのを待っている | 待つ。待てないなら、Edax そのものを止める（最後の保存の後の分は失われる） |
+| `[stop: nothing is stopped while a book or base command is running]` | book・base のコマンドの実行中に `stop` を入力した。何も止めていない | すぐ止めたいなら、Edax そのものを止める（[7.5](07-book-learning.md)） |
+| `quit` を入力したのに終わらない | book のコマンドが終わるのを待っている | 待つ。待てないなら、Edax そのものを止める（最後の保存の後の分は失われる） |
 | `WARNING: book subtree: this position is deeper than the book depth; the book is not changed` | 今の盤の局面が、book の深さより先にある | `book depth` を確かめる。局面を戻してから行う |
 | `WARNING: book reduce: this position is deeper than the book depth; the book is not changed`、`WARNING: book reduce: this position is not in the book; the book is not changed` | 今の盤の局面が、book の深さより先にある、または book にない | 局面を戻してから行う（ふつうは `init` で初期局面に戻す） |
 | `WARNING: book reduce: two loss limits are needed, …` | `book reduce` に数が 2 つない、範囲の外（X は 0〜129、Y は 0〜254）、または数の後ろに別の語がある | `book reduce 2 4` のように 2 つの数を書く |
@@ -65,26 +68,33 @@
 | `cannot create a thread: the search uses N threads instead of M` | スレッドを作れなかった。作れた数で続けている | そのままでも動く。`n-tasks` を小さくする |
 | book のファイルが、急に小さくなった（84 バイトなど） | `book new` の後で終了した、または book のファイルがない状態で起動して終了した | `book new` の後なら、それまでの book は、同じフォルダーの `.old` の付いたファイルに残っている（v4.5.5-nikque.13 から。[6.7](06-book-basics.md)）。それより前の版では残らないので、写し・途中経過のファイルから戻す |
 | `book.dat.tmp.12345` のようなファイルが残っている | 保存の途中で、Edax が止められた | 消してよい（Windows では、次の保存のときに Edax が消す）。`book.dat` は元のまま |
-| 同じ手順で育てたのに、book が毎回少し違う | 複数スレッドの探索と、同時に行う展開は、実行ごとに結果が少し変わる。book の手を使う対局は、同点の手をでたらめに選ぶ | 正常。まったく同じ book が必要なら、`n-tasks = 1`、`book-expand-tasks = 1`、`book-store-tasks = 1`（とても遅くなる） |
+| 同じ手順で育てたのに、book が毎回少し違う | 複数スレッドの探索と、同時に行う展開は、実行ごとに結果が少し変わる。book の手を使う対局は、同点の手をランダムに選ぶ | 正常。まったく同じ book が必要なら、`n-tasks = 1`、`book-expand-tasks = 1`、`book-store-tasks = 1`（とても遅くなる） |
 | book を育てている間、PC が重い | 全部の CPU を使っている | `n-tasks` を減らして起動し直す |
 
 ## 13.4 Windows で、book の途中経過のファイルが保存されない
 
-Edax は、book を保存するとき、いったん「保存する名前＋`.tmp.`＋番号」という名前で書きます。Windows では、フォルダーを含めたファイル名は 259 文字までなので、`book-file` が長いと、この一時ファイルを作れません。とくに、`.store`・`.dev2` のように拡張子を足した名前への保存は、その分だけ長くなります。
+Edax は、book を保存するとき、いったん「保存する名前＋`.tmp.`＋番号」という名前で書きます。
+
+- Windows では、フォルダーを含めたファイル名は 259 文字までです。そのため、`book-file` が長いと、この一時ファイルを作れません。
+- とくに、`.store`・`.dev2` のように拡張子を足した名前への保存は、その分だけ長くなります。
+
+保存できないときは、次のように表示されます。
 
 ```
 Cannot open temporary book …
 ```
 
-- その保存だけが行われず、メモリの中の book はそのままで、処理は続きます。
+- その保存だけが行われません。メモリの中の book はそのままで、処理は続きます。
 - **`book-file` の、フォルダーを含めた長さを 240 文字以内にしてください。** 240 文字以内なら、どの保存も収まります。
-- 相対的な名前（`data/book.dat`）で指定していても、数えられるのは、ドライブ名から始まる全部の長さです。Edax を、深いフォルダーに展開していないかを確かめてください。
+- 相対パス（`data/book.dat`）で指定していても、数えられるのは、ドライブ名から始まる全部の長さです。Edax を深いフォルダーに展開していないか、確かめてください。
 
 ## 13.5 それでも分からないとき
 
-- `options` で、今の設定を確かめます（思っていた `config.ini` が読まれているか）。
+- `options` で、今の設定を確かめます。思っていた `config.ini` が読まれているかが分かります。
 - `book info` で、book の局面の数・level・深さを確かめます。
-- 設定 `ui-log-file`（入力と表示の記録）・`search-log-file`（探索の記録）にファイル名を書いて起動すると、何が起きたかを後から見られます。
-- 配布物の `RELEASE-NOTES.ja.md` には、版ごとの「互換性」（動作が変わるところ）と「注意」（直していないもの・知っておくこと）が書いてあります。
+- 設定 `ui-log-file`（入力と表示のログ）・`search-log-file`（探索のログ）にファイル名を書いて起動すると、何が起きたかを後から見られます。
+- 配布版の `RELEASE-NOTES.ja.md` には、版ごとに次のことが書いてあります。
+  - 「互換性」：動作が変わるところ
+  - 「注意」：直していないもの・知っておくこと
 
 次：[14. コマンドと設定の一覧](14-reference.md)

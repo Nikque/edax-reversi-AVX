@@ -351,12 +351,12 @@ Book leaf recalculate4 2 4...finished: 123 leaves, 0 scores changed (0 up, 0 dow
 
 設定 `book-leaf-recalculate-rounds = n`（v4.5.5-nikque.13 から）にすると、「たどる → 計算し直す → negamax」を最大 n 回繰り返します。**Leaf が 1 つも変わらなかった回で終わります**。既定は 1 です。
 
-- 配布版の README の例（649 万局面の book、`book leaf recalculate4 1 1`）：
+- テストと実測の記録（`docs/validation/`） の例（649 万局面の book、`book leaf recalculate4 1 1`）：
   - 1 回ずつ繰り返すと、対象は 4,066 → 780 → 247 → 485 → 386 でした。
   - 評価値が変わった数は、1,419 → 411 → 42 → 46 → 0 でした。
   - `book-leaf-recalculate-rounds = 10` にすると、5 回で終わりました。
 - 複数スレッドの探索は、実行ごとに値が少し変わります。そのため、「変わらなかった回」が来ないことがあります。そのときは n 回で終わります。
-- **`eval.dat` を替えていなくても、計算し直すと値が変わる Leaf があります**。作ったときの探索と、後から単独で行う探索では、条件が少し違うためです。くわしい数字は、README の v4.5.5-nikque.12・13 の節にあります。
+- **`eval.dat` を替えていなくても、計算し直すと値が変わる Leaf があります**。作ったときの探索と、後から単独で行う探索では、条件が少し違うためです。くわしい数字は、テストと実測の記録（`docs/validation/nikque.ja.md`）の v4.5.5-nikque.12・13 の節にあります。
 
 ### eval.dat を替えたときの手順の例
 
@@ -365,7 +365,7 @@ Book leaf recalculate4 2 4...finished: 123 leaves, 0 scores changed (0 up, 0 dow
 3. `init` の後、`book leaf recalculate4 X Y` を実行する。X・Y は、ふだん `book deviate2` に使っている数にする。
 4. 終わったら `book info`・`book show` で確かめ、`book save` で保存する。
 
-時間は、Leaf の数に比例します。README の実測（6 億 6,162 万局面の book、level 18、32 スレッド）は次のとおりです。
+時間は、Leaf の数に比例します。実測の記録（6 億 6,162 万局面の book、level 18、32 スレッド）は次のとおりです。
 
 - `book leaf recalculate2 5 5` の対象は 275 万件でした。
 - 探索の速さは、1 分に約 2,350 件でした。

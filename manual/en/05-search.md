@@ -118,7 +118,7 @@ The display then looks like this (20 seconds for the game, a position with 58 em
 
 - More threads make the search faster, **but not proportionally**.
   - The shorter the search, the less it benefits from many threads.
-  - In the package README measurement (89 positions at level 18, Ryzen 9 9950X with 32 logical CPUs), 32 threads were 2.5 times as fast as one thread, and 4 threads 2.1 times.
+  - In the recorded measurement (`docs/validation/`) (89 positions at level 18, Ryzen 9 9950X with 32 logical CPUs), 32 threads were 2.5 times as fast as one thread, and 4 threads 2.1 times.
   - The deeper the search (a high level, or exact solving with many empties), the more threads help.
 - If you use the PC for other work, a smaller `n-tasks` keeps it more responsive.
 - When growing a book, there is another way to use many threads: search several positions in parallel instead of giving all threads to one search (chapters [7](07-book-learning.md) and [9](09-large-books.md)).
@@ -137,7 +137,7 @@ Edax stores the results of the positions it has examined in a **hash table** and
   - 22 for 4 to 15 threads;
   - 23 for 16 to 63 threads;
   - at most 25, and at most 1/32 of the PC's memory.
-- A large table can help long searches (a high level, exact solving with many empties). It does not speed up short searches. In the README measurement with 32 threads at levels 18 and 24, 23 was slightly faster than 21, and larger values were not faster.
+- A large table can help long searches (a high level, exact solving with many empties). It does not speed up short searches. In the recorded measurement with 32 threads at levels 18 and 24, 23 was slightly faster than 21, and larger values were not faster.
 - Typing a command such as `hash-table-size 24` while Edax runs rebuilds the tables at that size (since v4.5.5-nikque.13; earlier versions used only the startup value).
 
 ## 5.7 Are the results the same every time?
@@ -145,7 +145,7 @@ Edax stores the results of the positions it has examined in a **hash table** and
 - With **one thread** (`n-tasks = 1`), the same position, the same level and the same `hash-table-size`, Edax gives the same result every time: score, move, principal variation and node count. The executable type (standard, `v3`, `v4`) does not affect the result.
 - With **several threads**, the result can vary slightly between runs, because the threads do not always run in the same order.
   - Usually, what changes is which move is chosen among moves with equal scores, or the scores of sub-100% searches by one or two discs.
-  - For exact solving (100%), the package README check (an endgame problem set solved twice with 32 threads) found the same scores. Only the choice among equally scored moves differed.
+  - For exact solving (100%), the recorded check (`docs/validation/`) (an endgame problem set solved twice with 32 threads) found the same scores. Only the choice among equally scored moves differed.
 - Changing `hash-table-size` can slightly change the results of sub-100% searches.
 
 To reproduce a result exactly (for verification), set `n-tasks = 1` and give `hash-table-size` as a number.
