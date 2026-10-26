@@ -1300,6 +1300,7 @@ static long long ba_test_best_walks, ba_test_range_walks; /**< walks of ba_stage
 /** @brief B_k of a range, as a lower bound, in s (exact if exact). */
 static void ba_stage_bound(BaStageInfo *s, const int k, const int b, const bool exact)
 {
+	if (k < 0 || k >= BA_MAX_STAGES) return; // (n_stage is at most BA_MAX_STAGES)
 	if (exact && b < 255) {
 		s->lb[k] = (unsigned char) b;
 		s->exact |= (unsigned char) (1u << k);
