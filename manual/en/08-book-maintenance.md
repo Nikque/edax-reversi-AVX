@@ -2,9 +2,15 @@
 
 [Contents](README.md) | Previous: [7. Growing a book](07-book-learning.md) | Next: [9. Large books](09-large-books.md)
 
-This chapter explains the commands that fix a finished book, merge books, cut a book down, export it, and compute its scores again.
+This chapter explains the commands that repair, merge, trim and export a finished book, and recompute its scores.
 
-**Every command changes the book in memory.** It reaches a file when you type `book save`, when the command saves by itself (table of [6.6](06-book-basics.md)), and when Edax ends (to `book-file`, if the book was changed). **Nothing can be undone.** Copy the file of a book you care about before maintaining it.
+**Every command changes the book in memory.** The changes reach a file:
+
+- when you type `book save`;
+- when the command saves automatically (table in [6.6](06-book-basics.md));
+- when Edax exits (to `book-file`, if the book was changed).
+
+**Nothing can be undone.** Back up the file of any book you care about before maintaining it.
 
 ## 8.1 An overview of the maintenance commands
 
@@ -31,10 +37,10 @@ Negamaxing book...done
 Sorting book...done>
 ```
 
-Starting from the initial position and following the links, the score of every position is computed again from the values of the positions below it. Then the moves of each position are sorted, best first.
+Starting from the initial position and following the links, this recomputes the score of every position from the values of the positions below it. Then it sorts the moves of each position, best first.
 
-- The commands that change the book run negamax by themselves, so you seldom need to type it. You do after loading an intermediate file (above all one saved during `book leaf recalculate`).
-- Positions that cannot be reached from the initial position through links (stray positions that no position links to) are not computed again.
+- The commands that change the book run negamax automatically, so you rarely need to type it. You do need it after loading an intermediate file, especially one saved during `book leaf recalculate`.
+- Positions that cannot be reached from the initial position through links (orphan positions that no position links to) are not recomputed.
 
 ### book fix
 
@@ -50,19 +56,19 @@ Negamaxing book...done
 Sorting book...done>
 ```
 
-It checks the whole book and puts it in order. In this order:
+This checks the whole book and repairs it, in this order:
 
-1. **Check** (`Fixing book`): positions with wrong content (a recorded move that cannot be played, and the like) are found and rebuilt. `0 done` means that none was found.
-2. **Linking** (`Linking book`): for every position, each move that "leads to another position of the book" is made a link. A position whose leaf move became a link gets a new leaf from a search (`Searching positions`).
+1. **Check** (`Fixing book`): positions with invalid content (such as a recorded move that is illegal) are found and rebuilt. `0 done` means none was found.
+2. **Linking** (`Linking book`): in every position, each move that leads to another book position is made a link. If a position's leaf move became a link, a new leaf is searched for (`Searching positions`).
 3. negamax and sorting.
 
-Where `book fix` helps:
+When `book fix` helps:
 
-- **After growing with `book-expand-tasks` at 2 or more (`auto` included).** Positions expanded at the same time do not see each other, so a link may be missing where "another line reaches the same position" ([7.6](07-book-learning.md)). `book fix` makes it.
+- **After growing with `book-expand-tasks` at 2 or more (including `auto`).** Positions expanded in parallel do not see each other, so a link may be missing where another line reaches the same position ([7.6](07-book-learning.md)). `book fix` creates it.
 - When you start using someone else's book, or a book made by an old version.
-- When the book behaves oddly (Edax stops in the middle of the book, for example).
+- When the book behaves strangely (for example, Edax stops in the middle of the book).
 
-It takes time on a large book ([chapter 9](09-large-books.md)). A position that is rebuilt is searched at the level of the book.
+It takes time on a large book ([chapter 9](09-large-books.md)). A rebuilt position is searched at the book's level.
 
 ## 8.3 Merging books: book merge
 
@@ -79,32 +85,34 @@ Sorting book...done>
 Merged book saved to data/my.dat.mrg
 ```
 
-Another book file (the source) is taken into the current book (the destination).
+This merges another book file (the source) into the current book (the destination).
 
-- **Only the positions that the source alone has** are added. For a position in both, the one of the destination is kept (not overwritten).
-- After adding, linking, checking, negamax and sorting are all done (no need to type `book fix` as well).
-- With the setting `book-merge-auto-save = on` (default), the result is saved automatically to `<book file name>.mrg`. This save does not overwrite the file of the original book. To use the `.mrg` file, read it with `book load` or rename it.
-- When the source file does not exist or is damaged, nothing is taken in and the current book is kept.
+- **Only the positions that exist only in the source** are added. For a position in both books, the destination's version is kept (not overwritten).
+- After adding, linking, checking, negamax and sorting are all done. There is no need to run `book fix` as well.
+- With the setting `book-merge-auto-save = on` (default), the result is saved automatically to `<book file name>.mrg`.
+  - This save does not overwrite the original book file.
+  - To use the `.mrg` file, load it with `book load` or rename it.
+- If the source file does not exist or is damaged, nothing is merged and the current book is kept.
 
   ```
   cannot open data/nofile.dat
   WARNING: Book data/nofile.dat was not merged
   ```
-- The source is not loaded into memory (its file is read twice). The memory used is that of the destination book only.
+- The source is not loaded into memory (its file is read twice). Only the destination book uses memory.
 
 **Cautions**
 
-- The two books should have been grown at **the same level**. With different levels, the reliability of the scores becomes uneven within the merged book, and linking needs more searches.
-- When a position is in both, the values of the destination remain. Remember: "the newer, more reliable one is the destination".
-- The same book can be grown in parallel on several PCs or in several folders and merged afterwards. In this fixed version, however, one Edax can use many threads fully ([7.2](07-book-learning.md), [7.6](07-book-learning.md)), so there is less need for that.
+- Both books should have been grown at **the same level**. With different levels, the reliability of the scores becomes inconsistent within the merged book, and linking needs more searches.
+- For a position in both books, the destination's values remain. Use the newer, more reliable book as the destination.
+- You can grow the same book in parallel on several PCs or in several folders and merge the results afterwards. In this fixed version, however, a single Edax instance can make full use of many threads ([7.2](07-book-learning.md), [7.6](07-book-learning.md)), so this is less necessary.
 
-## 8.4 Cutting a book down
+## 8.4 Trimming a book
 
 ### book depth and book subtree: making it shallower, keeping one part
 
-`book subtree` keeps **only the positions that can be reached from the position on the board by following links** (within the depth of the book) and removes all the others.
+`book subtree` keeps **only the positions that can be reached from the current board position by following links** (within the book's depth) and removes all others.
 
-**Use 1: making the book shallower** (a book of depth 40 becomes 39, for example)
+**Use 1: making the book shallower** (for example, from depth 40 to 39)
 
 ```
 >book depth 39
@@ -112,9 +120,11 @@ Another book file (the source) is taken into the current book (the destination).
 >book subtree
 ```
 
-`book depth 39` changes the depth setting; after `init` (back to the initial position), `book subtree` removes the positions beyond depth 39. Stray positions that cannot be reached from the initial position are removed too.
+1. `book depth 39` changes the depth setting.
+2. `init` returns to the initial position.
+3. `book subtree` removes the positions beyond depth 39. Orphan positions that cannot be reached from the initial position are removed too.
 
-**Use 2: taking out what follows one opening**
+**Use 2: extracting the lines that follow one opening**
 
 ```
 >play f5d6c3d3
@@ -126,14 +136,16 @@ done
 >book save data/sub.dat
 ```
 
-Only the position on the board and what follows it remain. **The positions from the initial position down to it are removed too**, so the resulting book is for studying from that position (`book show` at the initial position then prints nothing). To keep the original book, save with `book save` under **another name** and read the original book again before quitting (see the cautions below).
+Only the current board position and the lines that follow it remain.
 
-- When the position on the board is two or more moves beyond the depth of the book, a warning is printed and nothing is done (since v4.5.5-nikque.13; earlier versions emptied the book).
+- **The positions from the initial position down to it are removed too.** So the resulting book is for studying from that position (`book show` at the initial position then prints nothing).
+- To keep the original book, save the result with `book save` under **another name**, then reload the original book before quitting (see the cautions below).
+- If the current board position is two or more moves beyond the book's depth, a warning is printed and nothing is done (since v4.5.5-nikque.13; earlier versions emptied the book).
 
   ```
   WARNING: book subtree: this position is deeper than the book depth; the book is not changed
   ```
-- `book subtree` does not make the links again after cutting (since v4.5.5-nikque.12). Type `book fix` before or after if needed.
+- `book subtree` does not rebuild the links after trimming (since v4.5.5-nikque.12). Run `book fix` before or after if needed.
 
 ### book prune: dropping the lines where both sides play badly
 
@@ -148,13 +160,13 @@ done
 Positions: 1269 (moves = 1296 links + 1265 leaves);
 ```
 
-Only the positions are kept that can be reached from the initial position by lines where "**one side plays any move, the other plays best moves only**" (both cases: Black plays any move, and White plays any move). Positions after both sides played a move that is not best are removed. In the example above, 2,262 positions became 1,269.
+This keeps only the positions that can be reached from the initial position by lines where "**one side plays any move and the other plays only best moves**". Both cases are covered: Black plays any move, and White plays any move. Positions reached after both sides have played a non-best move are removed. In the example above, 2,262 positions were reduced to 1,269.
 
-Use it to make a book for playing smaller (what remains is the range where you can answer with the best move whatever the opponent plays). On a book grown for study down to "the mistakes of both sides" (expanded with `book deviate2`), most of that is removed.
+Use it to make a smaller book for playing. What remains is the range where you can answer with the best move whatever the opponent plays. On a book grown for study to cover mistakes by both sides (expanded with `book deviate2`), most of the book is removed.
 
-### book reduce: keeping only what book deviate3 X Y walks, to make the book lighter
+### book reduce: keeping only what book deviate3 X Y visits, to make the book lighter
 
-A command since v4.5.5-nikque.20.
+This command exists since v4.5.5-nikque.20.
 
 ```
 >init
@@ -169,25 +181,41 @@ Sorting book...done
 Positions: 19 (moves = 22 links + 17 leaves);
 ```
 
-Only the positions that `book deviate3 X Y` walks from the position on the board are kept; the others are removed. In the example above (a small test book), 25,203 positions became 19. Usually, go back to the initial position with `init` first.
+This keeps only the positions that `book deviate3 X Y` visits from the current board position, and removes all others. In the example above (a small test book), 25,203 positions were reduced to 19. Usually, return to the initial position with `init` first.
 
-- What remains is the position on the board and the positions reached from it by moves that lose at most X discs each, with at most Y discs lost in all on the way. This is the range that `book deviate3 X Y` walks when it looks for the positions to expand (when the same position is reached by other moves, the way with the smallest sum of losses counts). The positions under the depth of the book and the positions at the end of the game that a walked position reaches by such a move are kept too.
-- It first computes again the values after the position on the board (as `book deviate3`).
-- A move to a removed position may become the leaf of its position (as with `book prune`). The values of the positions kept do not change from those computed again first. `book deviate3 X Y` from the same position afterwards selects the same leaves first as before.
-- X is 0 to 129, Y is 0 to 254. Without two numbers, with a number out of range, or with other words after the numbers (since v4.5.5-nikque.21), a warning is shown and nothing is done.
-- From a position that is not the initial one, the positions from the initial position up to it are removed too, as with `book subtree`.
-- When the position on the board is not in the book, or two or more moves beyond the depth of the book, a warning is shown and nothing is done.
-- The numbers can be checked first with `book reducecount id=N x=X y=Y` (it does not change the book; [12.4](12-integration.md)). It counts with the values computed again, as `book reduce` does, so the numbers are the same. `book reduce` from the same position with the same X Y just after the count uses its result, without computing the values again nor walking (since v4.5.5-nikque.22; setting `book-reduce-reuse`).
-- After most positions were removed, the book gets fewer buckets and gives the memory back (since v4.5.5-nikque.22; setting `book-reduce-shrink`); the positions are then saved in another order (the same positions).
+What remains:
 
-### Cautions when cutting
+- The current board position, and the positions reached from it by moves that each lose at most X discs, with a total loss of at most Y discs along the way.
+- This is the range that `book deviate3 X Y` visits when it looks for positions to expand. If the same position can be reached in several ways, the way with the smallest total loss counts.
+- Also kept: the positions just beyond the book's depth, and game-over positions, that a visited position reaches by such a move.
 
-**Since v4.5.5-nikque.13, a book cut down with `book subtree` or `book prune` is saved to the file of `book-file` when Edax is then ended** (the book from before the cut is overwritten). So is a book cut with `book reduce` (since v4.5.5-nikque.20).
+How it works:
 
-- To keep the book from before the cut, **copy the file first**, or save the cut book with `book save another-name` and then, before quitting, read the original book again with `book load`.
-- Changing only the depth setting with `book depth` does not cause a save.
+- It first recomputes the values of the positions after the current board position (as `book deviate3` does).
+- A move to a removed position may become the leaf of its position (as with `book prune`).
+- The values of the kept positions are those recomputed in the first step and do not change afterwards.
+- Running `book deviate3 X Y` from the same position afterwards selects the same first leaves as before.
 
-## 8.5 Writing to a text file and reading back
+Restrictions and messages:
+
+- X is 0 to 129, and Y is 0 to 254. Edax shows a warning and does nothing if two numbers are not given, if a number is out of range, or if other words follow the numbers (since v4.5.5-nikque.21).
+- From a position other than the initial one, the positions from the initial position up to it are removed too, as with `book subtree`.
+- If the current board position is not in the book, or is two or more moves beyond the book's depth, a warning is shown and nothing is done.
+
+Related features:
+
+- You can check the numbers first with `book reducecount id=N x=X y=Y`. It does not change the book ([12.4](12-integration.md)). It counts with the same recomputed values as `book reduce`, so the numbers match.
+- If `book reduce` runs right after the count, from the same position and with the same X Y, it reuses the count's result without recomputing the values or traversing again (since v4.5.5-nikque.22; setting `book-reduce-reuse`).
+- After most positions have been removed, the book shrinks its number of buckets and releases memory (since v4.5.5-nikque.22; setting `book-reduce-shrink`). The positions are then saved in a different order (the positions themselves are the same).
+
+### Cautions when trimming
+
+**Since v4.5.5-nikque.13, a book trimmed with `book subtree` or `book prune` is saved to the `book-file` file when Edax then exits.** The book from before the trimming is overwritten. The same applies to a book trimmed with `book reduce` (since v4.5.5-nikque.20).
+
+- To keep the book from before the trimming, **back up the file first**. Alternatively, save the trimmed book with `book save another-name`, then reload the original book with `book load` before quitting.
+- Changing only the depth setting with `book depth` does not trigger a save.
+
+## 8.5 Exporting to and importing from a text file
 
 ```
 >book export data/my.txt
@@ -200,25 +228,46 @@ Only the positions that `book deviate3 X Y` walks from the position on the board
 ----------X--O----XXOX--XXXOO----OOOO-----O--------------------- X,8,F4,5
 ```
 
-A line holds the board (64 squares; **the discs of the side to move are `X`, those of the opponent `O`**, and the side-to-move field is always `X`), the level, the move of the leaf and its score. The links are not written (they are made again at the import).
+Each line contains:
 
-The last line of the file holds the depth of the book (since v4.5.5-nikque.13).
+- the board (64 squares). **The side to move's discs are `X` and the opponent's are `O`**, and the side-to-move field is always `X`;
+- the level;
+- the leaf move;
+- its score.
+
+Links are not written; they are rebuilt on import.
+
+The last line of the file contains the book's depth (since v4.5.5-nikque.13).
 
 ```
 % depth 12
 ```
 
-`book import` reads such a file and **replaces the current book with it**. After reading, it does the linking, the check, negamax and the sorting. The depth is the one of the last line `% depth` (a book of depth 12, exported and imported, gives `Depth: 12`). The imported book is saved to `book-file` when Edax ends; the previous file of `book-file` is kept under a name with `.old` added (note 2 of [6.6](06-book-basics.md)).
+`book import` reads such a file and **replaces the current book with it**.
 
-- When the file cannot be opened or holds no position at all, the current book is kept (`was not imported; current book retained` is printed). Lines that cannot be read as a position are skipped and the import goes on.
-- Because the links are made again, the imported book may differ from the book before the export in some leaves (in a test with a book of 2,246 positions, a second export made after the import differed in 7 lines).
-- **A file without the `% depth` line** (a file exported by a version up to v4.5.5-nikque.12, or a file you made yourself): the depth becomes **the depth that just holds the deepest position**. If the book had not been grown down to its chosen depth, it is shallower than the original (a book made with depth 30 that holds only 4 positions down to move 3, exported by an old version and imported, gives `Depth: 3`). After the import, check the depth (`Depth`) with `book info` and, if it is not right, correct it by typing something like `book depth 30`. When what follows `% depth` is not a number from 1 to 60, `WARNING: wrong depth: …` is printed and the result is as without the line.
-- **Imported by a version up to v4.5.5-nikque.12**, the depth is one more than that (`Depth: 13` for a book grown down to depth 12). These versions cannot read the last line of a file exported by the new version: they print `WARNING: wrong board: % depth 12` and `WARNING: 1 lines of … hold no position: skipped` and skip that line (all the positions are read).
+- After reading, it does the linking, the check, negamax and the sorting.
+- The depth is taken from the last line, `% depth`. For example, a book of depth 12 that is exported and imported gives `Depth: 12`.
+- The imported book is saved to `book-file` when Edax exits. The previous `book-file` file is kept under its name with `.old` added (note 2 of [6.6](06-book-basics.md)).
+
+Notes:
+
+- If the file cannot be opened or contains no positions, the current book is kept (`was not imported; current book retained` is printed). Lines that cannot be read as a position are skipped, and the import continues.
+- Because the links are rebuilt, the imported book may differ in some leaves from the book before export. In a test with a book of 2,246 positions, a second export made after the import differed in 7 lines.
+- **A file without the `% depth` line** (exported by a version up to v4.5.5-nikque.12, or made by hand):
+  - The depth becomes **the smallest depth that contains the deepest position**.
+  - If the book had not been grown to its chosen depth, the result is shallower than the original. For example, a book made with depth 30 that holds only 4 positions down to move 3, exported by an old version and imported, gives `Depth: 3`.
+  - After the import, check `Depth` with `book info`. If it is wrong, correct it with a command such as `book depth 30`.
+  - If what follows `% depth` is not a number from 1 to 60, `WARNING: wrong depth: …` is printed, and the result is the same as without the line.
+- **When imported by a version up to v4.5.5-nikque.12**, the depth is one more than this (`Depth: 13` for a book grown to depth 12).
+  - These versions cannot read the last line of a file exported by the new version.
+  - They print `WARNING: wrong board: % depth 12` and `WARNING: 1 lines of … hold no position: skipped`, and skip that line. All positions are still read.
 - For a large book, the text file is much larger than the book file (for the small book above: 170 KB against 99 KB). Use `book save` for everyday saving.
 
-## 8.6 Computing the scores of the leaves again: book leaf recalculate
+## 8.6 Recomputing the leaf scores: book leaf recalculate
 
-The score of a leaf in the book is the value of the search that made that leaf. When `eval.dat` is replaced by another one, the positions added from then on get the values of the new evaluation function, but **the leaves that were there before keep their old values**. The `book leaf recalculate` family searches the leaves again and replaces their values with those of the current evaluation function. No position is added.
+The score of a leaf in the book is the value from the search that created that leaf. When `eval.dat` is replaced, positions added afterwards get values from the new evaluation function, but **existing leaves keep their old values**.
+
+The `book leaf recalculate` family searches the leaves again and replaces their values with those of the current evaluation function. No position is added.
 
 | Command | Range followed | Leaves computed again |
 |---|---|---|
@@ -227,13 +276,15 @@ The score of a leaf in the book is the value of the search that made that leaf. 
 | `book leaf recalculate3 X Y` | As `book deviate X Y` | All the leaves of the positions followed |
 | `book leaf recalculate4 X Y` | As `book deviate2 X Y` | All the leaves of the positions followed |
 
-- The meaning of X and Y, and the start from the position on the board, are those of the matching `book deviate` or `book deviate2` ([7.3](07-book-learning.md)).
-- **The leaves of exactly solved positions are not computed again** (their value is the same whatever the evaluation function). Positions without a leaf (all moves are links) are not concerned either.
-- `3` and `4` also compute again the leaves of the deepest layer (positions with a leaf and no link).
-- Each search runs at the level recorded in its position. The number of simultaneous searches follows `book-expand-tasks`.
-- The progress and the result are saved to `<book file name>.leaf`, `.leaf2`, `.leaf3`, `.leaf4`. **A file saved on the way is in the state "some leaves are new, negamax not done yet"**: type `book negamax` after loading it. There is no way to resume (typing the command again starts from the beginning).
+- The meaning of X and Y, and starting from the current board position, are the same as for the corresponding `book deviate` or `book deviate2` ([7.3](07-book-learning.md)).
+- **The leaves of exactly solved positions are not recomputed**, because their value does not depend on the evaluation function. Positions without a leaf (all moves are links) are not affected either.
+- `3` and `4` also recompute the leaves of the deepest layer (positions with a leaf and no link).
+- Each search runs at the level recorded in its position. The number of parallel searches follows `book-expand-tasks`.
+- The progress and the result are saved to `<book file name>.leaf`, `.leaf2`, `.leaf3`, `.leaf4`.
+  - **A file saved partway is in the state "some leaves are updated, negamax not done yet"**. Run `book negamax` after loading it.
+  - There is no way to resume: running the command again starts over from the beginning.
 
-An example of the output (small book):
+Example output (small book):
 
 ```
 >book leaf recalculate4 2 4
@@ -243,26 +294,30 @@ Book leaf recalculate4...
 Book leaf recalculate4 2 4...finished: 123 leaves, 0 scores changed (0 up, 0 down, largest +0 / -0), 0 moves changed
 ```
 
-The last line gives the number of leaves computed again, the number of scores that changed (how many went up, how many down, the largest changes), and the number of moves that changed.
+The last line gives:
+
+- the number of leaves recomputed;
+- the number of scores that changed (how many went up, how many went down, and the largest changes);
+- the number of moves that changed.
 
 ### One pass may not be enough: book-leaf-recalculate-rounds
 
-By default the command **follows the range once and ends**. But computing leaves again moves scores, and with them "the range followed": typing the same command again makes leaves that were outside the range the first time come into it.
+By default, the command **traverses the range once and ends**. However, recomputing leaves changes scores, and so changes the range that is traversed. Running the same command again brings in leaves that were outside the range the first time.
 
-With the setting `book-leaf-recalculate-rounds = n` (since v4.5.5-nikque.13), "follow → compute again → negamax" is repeated up to n times and **ends with the pass in which no leaf changed**. The default is 1.
+With the setting `book-leaf-recalculate-rounds = n` (since v4.5.5-nikque.13), the cycle "traverse → recompute → negamax" is repeated up to n times. It **stops after the first pass in which no leaf changed**. The default is 1.
 
-- The example of the README of the package (a book of 6.49 million positions, `book leaf recalculate4 1 1`): repeated one pass at a time, the leaves to compute were 4,066 → 780 → 247 → 485 → 386 and the scores changed 1,419 → 411 → 42 → 46 → 0. With `book-leaf-recalculate-rounds = 10`, it ended after 5 passes.
-- The values of a search with several threads vary a little from run to run, so "the pass in which nothing changed" may never come. The command then ends after n passes.
-- **Even when `eval.dat` was not replaced, some leaves get another value when computed again** (the search that made the leaf and a search run alone afterwards do not have quite the same conditions). The detailed figures are in the sections on v4.5.5-nikque.12 and 13 of the README.
+- Example from `README-NIKQUE.en.md` (a book of 6.49 million positions, `book leaf recalculate4 1 1`): repeated one pass at a time, the number of leaves to recompute was 4,066 → 780 → 247 → 485 → 386, and the number of changed scores was 1,419 → 411 → 42 → 46 → 0. With `book-leaf-recalculate-rounds = 10`, it stopped after 5 passes.
+- Values from a multi-threaded search vary slightly between runs, so a pass with no changes may never come. The command then ends after n passes.
+- **Even if `eval.dat` was not replaced, some leaves get a different value when recomputed.** This is because the search that created the leaf and a separate search run afterwards do not have exactly the same conditions. Detailed figures are in the v4.5.5-nikque.12 and 13 sections of `README-NIKQUE.en.md` in the package.
 
-### An example of the steps after replacing eval.dat
+### Example steps after replacing eval.dat
 
-1. Copy the book file.
+1. Back up the book file.
 2. Start Edax with the new `eval.dat` (`-eval-file`, or replace the file).
 3. After `init`, type `book leaf recalculate4 X Y` (X and Y: the numbers you usually give to `book deviate2`).
-4. When it has ended, check with `book info` and `book show`, and save with `book save`.
+4. When it has finished, check with `book info` and `book show`, and save with `book save`.
 
-The time is proportional to the number of leaves. In the measurement of the README (a book of 661.62 million positions, level 18, 32 threads), `book leaf recalculate2 5 5` had 2.75 million leaves to compute and searched about 2,350 of them per minute (the time for the whole was not measured).
+The time is proportional to the number of leaves. In the recorded measurement (a book of 661.62 million positions, level 18, 32 threads), `book leaf recalculate2 5 5` had 2.75 million leaves to recompute and processed about 2,350 per minute. The total time was not measured.
 
 ## 8.7 Other maintenance
 
@@ -275,25 +330,34 @@ Correcting solved positions...0 done (0 error found)
  …
 ```
 
-The leaf of each position within the exact range (positions whose number of empty squares is solved exactly at their level) is searched again and corrected if it differs from what is recorded. Then the same work as `book fix` is done. The number of corrections is shown as `error found`. The progress is saved to `.err`.
+This re-searches the leaf of every position in the exact range (positions whose number of empty squares is solved exactly at their level). If the result differs from what is recorded, the leaf is corrected. Then it does the same work as `book fix`.
 
-On a correctly built book this command should give `0 error found`. Use it when you suspect that faults of an old version, or results of searches that were stopped, went into the book.
+- The number of corrections is shown as `error found`.
+- The progress is saved to `.err`.
 
-**Up to v4.5.5-nikque.12, this command removed the leaves of game-over positions and of pass positions and damaged the scores of the book** (`error found` shows a large number and scores become ±127). This is fixed in v4.5.5-nikque.13. A book damaged by the `book correct` of an old version was repaired by the `book correct` of v4.5.5-nikque.13 (checked on a small test book).
+On a correctly built book, this command should report `0 error found`. Use it when you suspect that bugs in an old version, or results of interrupted searches, went into the book.
+
+**Up to v4.5.5-nikque.12, this command removed the leaves of game-over and pass positions and corrupted the book's scores.** `error found` showed a large number, and scores became ±127. This is fixed in v4.5.5-nikque.13. A book damaged by `book correct` in an old version was repaired by `book correct` in v4.5.5-nikque.13 (verified on a small test book).
 
 ### book deepen: do not use it
 
-The built-in help says "change the level of the book and evaluate everything again", but **it does not work like that** (it searches again the leaves of the positions whose level differs from the level of the book, but the search runs at "the current level of that position" and the level is not rewritten; it is made this way in the original Edax). To raise the level of a book, a new book has to be built at the new level.
+The built-in help says it "changes the level of the book and re-evaluates everything", but **it does not work that way**.
+
+- It re-searches the leaves of positions whose level differs from the book's level.
+- However, the search runs at that position's current level, and the level is not updated.
+- This is how it works in the original Edax.
+
+To raise the level of a book, you have to build a new book at the new level.
 
 ### book verbose: how much is printed
 
-`book verbose 0` silences the book commands, `1` (normal) shows the progress, `2` shows the search tables too.
+`book verbose 0` silences the book commands. `1` (normal) shows the progress. `2` also shows the search tables.
 
 ### book feed-hash
 
-It puts the scores of the book, from the position on the board onwards, into the hash table of the search (so that the next search can use the values of the book). Nothing is printed.
+This loads the book's scores from the current board position onwards into the search hash table, so that the next search can use the book's values. Nothing is printed.
 
-## 8.8 Taking things out of the book
+## 8.8 Extracting data from the book
 
 ### book extract: the best lines as games
 
@@ -302,10 +366,10 @@ It puts the scores of the book, from the position on the board onwards, into the
 49 games extracted
 ```
 
-Starting from the initial position and following, in each position, "the move with the best score" (all of them when several are equal), the lines are written to a game file. The format follows the extension ([chapter 10](10-files.md)).
+Starting from the initial position, this follows the best-scoring move in each position (all of them when several are equal) and writes the resulting lines to a game file. The format is determined by the extension ([chapter 10](10-files.md)).
 
-- **If the output file already exists, the games are added after its end.**
-- With a new file, `WARNING: Cannot open file data/lines.txt` is printed, but the file is created (the message means "tried to read an existing file, and there was none").
+- **If the output file already exists, the games are appended to it.**
+- With a new file, `WARNING: Cannot open file data/lines.txt` is printed, but the file is created. The message means that Edax tried to read an existing file and found none.
 
 ### book problem: positions as problems
 
@@ -315,7 +379,11 @@ Extracting 3 positions at 52 ...
 -----------------OOOO----XOXXX----OOO--------------------------- X % bm E2:+1; ba C6:-2;
 ```
 
-Among the positions of the book with 52 empty squares in which the best move is unique (its score is better than that of the second move), up to 3 are printed on the screen (without the numbers: 24 empty squares and 10 positions; those that come first in the internal order of the book are chosen). A line holds the board, the side to move, `bm` (the best move and its score) and `ba` (the second move and its score).
+This prints up to 3 book positions with 52 empty squares in which the best move is unique (its score is better than that of the second-best move).
+
+- Without the numbers, it uses 24 empty squares and 10 positions.
+- The positions that come first in the book's internal order are chosen.
+- Each line contains the board, the side to move, `bm` (the best move and its score) and `ba` (the second-best move and its score).
 
 ## 8.9 The commands of this chapter
 
