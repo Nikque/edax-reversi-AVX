@@ -191,7 +191,7 @@ f5f4e3
 |---|---|---|---|
 | `book deviate X Y` | 「片方の側」が最善から外れてよい石数（相対誤差） | 始めた局面の評価値から離れてよい石数（絶対誤差） | 広げる |
 | `book deviate2 X Y` | 1 手で失ってよい石数（どちらの側も） | 始めた局面からそこまでに、**両方の側が失った石数の合計**の上限 | **広げない** |
-| `book deviate3 X Y` | `deviate2` と同じ | `deviate2` と同じ | 広げる |
+| `book deviate3 X Y` | `book deviate2` と同じ | `book deviate2` と同じ | 広げる |
 
 数を省くと、どれも `2 4` です。
 
@@ -199,7 +199,7 @@ f5f4e3
 
 **book deviate2 X Y**（この修正版で足した方法）：手を 1 つ選ぶたびに、「その局面の最善の手との評価値の差」を「失った石数」として数えます。**1 手で失うのは X 石まで、始めた局面からの合計（黒と白を合わせて）が Y 石まで**の手順をたどり、その範囲の Leaf を広げます。
 
-`deviate2 5 5` の例：
+`book deviate2 5 5` の例：
 
 | 手順の中の失点 | 範囲の中か |
 |---|---|
@@ -208,14 +208,14 @@ f5f4e3
 | 1 手で 6 石 | 外（1 手の上限を超える） |
 | 黒が 3 石、白が 3 石（合計 6） | 外（合計の上限を超える） |
 
-`deviate2` は、**完全読みの局面の Leaf を広げません**（その局面の level で、空きの数が完全読みの範囲に入っている局面。level 18 なら空き 21 以下）。完全読みの局面は、Leaf の評価値がすでに正確なので、その先を book に足しても、評価値は変わらないからです。book の終わりの層を無駄に広げずに済みます。
+`book deviate2` は、**完全読みの局面の Leaf を広げません**（その局面の level で、空きの数が完全読みの範囲に入っている局面。level 18 なら空き 21 以下）。完全読みの局面は、Leaf の評価値がすでに正確なので、その先を book に足しても、評価値は変わらないからです。book の終わりの層を無駄に広げずに済みます。
 
-**book deviate3 X Y**：条件は `deviate2` と同じで、完全読みの局面の Leaf も広げます。
+**book deviate3 X Y**：条件は `book deviate2` と同じで、完全読みの局面の Leaf も広げます。
 
 ### どれを使うか・数の決め方
 
 - **ふつうは `book deviate2`** をおすすめします。「両方の側の間違いの合計」で範囲を決めるので、対局で実際に現れる変化を、偏りなく広げられます。
-- 数を大きくすると、対象が急に増えます。上の小さい book（level 8・深さ 12）では、`deviate 1 2` で 110 局面、続けて `deviate2 2 4` で 1,952 局面になりました（**小さい book での数で、大きな book での見込みにはなりません**）。最初は小さい数（`1 2`、`2 4`）から始め、時間と局面の数を見ながら広げてください。
+- 数を大きくすると、対象が急に増えます。上の小さい book（level 8・深さ 12）では、`book deviate 1 2` で 110 局面、続けて `book deviate2 2 4` で 1,952 局面になりました（**小さい book での数で、大きな book での見込みにはなりません**）。最初は小さい数（`1 2`、`2 4`）から始め、時間と局面の数を見ながら広げてください。
 - 途中で止めても、そこまでに保存された分は残ります（下の 7.5）。同じコマンドをもう一度打てば、続きから広げます（すでに広げた Leaf は、もう Link になっているので、選ばれません）。
 
 ## 7.4 自動で広げる：そのほかのコマンド
@@ -230,23 +230,23 @@ f5f4e3
 
 `book enhance`・`book fill`・`book play` は、元の Edax からあるコマンドです。`book fill2`・`book leaf expand` は、この修正版で足したコマンドで（v4.5.5-nikque.14 から）、`book fill` も、同じ版で中身を変えました（`book fill 1` を除く）。どれも、大きな book での使い方の実績は `book deviate` 系ほどありません。まず小さい book で、何が起きるかを見てから使ってください。
 
-### 範囲を決める：book fill・fill2・leaf expand の 2 つの数
+### 範囲を決める：book fill・book fill2・book leaf expand の 2 つの数
 
-`book fill 2 5 5`・`book fill2 2 5 5`・`book leaf expand 5 5` のように、後ろに 2 つの数 X・Y を付けると、**今の盤の局面から `book deviate3 X Y` がたどる範囲だけ**が対象になります。X は 1 手で失う石数の上限、Y は合計（黒と白を合わせて）の上限で、意味は 7.3 の `deviate2`・`deviate3` と同じです。数を省くと、book 全体が対象です。
+`book fill 2 5 5`・`book fill2 2 5 5`・`book leaf expand 5 5` のように、後ろに 2 つの数 X・Y を付けると、**今の盤の局面から `book deviate3 X Y` がたどる範囲だけ**が対象になります。X は 1 手で失う石数の上限、Y は合計（黒と白を合わせて）の上限で、意味は 7.3 の `book deviate2`・`book deviate3` と同じです。数を省くと、book 全体が対象です。
 
 | コマンド | 埋める・広げる元になる局面 |
 |---|---|
-| `book fill n X Y` | `deviate3 X Y` がたどる局面すべて |
-| `book fill2 n X Y` | `deviate3 X Y` が広げる Leaf を持つ局面 |
-| `book leaf expand X Y` | `deviate3 X Y` がたどる局面のうち、Leaf がどの Link よりも良い局面 |
+| `book fill n X Y` | `book deviate3 X Y` がたどる局面すべて |
+| `book fill2 n X Y` | `book deviate3 X Y` が広げる Leaf を持つ局面 |
+| `book leaf expand X Y` | `book deviate3 X Y` がたどる局面のうち、Leaf がどの Link よりも良い局面 |
 
-- 完全読みの局面の Leaf も対象になります（`deviate3` と同じ）。
-- `book fill`・`fill2` の n は「**ちょうど n 手先**」です。n 手より近い所の欠けは埋めません。欠けている局面が 1 つだけの所（局面 → 欠けた局面 → book の局面）は、n = 2 で埋まります。`book fill2` は、数を省くと 2 です（`book fill2 1` は、足す局面がないので何もしません）。
+- 完全読みの局面の Leaf も対象になります（`book deviate3` と同じ）。
+- `book fill`・`book fill2` の n は「**ちょうど n 手先**」です。n 手より近い所の欠けは埋めません。欠けている局面が 1 つだけの所（局面 → 欠けた局面 → book の局面）は、n = 2 で埋まります。`book fill2` は、数を省くと 2 です（`book fill2 1` は、足す局面がないので何もしません）。
 - 同時に行う探索の数は、`book deviate` と同じく `book-expand-tasks`（7.6）に従います。設定がないとき（1）は、1 つずつ探索します。
 - 埋める・広げる元になる局面は、複数のスレッドで探します。book の写しは作りません。
-- **どの周も、初めに Link を張ります。** `book fill`・`fill2` は「手の先の局面が、もう book にあるのに、その手が Link になっていない局面」（どの手でも）に、`book leaf expand` は「Leaf の手の先の局面が、もう book にある局面」を選んで、その局面の欠けた Link を全部張ります（Leaf が Link になった局面は、Leaf を探し直します）。別の手順から同じ局面が足されると、こういう局面ができます（`book deviate` でもできます）。`book fix` でも張られますが、探し直した Leaf がまた Link より良くなることがあるので、これらのコマンドは自分で張り、張るもの・埋めるもの・広げるものがなくなるまで繰り返します。範囲を付けたときは、`deviate3 X Y` がたどる局面だけです。`book fill`・`fill2` の後は、範囲の中に欠けた Link は残りません（v4.5.5-nikque.13 までの `book fill` も、埋め始めの局面のまわりの局面の欠けた Link を張っていました）。`book leaf expand` は、Leaf の手の先が book にない局面の欠けた Link は張らないので、そちらは `book fix` で張ります。
+- **どの周も、初めに Link を張ります。** `book fill`・`book fill2` は「手の先の局面が、もう book にあるのに、その手が Link になっていない局面」（どの手でも）に、`book leaf expand` は「Leaf の手の先の局面が、もう book にある局面」を選んで、その局面の欠けた Link を全部張ります（Leaf が Link になった局面は、Leaf を探し直します）。別の手順から同じ局面が足されると、こういう局面ができます（`book deviate` でもできます）。`book fix` でも張られますが、探し直した Leaf がまた Link より良くなることがあるので、これらのコマンドは自分で張り、張るもの・埋めるもの・広げるものがなくなるまで繰り返します。範囲を付けたときは、`book deviate3 X Y` がたどる局面だけです。`book fill`・`book fill2` の後は、範囲の中に欠けた Link は残りません（v4.5.5-nikque.13 までの `book fill` も、埋め始めの局面のまわりの局面の欠けた Link を張っていました）。`book leaf expand` は、Leaf の手の先が book にない局面の欠けた Link は張らないので、そちらは `book fix` で張ります。
 
-表示の例（上の 7.1 の小さい book で、`deviate2 2 4` の後）：
+表示の例（上の 7.1 の小さい book で、`book deviate2 2 4` の後）：
 
 ```
 >book fill2 2
@@ -276,7 +276,7 @@ Book leaf expand...1/3 done: 1 positions, 1 links
 Book leaf expand 3 6...finished
 ```
 
-`(links)` の行は、Link を張った局面の数です。`positions selected` は `deviate3` のたどりで選ばれた局面の数、`to fill from` はそのうち実際に埋める元になる局面の数、`positions, links` は足した局面と Link の数です。
+`(links)` の行は、Link を張った局面の数です。`positions selected` は `book deviate3` のたどりで選ばれた局面の数、`to fill from` はそのうち実際に埋める元になる局面の数、`positions, links` は足した局面と Link の数です。
 
 小さい book での表示の例です。
 
@@ -316,7 +316,7 @@ Book play...1/153 done: 1 positions, 1 links
 
 ## 7.6 同時に広げる：book-expand-tasks
 
-低い level の探索は短いので、1 つの探索に多くのスレッドを使っても、あまり速くなりません（[5.5](05-search.md)）。設定 `book-expand-tasks` で、**複数の Leaf を同時に**広げると、CPU を使い切れます。`book deviate`・`deviate2`・`deviate3`・`enhance`・`play` に効きます。
+低い level の探索は短いので、1 つの探索に多くのスレッドを使っても、あまり速くなりません（[5.5](05-search.md)）。設定 `book-expand-tasks` で、**複数の Leaf を同時に**広げると、CPU を使い切れます。`book deviate`・`book deviate2`・`book deviate3`・`book enhance`・`book play` に効きます。
 
 | `book-expand-tasks` | 動作 |
 |---|---|
@@ -342,7 +342,7 @@ Book play...1/153 done: 1 positions, 1 links
 - 既定はどちらも従来どおり（`off`、`auto`）です。
 - `on` のとき、1 スレッドの探索がそれぞれ、1 スレッドのときのハッシュ表（`hash-table-size = auto` で 57 MB）を持つので、`n-tasks` が 32 なら約 1.8 GB を使います。
 - 同じになるのは、保存日時（ファイルの先頭の 8 バイト）を除いた内容です。
-- `book store`・`add`・`learn` を複数のスレッドで行ったときは、毎回同じにはなりますが、`n-tasks 1` のときとは違います。対局の手を探す探索（`play`・`go`、`n-tasks 1` や `book-store-tasks 1` での `book learn` の対局）と、時間を決めた探索には効きません。
+- `book store`・`book add`・`book learn` を複数のスレッドで行ったときは、毎回同じにはなりますが、`n-tasks 1` のときとは違います。対局の手を探す探索（`play`・`go`、`n-tasks 1` や `book-store-tasks 1` での `book learn` の対局）と、時間を決めた探索には効きません。
 
 ## 7.7 育て方の例
 
@@ -385,7 +385,7 @@ Book play...1/153 done: 1 positions, 1 links
 | `book deviate2 X Y` | 1 手 X 石まで・合計 Y 石までの失点の変化を広げる（完全読みの Leaf を除く） |
 | `book deviate3 X Y` | 同じ（完全読みの Leaf も含む） |
 | `book enhance X Y` | 探索の誤差を見込んで、評価値を変えそうな Leaf を広げる |
-| `book fill n` ［X Y］ | book の局面と局面の間を埋める（X Y で `deviate3` の範囲だけ） |
+| `book fill n` ［X Y］ | book の局面と局面の間を埋める（X Y で `book deviate3` の範囲だけ） |
 | `book fill2 n` ［X Y］ | Leaf の先の欠けを埋める |
 | `book leaf expand` ［X Y］ | どの Link よりも良い Leaf を広げる |
 | `book play` | Link のない局面を 1 手ずつ広げる |

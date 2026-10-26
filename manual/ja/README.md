@@ -18,7 +18,7 @@ Edax は、オセロ（リバーシ）の対局・解析・終盤の完全読み
 | [4. 設定](04-settings.md) | `config.ini`・コマンドラインのオプション・実行中の変更。設定の一覧と決め方 |
 | [5. 探索の基礎](05-search.md) | level・深さ・「%」・完全読み、スレッド、ハッシュ表、探索の表示の読み方 |
 | [6. book の基礎](06-book-basics.md) | book とは何か。局面・Link・Leaf、`book show` の読み方、ファイルと保存のしくみ |
-| [7. book を育てる](07-book-learning.md) | 棋譜を入れる（`book store`・`add`・`learn`）、自動で広げる（`book deviate` 系・`enhance` など）、途中の保存 |
+| [7. book を育てる](07-book-learning.md) | 棋譜を入れる（`book store`・`book add`・`book learn`）、自動で広げる（`book deviate` 系・`book enhance` など）、途中の保存 |
 | [8. book の保守](08-book-maintenance.md) | 直す・統合する・切り詰める・書き出す・評価値を計算し直す |
 | [9. 大きな book を扱う](09-large-books.md) | 数千万〜数億局面の book でのメモリ・時間・設定・注意 |
 | [10. 棋譜と問題のファイル](10-files.md) | 棋譜の形式、`base` のコマンド、問題集（OBF）の形式 |
