@@ -2,6 +2,18 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.11 (with the changes of v4.5.5-nikque.23)
+
+**Not released** (the next version). The changes of v4.5.5-nikque.23 (the nikque.23 entry below: the precision stages of `book moveinfo` taken over from the answers of the positions before and after, the hint for a book command typed without `book`) are added to v4.5.5-eval2.10. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The code of the search is not changed.
+
+- Manual: every book command is written in the form `book …` (`book leaf expand 30 30` and so on). The review of the wording of the nikque manual was applied to the eval2 manual too. The version described (v4.5.5-eval2.10), the names of the versions (`v4.5.5-eval2.N`), the version of `eval.dat` (3.3.0) and the place of the records (this `README-NIKQUE.*`) follow eval2, and the figures measured with nikque versions and the original `eval.dat` say so.
+- The rewriting of the nikque documents (README, release notes, records moved to `docs/validation/`, `README-NIKQUE.*` removed) is not in eval2.
+
+Checks:
+
+- Tests (`tests/book-analyze.c`): the precision stages taken over were compared with the stages walked from each position alone, for every move, with no difference (200 random books, 3 bases, 5 ranges, 3 orders of the positions; one test book). The hint of the warning (24 cases) and the umigame test pass too.
+- The node counts of the search and the build of the package are checked at the release.
+
 ## v4.5.5-eval2.10 (with the changes of v4.5.5-nikque.22)
 
 v4.5.5-eval2.9 with the changes of v4.5.5-nikque.22 (below: less time and memory for `book reduce` and `book reducecount`, and the new settings `book-reduce-index`, `book-reduce-reuse`, `book-reduce-shrink`, `book-reduce-walk`). **The evaluation and `eval.dat` are still those of v4.5.5-eval2.1** (the same file). The search and the results are the same as v4.5.5-eval2.9.
@@ -140,6 +152,20 @@ Speed (release executables: time of this version with the new `eval.dat`, divide
 Training data: the search scores of self-play games of Edax itself (level 8, about 840,000 games), the positions and scores of a book learned with this fork, and the training data published on the site of [Egaroucid](https://www.egaroucid.nyanyan.dev/). For Egaroucid, only the published data was used for training: its patterns and trained weights are not used. The training data is not in the package.
 
 Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
+## v4.5.5-nikque.23
+
+**Not released** (the next version). The precision of the candidate moves of the GUI (`stage=` and `missing=` of `book moveinfo`) is taken over from the answers of the positions before and after, so that less is walked. The answers are the same as in v4.5.5-nikque.22.
+
+- What the kept stage of the current position and the kept stages of the next positions of the position after a move already tell is not walked. When the current position is complete for a range, the position after a move of loss 0 is complete for that range too (with `base=deviate`, when the value of the position after the move is the opposite of the value of the current position). With `base=deviate2` and `deviate3`, the smallest loss to a leaf is kept for each position, built from the values of the next positions and passed on to them. Whether a line of best moves reaches a solved position is found from the answers of the next positions.
+- A book command typed at the top level (`leaf expand 30 30`, `fill2 2`, …) adds `(book command: type "book leaf expand 30 30" or "b leaf expand 30 30")` to the warning. Names that are also top-level commands, settings or `base` commands (`new`, `load`, `save`, `play`, `info`, `check`, …) get no hint.
+- Manual: every book command is written in the form `book …`, and the wording was reviewed in Japanese and English (12.4 and 13.2 describe the two changes above).
+
+Checks:
+
+- Tests (`tests/book-analyze.c`): the stages taken over were compared with the stages walked from each position alone, for every move, with no difference (200 random books and 2 test books, 3 bases, 3 orders of the positions). On a test book of about 410,000 positions, looked at in the order of the book, the walks of the ranges went down by about 14% with `deviate` and about 29% with `deviate2` and `deviate3`, and the walks of the best lines by about 99%.
+- The answers of `book moveinfo` to the same commands as v4.5.5-nikque.22 (2 test books, each position of 2 games, 3 bases) are the same. The hint of the warning was checked by a test of 24 cases and with a file of commands given to the executable.
+- The speed on a real book and the behaviour in the GUI were not checked.
+
 ## v4.5.5-nikque.22
 
 `book reduce`, which makes the book lighter, and `book reducecount`, which counts first, take less time and memory with large books. **The positions kept and what each of them holds (values, links, leaves...) are those of v4.5.5-nikque.21.** The search, `eval.dat` and the book file format are not changed.

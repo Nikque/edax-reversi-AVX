@@ -2,6 +2,18 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-eval2.11（v4.5.5-nikque.23 の変更を取り込み）
+
+**未公開**（次の版）。v4.5.5-eval2.10 に、v4.5.5-nikque.23 の変更（下の nikque.23 の項：`book moveinfo` の精度の段階を前後の局面の答えから引き継ぐ、book のコマンドを `book` なしで打ったときの案内）を取り込みます。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。探索のコードは変えていません。
+
+- 手引き：book のコマンドを全部 `book …` の形で書きました（`book leaf expand 30 30` など）。nikque の手引きの言い回しの見直しを、eval2 の手引きにも当てました。対象の版（v4.5.5-eval2.10）・版の名前（`v4.5.5-eval2.N`）・`eval.dat` の版（3.3.0）・記録の置き場（この `README-NIKQUE.*`）を eval2 に合わせ、nikque の版で元の `eval.dat` を使って測った数には、そう書きました。
+- nikque の文書の書き直し（README・修正一覧・記録を `docs/validation/` へ移す・`README-NIKQUE.*` を消す）は、eval2 には入れていません。
+
+確認：
+
+- 試験（`tests/book-analyze.c`）：引き継いだ精度の段階を、局面ごとに歩いた段階と全部の手で比べて違い 0（作り物の book 200 冊、基準 3 つ・範囲 5 つ・局面を見る順 3 つ。試験用の book 1 つ）。警告の案内 24 通り、うみがめ数の試験も通過。
+- 探索のノード数・配布物の組み立ては、公開のときに確かめます。
+
 ## v4.5.5-eval2.10（v4.5.5-nikque.22 の変更を取り込み）
 
 v4.5.5-eval2.9 に、v4.5.5-nikque.22 の変更（下の nikque.22 の項：`book reduce`・`book reducecount` の時間とメモリを減らし、新しい設定 `book-reduce-index`・`book-reduce-reuse`・`book-reduce-shrink`・`book-reduce-walk`）を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。探索と結果は v4.5.5-eval2.9 と同じです。
@@ -140,6 +152,20 @@ v4.5.5-eval2.1 に、v4.5.5-nikque.10〜13 の変更を全部取り込みまし�
 学習データ：Edax 自身の自己対局（level 8、約84万局）の探索の値、このforkで学習したbookの局面と値、[Egaroucid](https://www.egaroucid.nyanyan.dev/) のサイトで公開されている学習データ。Egaroucid については、公開されているデータを学習に使っただけで、パターンや学習ずみの重みは使っていません。学習データは配布物に入っていません。
 
 確認：上流の `eval.dat` で、Windows 5種・Linux 4種の1スレッドの結果とノード数、bookの回帰試験（1スレッド、84ファイル）が v4.5.5-nikque.9 と一致。新しい `eval.dat` で、Windows 5種・Linux 4種のノード数が互いに一致、完全読みの評価値は上流の `eval.dat` と全問同じ、API試験191項目に合格（Windows 3種・Linux 3種）。 macOS版・Android版・Windows ARM64版は動作を確認していません（Android版・Windows ARM64版はビルドだけ）。
+## v4.5.5-nikque.23
+
+**未公開**（次の版）。GUI の候補手の表の精度（`book moveinfo` の `stage=`・`missing=`）を、前後の局面の答えから引き継いで、歩く量を減らしました。答えは v4.5.5-nikque.22 と同じです。
+
+- 覚えている今の局面の段階と、手の後の局面の先の局面の段階からわかる所は、歩きません。今の局面がある範囲で完遂なら、損失 0 の手の後の局面もその範囲で完遂です（`base=deviate` では、手の後の局面の評価値が今の局面の評価値の符号を変えた値のとき）。`base=deviate2`・`deviate3` では、Leaf までの損失の最小を局面ごとに覚えて、先の局面の値から組み立て、先の局面へも渡します。最善どうしの進行が完全読みの局面に届くかは、先の局面の答えから決めます。
+- 最上位で book のコマンドの名前（`leaf expand 30 30`・`fill2 2` など）を打つと、警告に `(book command: type "book leaf expand 30 30" or "b leaf expand 30 30")` を添えます。最上位のコマンド・設定・`base` のコマンドと同じ名前（`new`・`load`・`save`・`play`・`info`・`check` など）には添えません。
+- 手引き：book のコマンドを全部 `book …` の形で書き、日英の言い回しを見直しました（12.4・13.2 に上の 2 つ）。
+
+確認：
+
+- 試験（`tests/book-analyze.c`）：引き継いだ段階を、局面ごとに歩いた段階と全部の手で比べて違い 0（作り物の book 200 冊と試験用の book 2 つ、基準 3 つ、局面を見る順 3 つ）。試験用の book（約 41 万局面）を book の中の並びの順に調べると、範囲の歩きが `deviate` で約 14%、`deviate2`・`deviate3` で約 29%、最善どうしの進行の歩きが約 99% 減りました。
+- v4.5.5-nikque.22 と同じ命令（試験用の book 2 つ、棋譜 2 局の各局面、基準 3 つ）を流した `book moveinfo` の答えが同じ。警告の案内は 24 通りの試験と、実行ファイルに命令のファイルを渡して確かめました。
+- 実 book での速さ、GUI での動きは確かめていません。
+
 ## v4.5.5-nikque.22
 
 book を軽くする命令 `book reduce` と、その前に数える `book reducecount` が、大きな book で使う時間とメモリを減らしました。**残る局面と、局面ごとの中身（評価値・Link・Leaf など）は v4.5.5-nikque.21 と同じです。** 探索・`eval.dat`・bookのファイル形式は変えていません。
