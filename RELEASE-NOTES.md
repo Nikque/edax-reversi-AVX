@@ -14,6 +14,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 | nikque | eval2 | newedax |
 |---|---|---|
+| nikque.23 (not released) | eval2.11 (not released) | newedax.8 (not released) |
 | nikque.22 | eval2.10 | newedax.7 |
 | nikque.21 | eval2.9 | newedax.6 |
 | nikque.20 | eval2.8 | newedax.5 |
@@ -29,6 +30,36 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 ---
 
 # nikque line
+
+## v4.5.5-nikque.23
+
+**Not released** (the next version). The precision of the candidate moves of the GUI (`stage=` of `book moveinfo`) is taken over from the answers of the positions before and after, so that less is walked. A book command typed without `book` gets a hint on how to type it. The manual and the documents were rewritten.
+
+**Changes**
+
+- Precision stages of `book moveinfo`: what the kept stage of the current position and the kept stages of the next positions of the position after a move already tell is not walked again. The answers (`stage=`, `missing=`) are the same as in nikque.22.
+  - When the current position is complete for a range, the position after a move of loss 0 is complete for that range too (with `base=deviate`, when the value of the position after the move is the opposite of the value of the current position).
+  - With `base=deviate2` and `deviate3`, the smallest loss to a leaf (the total loss to its position plus the loss of the leaf move) is kept for each position. It is built from the values of the next positions, and it is passed on to them.
+  - Whether a line of best moves reaches a solved position is found from the answers of the next positions.
+  - On a test book of about 410,000 positions, with every position looked at in the order of the book, the walks of the ranges went down by about 14% with `deviate` and about 29% with `deviate2` and `deviate3`, and the walks of the best lines by about 99% (how much depends on the order in which the positions are looked at).
+- A book command typed at the top level (`leaf expand 30 30`, `fill2 2`, …) adds `(book command: type "book leaf expand 30 30" or "b leaf expand 30 30")` to the warning. Names that are also top-level commands, settings or `base` commands (`new`, `load`, `save`, `play`, `info`, `check`, …) get no hint.
+- Manual:
+  - Every book command is written in the form `book …` (`book leaf expand 30 30` and so on, each row of the table of 14.2 too).
+  - The wording was reviewed in Japanese and English (the facts are the same). Mistakes of chapters 12 and 14 in English (the name of `book leaf recalculate`, the rule of `"…"`, …) and the time of a save in 9.4 (about 30 seconds → 18 to 28 seconds) were fixed.
+  - 12.4 and 13.2 describe the two changes above.
+- Documents: the README and the release notes were rewritten, the test and measurement records moved to `docs/validation/`, and `README-NIKQUE.*` was removed. The package holds `README.md` instead of `README-NIKQUE.*`. The first comment lines of `config.ini` point to chapter 4 of the manual.
+
+**Compatibility**
+
+- The answers of `book moveinfo` are the same as in nikque.22.
+- The warning line of an unknown command gets a hint at its end only for the names of book commands (its first part `WARNING: Unknown command/Illegal move: "…"` is the same).
+- The search results, `eval.dat` and the book file format do not change.
+
+**Checked**: the stages taken over were compared with the stages walked from each position alone, for every move (200 random books and 2 test books, 3 bases, 3 orders of the positions; no difference). The answers of `book moveinfo` to the same commands are the same as those of nikque.22.
+
+**Not checked**: the speed on a real book, the behaviour in the GUI.
+
+---
 
 ## v4.5.5-nikque.22
 
@@ -889,6 +920,24 @@ This is the first release, based on upstream Edax v4.5.5. It adds `book deviate2
 # eval2 line
 
 The nikque line plus a new evaluation function (mobility weights), published from the `eval2` branch. Each version contains all changes of the nikque versions listed in the "Versions" table above.
+
+## v4.5.5-eval2.11
+
+**Not released** (the next version). The changes of v4.5.5-nikque.23 are included ([nikque.23](#v455-nikque23)).
+
+**Changes**
+
+- The precision stages of `book moveinfo` taken over, and the hint for a book command typed without `book` (the same as nikque.23).
+- Manual: every book command is written in the form `book …`. The review of the wording of the nikque manual was applied to the eval2 manual too (the version described, the names of the versions, the version of `eval.dat` and the places of the records follow eval2, and the figures measured with nikque versions say so).
+- The rewriting of the documents of nikque.23 (README, release notes, places of the records, `README-NIKQUE.*` removed) is not in eval2.
+
+**Compatibility**
+
+- The evaluation function and `eval.dat` are those of eval2.1 (the same file).
+- The code of the search is not changed (the node counts are checked at the release).
+- The answers of `book moveinfo` are the same as in eval2.10.
+
+---
 
 ## v4.5.5-eval2.10
 
