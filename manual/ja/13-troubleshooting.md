@@ -46,7 +46,7 @@
 |---|---|---|
 | `book show` で何も表示されない | 今の局面が book にない | 正常。`book store` などで入れる |
 | `@error word=id`（番号のない 1 行） | book の解析のコマンド（`book moveinfo` など）か `stop` の `id=` が、int の範囲の整数でない。何も行わず、何も止めない（v4.5.5-nikque.19 から） | `id=` を整数にする。ファイルの名前に `id=` があるときは `"…"` で囲む（[12.4](12-integration.md)） |
-| `book deviate`（`deviate2` など）が、何も表示せずにすぐ終わる | 今の盤の局面が book にない | 初期局面から始めるなら `init`。途中の局面から始めるなら、先に `book store` |
+| `book deviate`（`book deviate2` など）が、何も表示せずにすぐ終わる | 今の盤の局面が book にない | 初期局面から始めるなら `init`。途中の局面から始めるなら、先に `book store` |
 | `Book deviate2 0 todo` で終わる | 条件に合う Leaf がない（もう広げ終えた、または数が小さすぎる） | 数（X・Y）を大きくする。book の深さ（`book info` の Depth）も確かめる |
 | `Cannot save book to ; existing book was not replaced` | v4.5.5-nikque.12 までの版で、`book save` にファイル名を書いていない | `book save data/my.dat` のように名前を書く（v4.5.5-nikque.13 からは、名前を省くと `book-file` のファイルに保存する） |
 | `WARNING: data/book.dat holds the book in use before "book new": it is kept as data/book.dat.old`（`"book load"`・`"book import"` のこともある） | `book new`・`book load 別のファイル`・`book import` の後の、名前を書かない保存（終了、`book save` だけ）で、`book-file` のファイルが別の book に置き換わった。それまでのファイルは、`.old` を付けた名前で残した | 正常。それまでの book に戻すなら、Edax を終了してから、`.old` のファイルの名前を元に戻す（[6.7](06-book-basics.md)）。要らなければ、`.old` のファイルを消す |

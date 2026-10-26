@@ -51,49 +51,49 @@ These are entered after `book` (or `b`). The word that follows may be in upper c
 
 | Command | Arguments (those in [ ] may be left out; the value in ( ) is used then) | Meaning | File it saves by itself | Chapter |
 |---|---|---|---|---|
-| `show` | | How the current position is recorded | | [6.3](06-book-basics.md) |
-| `info` | | Information about the whole book | | [6.3](06-book-basics.md) |
-| `stats` | | The counts in detail | | [6.3](06-book-basics.md) |
-| `on`, `off` | | Use the book in a game or not | | [6.5](06-book-basics.md) |
-| `randomness` | [n] (0) | The margin for choosing a move from the book | | [6.5](06-book-basics.md) |
-| `depth` | [n] (36) | The depth setting | | [6.4](06-book-basics.md) |
-| `new` | [level] (21) [depth] (36) | A new empty book. **The current book in memory is discarded.** At later saves without a file name, the previous `book-file` file is kept under an `.old` name | | [6.7](06-book-basics.md) |
-| `load`, `open` | file | Load a book. After another file is loaded, saves without a file name keep the previous `book-file` file under an `.old` name | | [6.6](06-book-basics.md) |
-| `save` | [file] (the file of `book-file`) | Save the book | | [6.6](06-book-basics.md) |
-| `verbose` | n | How much is printed (0 to 2) | | [8.7](08-book-maintenance.md) |
-| `analyze`, `a` | [number of moves] | Look back at a game with the scores of the book | | [3.4](03-playing.md) |
-| `store` | | Add the current game | `.store` | [7.2](07-book-learning.md) |
-| `add` | file | Add a file of games | `.gam` | [7.2](07-book-learning.md) |
-| `check` | file | Compare games with the book | | [7.2](07-book-learning.md) |
-| `learn` | file | Play out a list of lines and add them | `.store` | [7.2](07-book-learning.md) |
-| `deviate` | [X] (2) [Y] (4). X from −129 to 129, Y from 0 to 65 | Automatic expansion (lines where one side is off) | `.dev` | [7.3](07-book-learning.md) |
-| `deviate2` | [X] (2) [Y] (4). X from 0 to 129, Y from 0 to 7740 | Automatic expansion (total of the losses; leaves of exactly solved positions excluded) | `.dev2` | [7.3](07-book-learning.md) |
-| `deviate3` | the same | The same (leaves of exactly solved positions included) | `.dev3` | [7.3](07-book-learning.md) |
-| `enhance` | [X] (2) [Y] (4). 0 to 129 | Expand the leaves that could change a score | `.enh` | [7.4](07-book-learning.md) |
-| `fill` | [n] (1) [X Y]. n: 1 to 61, X: 0 to 129, Y: 0 to 7740 | Fill in between positions. With X Y: in the range of `deviate3 X Y` only | `.fill` | [7.4](07-book-learning.md) |
-| `fill2` | [n] (2) [X Y]; the ranges of the numbers as for `fill` | Fill the gaps after the leaves | `.fill2` | [7.4](07-book-learning.md) |
-| `play` | | Extend the tips of the lines down to the depth | `.play` | [7.4](07-book-learning.md) |
-| `negamax` | | Compute the scores again | | [8.2](08-book-maintenance.md) |
-| `fix` | | Check, linking, negamax | | [8.2](08-book-maintenance.md) |
-| `merge` | file | Take in another book | `.mrg` | [8.3](08-book-maintenance.md) |
-| `subtree` | | Keep only what follows the current position | | [8.4](08-book-maintenance.md) |
-| `prune` | | Keep only the lines where one side plays best moves | | [8.4](08-book-maintenance.md) |
-| `reduce` | X Y. X: 0 to 129, Y: 0 to 254 | Keep only the positions that `deviate3 X Y` walks from the current position | | [8.4](08-book-maintenance.md) |
-| `export`, `import` | file | Write to a text file, read back | | [8.5](08-book-maintenance.md) |
-| `leaf recalculate`, `leaf recalculate3` | as `deviate` | Compute the leaves again | `.leaf`, `.leaf3` | [8.6](08-book-maintenance.md) |
-| `leaf recalculate2`, `leaf recalculate4` | as `deviate2` | Compute the leaves again | `.leaf2`, `.leaf4` | [8.6](08-book-maintenance.md) |
-| `leaf expand` | [X Y]. X: 0 to 129, Y: 0 to 7740 | Expand the leaves better than every link. With X Y: in the range of `deviate3 X Y` only | `.lexp` | [7.4](07-book-learning.md) |
-| `correct` | | Verify the exactly solved positions | `.err` | [8.7](08-book-maintenance.md) |
-| `deepen` | | (do not use) | `.dep` | [8.7](08-book-maintenance.md) |
-| `extract` | file | Write the best lines as games | | [8.8](08-book-maintenance.md) |
-| `problem` | [empties] (24) [count] (10) | Show positions as problems | | [8.8](08-book-maintenance.md) |
-| `feed-hash` | | Put the values of the book into the hash table | | [8.7](08-book-maintenance.md) |
-| `moveinfo` | `id=N` [`base=`, `stages=`, `umi=`, `parts=`, …] | Book value, precision stage, missing leaves, umigame numbers and positions of every legal move (in the background; answers: `@` lines) | | [12.4](12-integration.md) |
-| `missing` | `id=N` [`sq=`, `stage=`, `x= y=`, `n=`] | The lines to the leaves missing for the next stage (in the background) | | [12.4](12-integration.md) |
-| `levels` | `id=N` [`scope=all`] | The positions per level (in the background) | | [12.4](12-integration.md) |
-| `bestlines` | `id=N` [`loss=`, `depth=`, `solved=`, `file=`, `which=`] | The number of lines of best moves, and a file of the moves to their ends (in the background) | The file given | [12.4](12-integration.md) |
-| `findline` | `id=N` `target=position` [`n=`] | The lines from the current position to a position, through book positions only (in the background) | | [12.4](12-integration.md) |
-| `reducecount` | `id=N` [`x=` (2), `y=` (4)] | The positions that `reduce X Y` would keep and remove (in the background; the book is not changed) | | [12.4](12-integration.md) |
+| `book show` | | How the current position is recorded | | [6.3](06-book-basics.md) |
+| `book info` | | Information about the whole book | | [6.3](06-book-basics.md) |
+| `book stats` | | The counts in detail | | [6.3](06-book-basics.md) |
+| `book on`, `book off` | | Use the book in a game or not | | [6.5](06-book-basics.md) |
+| `book randomness` | [n] (0) | The margin for choosing a move from the book | | [6.5](06-book-basics.md) |
+| `book depth` | [n] (36) | The depth setting | | [6.4](06-book-basics.md) |
+| `book new` | [level] (21) [depth] (36) | A new empty book. **The current book in memory is discarded.** At later saves without a file name, the previous `book-file` file is kept under an `.old` name | | [6.7](06-book-basics.md) |
+| `book load`, `book open` | file | Load a book. After another file is loaded, saves without a file name keep the previous `book-file` file under an `.old` name | | [6.6](06-book-basics.md) |
+| `book save` | [file] (the file of `book-file`) | Save the book | | [6.6](06-book-basics.md) |
+| `book verbose` | n | How much is printed (0 to 2) | | [8.7](08-book-maintenance.md) |
+| `book analyze`, `book a` | [number of moves] | Look back at a game with the scores of the book | | [3.4](03-playing.md) |
+| `book store` | | Add the current game | `.store` | [7.2](07-book-learning.md) |
+| `book add` | file | Add a file of games | `.gam` | [7.2](07-book-learning.md) |
+| `book check` | file | Compare games with the book | | [7.2](07-book-learning.md) |
+| `book learn` | file | Play out a list of lines and add them | `.store` | [7.2](07-book-learning.md) |
+| `book deviate` | [X] (2) [Y] (4). X from −129 to 129, Y from 0 to 65 | Automatic expansion (lines where one side is off) | `.dev` | [7.3](07-book-learning.md) |
+| `book deviate2` | [X] (2) [Y] (4). X from 0 to 129, Y from 0 to 7740 | Automatic expansion (total of the losses; leaves of exactly solved positions excluded) | `.dev2` | [7.3](07-book-learning.md) |
+| `book deviate3` | the same | The same (leaves of exactly solved positions included) | `.dev3` | [7.3](07-book-learning.md) |
+| `book enhance` | [X] (2) [Y] (4). 0 to 129 | Expand the leaves that could change a score | `.enh` | [7.4](07-book-learning.md) |
+| `book fill` | [n] (1) [X Y]. n: 1 to 61, X: 0 to 129, Y: 0 to 7740 | Fill in between positions. With X Y: in the range of `book deviate3 X Y` only | `.fill` | [7.4](07-book-learning.md) |
+| `book fill2` | [n] (2) [X Y]; the ranges of the numbers as for `book fill` | Fill the gaps after the leaves | `.fill2` | [7.4](07-book-learning.md) |
+| `book play` | | Extend the tips of the lines down to the depth | `.play` | [7.4](07-book-learning.md) |
+| `book negamax` | | Compute the scores again | | [8.2](08-book-maintenance.md) |
+| `book fix` | | Check, linking, negamax | | [8.2](08-book-maintenance.md) |
+| `book merge` | file | Take in another book | `.mrg` | [8.3](08-book-maintenance.md) |
+| `book subtree` | | Keep only what follows the current position | | [8.4](08-book-maintenance.md) |
+| `book prune` | | Keep only the lines where one side plays best moves | | [8.4](08-book-maintenance.md) |
+| `book reduce` | X Y. X: 0 to 129, Y: 0 to 254 | Keep only the positions that `book deviate3 X Y` walks from the current position | | [8.4](08-book-maintenance.md) |
+| `book export`, `book import` | file | Write to a text file, read back | | [8.5](08-book-maintenance.md) |
+| `book leaf recalculate`, `book leaf recalculate3` | as `book deviate` | Compute the leaves again | `.leaf`, `.leaf3` | [8.6](08-book-maintenance.md) |
+| `book leaf recalculate2`, `book leaf recalculate4` | as `book deviate2` | Compute the leaves again | `.leaf2`, `.leaf4` | [8.6](08-book-maintenance.md) |
+| `book leaf expand` | [X Y]. X: 0 to 129, Y: 0 to 7740 | Expand the leaves better than every link. With X Y: in the range of `book deviate3 X Y` only | `.lexp` | [7.4](07-book-learning.md) |
+| `book correct` | | Verify the exactly solved positions | `.err` | [8.7](08-book-maintenance.md) |
+| `book deepen` | | (do not use) | `.dep` | [8.7](08-book-maintenance.md) |
+| `book extract` | file | Write the best lines as games | | [8.8](08-book-maintenance.md) |
+| `book problem` | [empties] (24) [count] (10) | Show positions as problems | | [8.8](08-book-maintenance.md) |
+| `book feed-hash` | | Put the values of the book into the hash table | | [8.7](08-book-maintenance.md) |
+| `book moveinfo` | `id=N` [`base=`, `stages=`, `umi=`, `parts=`, …] | Book value, precision stage, missing leaves, umigame numbers and positions of every legal move (in the background; answers: `@` lines) | | [12.4](12-integration.md) |
+| `book missing` | `id=N` [`sq=`, `stage=`, `x= y=`, `n=`] | The lines to the leaves missing for the next stage (in the background) | | [12.4](12-integration.md) |
+| `book levels` | `id=N` [`scope=all`] | The positions per level (in the background) | | [12.4](12-integration.md) |
+| `book bestlines` | `id=N` [`loss=`, `depth=`, `solved=`, `file=`, `which=`] | The number of lines of best moves, and a file of the moves to their ends (in the background) | The file given | [12.4](12-integration.md) |
+| `book findline` | `id=N` `target=position` [`n=`] | The lines from the current position to a position, through book positions only (in the background) | | [12.4](12-integration.md) |
+| `book reducecount` | `id=N` [`x=` (2), `y=` (4)] | The positions that `book reduce X Y` would keep and remove (in the background; the book is not changed) | | [12.4](12-integration.md) |
 
 ## 14.3 Base commands
 
@@ -158,7 +158,7 @@ The "built-in value" is the value used when nothing is given.
 | `book-save-interval` | 0 to 525600 (minutes) | 60 | 360 | Saving by time while the book is grown |
 | `book-deviate-save-rounds` | 0 to 1000000 | 1 | 1 | Saving by rounds, for the `book deviate` family |
 | `book-merge-auto-save` | `on` / `off` | `on` | `on` | The `.mrg` file after `book merge` |
-| `book-store-auto-save` | `on` / `off` | `on` | | The `.store` file after `book store` and `learn` |
+| `book-store-auto-save` | `on` / `off` | `on` | | The `.store` file after `book store` and `book learn` |
 | `book-expand-tasks` | 1 to the number of logical CPUs, `auto` | 1 | `auto` | The number of positions expanded at the same time |
 | `book-store-tasks` | 1 to the number of logical CPUs, `auto` | `auto` | `auto` | The number of games learned at the same time |
 | `book-leaf-recalculate-rounds` | 1 to 1000000 | 1 | 1 | The limit for the number of passes of the `book leaf recalculate` family |

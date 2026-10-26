@@ -55,7 +55,7 @@
 | 起動のときの読み込み | 28〜49 秒 | v4.5.5-nikque.3〜12 |
 | 保存 | 18〜28 秒 | v4.5.5-nikque.3 |
 | negamax 1 回 | 18〜34 秒 | v4.5.5-nikque.10・12 |
-| `book deviate2`・`deviate3` の、広げる対象の選択 | 21〜23 秒 | v4.5.5-nikque.3 |
+| `book deviate2`・`book deviate3` の、広げる対象の選択 | 21〜23 秒 | v4.5.5-nikque.3 |
 | `book fix` の全体（読み込みから保存まで） | 222〜242 秒 | v4.5.5-nikque.10 |
 | `book merge`（649 万局面の book を取り込む。全体） | 218〜224 秒 | v4.5.5-nikque.10 |
 | `book merge`（6 億 5,700 万局面どうし。173.6 万局面が増える） | 263 秒、最大メモリ 37.0GiB | v4.5.5-nikque.3 |

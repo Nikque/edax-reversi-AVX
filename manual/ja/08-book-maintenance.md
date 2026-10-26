@@ -27,7 +27,7 @@
 | 完全読みの局面の値を確かめ直す | `book correct` | 8.7 |
 | book から棋譜や問題を取り出す | `book extract`・`book problem` | 8.8 |
 
-## 8.2 negamax と fix
+## 8.2 book negamax と book fix
 
 ### book negamax
 
@@ -182,7 +182,7 @@ Positions: 1269 (moves = 1296 links + 1265 leaves);
 - 対局で使う book を小さくしたいときに使います。相手がどう打っても、自分は最善で応じられる範囲が残ります。
 - 研究用に「両者の間違い」まで育てた book（`book deviate2` で広げたもの）に使うと、その大半が消えます。
 
-### book reduce：deviate3 X Y でたどれる局面だけを残して軽くする
+### book reduce：book deviate3 X Y でたどれる局面だけを残して軽くする
 
 v4.5.5-nikque.20 からのコマンドです。
 

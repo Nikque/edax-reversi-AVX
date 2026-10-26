@@ -36,7 +36,7 @@ Each eval2 and newedax release includes all changes of the nikque release it nam
 ## Main changes from upstream
 
 - **Book learning fixed**: `book deviate` could crash or lose positions (a dangling pointer); `book merge`, `book fix` and book saving were made safe (temporary file, damaged records rejected).
-- **New learning commands**: `book deviate2` / `deviate3` (limits on loss per move and in total).
+- **New learning commands**: `book deviate2` / `book deviate3` (limits on loss per move and in total).
 - **Faster learning on many cores**: several book positions are expanded at the same time (`book-expand-tasks`, `book-store-tasks`); with 32 threads at level 18, up to about 4.7 times faster.
 - **Less memory**: about 50 bytes per book position (58 before).
 - **Book analysis and maintenance**: `book moveinfo`, `book missing`, `book bestlines`, `book reduce` and others (used by nikque GUI).
@@ -89,7 +89,7 @@ eval2・newedax の各版は、対応する nikque の版の変更をすべて�
 ### 元の Edax からの主な変更
 
 - **book の学習の不具合を修正**：`book deviate` が解放済みのメモリを読み、学習が止まったり局面が抜けたりすることがありました。`book merge`・`book fix`・book の保存も安全にしました（一時ファイル経由、壊れたレコードを拒否）。
-- **学習のコマンドを追加**：`book deviate2`・`deviate3`（1 手ごと・合計の損失で範囲を指定）。
+- **学習のコマンドを追加**：`book deviate2`・`book deviate3`（1 手ごと・合計の損失で範囲を指定）。
 - **多コアでの学習を高速化**：複数の局面を同時に展開します（`book-expand-tasks`、`book-store-tasks`）。32 スレッド・level 18 で最大約 4.7 倍。
 - **メモリの削減**：book の 1 局面あたり約 50 バイト（以前は約 58 バイト）。
 - **book の解析と整理**：`book moveinfo`・`book missing`・`book bestlines`・`book reduce` など（nikque GUI が使います）。

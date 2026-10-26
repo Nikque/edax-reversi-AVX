@@ -42,7 +42,7 @@ The figures are measurements from the test records (`docs/validation/`). **Each 
 | Loading at startup | 28 to 49 seconds | v4.5.5-nikque.3 to 12 |
 | Saving | 18 to 28 seconds | v4.5.5-nikque.3 |
 | One negamax | 18 to 34 seconds | v4.5.5-nikque.10, 12 |
-| Selecting what to expand, for `book deviate2` and `deviate3` | 21 to 23 seconds | v4.5.5-nikque.3 |
+| Selecting what to expand, for `book deviate2` and `book deviate3` | 21 to 23 seconds | v4.5.5-nikque.3 |
 | A whole `book fix` (from loading to saving) | 222 to 242 seconds | v4.5.5-nikque.10 |
 | `book merge` (taking in a book of 6.49 million positions; the whole) | 218 to 224 seconds | v4.5.5-nikque.10 |
 | `book merge` (two books of 657 million positions; 1.736 million positions added) | 263 seconds, peak memory 37.0 GiB | v4.5.5-nikque.3 |

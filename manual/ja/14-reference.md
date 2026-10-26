@@ -51,49 +51,49 @@
 
 | コマンド | 引数（［ ］は省ける。（ ）は省いたときの値） | 意味 | 自分で保存するファイル | 章 |
 |---|---|---|---|---|
-| `show` | | 今の局面の中身 | | [6.3](06-book-basics.md) |
-| `info` | | book 全体の情報 | | [6.3](06-book-basics.md) |
-| `stats` | | 数の内訳 | | [6.3](06-book-basics.md) |
-| `on`・`off` | | 対局で book を使う・使わない | | [6.5](06-book-basics.md) |
-| `randomness` | ［n］（0） | book から手を選ぶ幅 | | [6.5](06-book-basics.md) |
-| `depth` | ［n］（36） | 深さの設定 | | [6.4](06-book-basics.md) |
-| `new` | ［level］（21） ［深さ］（36） | 新しい空の book。**メモリの中の今の book は捨てられる**。その後の、名前を書かない保存では、それまでの `book-file` のファイルを `.old` の名前で残す | | [6.7](06-book-basics.md) |
-| `load`、`open` | ファイル | book を読む。別のファイルを読んだ後の、名前を書かない保存では、それまでの `book-file` のファイルを `.old` の名前で残す | | [6.6](06-book-basics.md) |
-| `save` | ［ファイル］（`book-file` のファイル） | book を保存する | | [6.6](06-book-basics.md) |
-| `verbose` | n | 表示の量（0〜2） | | [8.7](08-book-maintenance.md) |
-| `analyze`、`a` | ［手数］ | 棋譜を book の評価値で振り返る | | [3.4](03-playing.md) |
-| `store` | | 今の対局を入れる | `.store` | [7.2](07-book-learning.md) |
-| `add` | ファイル | 棋譜のファイルを入れる | `.gam` | [7.2](07-book-learning.md) |
-| `check` | ファイル | 棋譜を book と比べる | | [7.2](07-book-learning.md) |
-| `learn` | ファイル | 手順のリストを打ち継いで入れる | `.store` | [7.2](07-book-learning.md) |
-| `deviate` | ［X］（2） ［Y］（4）。X は −129〜129、Y は 0〜65 | 自動で広げる（片方が外れる変化） | `.dev` | [7.3](07-book-learning.md) |
-| `deviate2` | ［X］（2） ［Y］（4）。X は 0〜129、Y は 0〜7740 | 自動で広げる（失点の合計。完全読みの Leaf を除く） | `.dev2` | [7.3](07-book-learning.md) |
-| `deviate3` | 同じ | 同じ（完全読みの Leaf も含む） | `.dev3` | [7.3](07-book-learning.md) |
-| `enhance` | ［X］（2） ［Y］（4）。0〜129 | 評価値を変えそうな Leaf を広げる | `.enh` | [7.4](07-book-learning.md) |
-| `fill` | ［n］（1） ［X Y］。n は 1〜61、X は 0〜129、Y は 0〜7740 | 局面の間を埋める。X Y を付けると `deviate3 X Y` の範囲だけ | `.fill` | [7.4](07-book-learning.md) |
-| `fill2` | ［n］（2） ［X Y］。数の範囲は `fill` と同じ | Leaf の先の欠けを埋める | `.fill2` | [7.4](07-book-learning.md) |
-| `play` | | 手順の先端を、深さまで伸ばす | `.play` | [7.4](07-book-learning.md) |
-| `negamax` | | 評価値を計算し直す | | [8.2](08-book-maintenance.md) |
-| `fix` | | 点検・Link の張り直し・negamax | | [8.2](08-book-maintenance.md) |
-| `merge` | ファイル | 別の book を取り込む | `.mrg` | [8.3](08-book-maintenance.md) |
-| `subtree` | | 今の局面から先だけを残す | | [8.4](08-book-maintenance.md) |
-| `prune` | | 片方が最善を打つ変化だけを残す | | [8.4](08-book-maintenance.md) |
-| `reduce` | X Y。X は 0〜129、Y は 0〜254 | 今の局面から `deviate3 X Y` でたどれる局面だけを残す | | [8.4](08-book-maintenance.md) |
-| `export`・`import` | ファイル | 文字のファイルに書き出す・読み戻す | | [8.5](08-book-maintenance.md) |
-| `leaf recalculate`・`leaf recalculate3` | `deviate` と同じ | Leaf を計算し直す | `.leaf`・`.leaf3` | [8.6](08-book-maintenance.md) |
-| `leaf recalculate2`・`leaf recalculate4` | `deviate2` と同じ | Leaf を計算し直す | `.leaf2`・`.leaf4` | [8.6](08-book-maintenance.md) |
-| `leaf expand` | ［X Y］。X は 0〜129、Y は 0〜7740 | どの Link よりも良い Leaf を広げる。X Y を付けると `deviate3 X Y` の範囲だけ | `.lexp` | [7.4](07-book-learning.md) |
-| `correct` | | 完全読みの局面を確かめ直す | `.err` | [8.7](08-book-maintenance.md) |
-| `deepen` | | （使わない） | `.dep` | [8.7](08-book-maintenance.md) |
-| `extract` | ファイル | 最善の手順を棋譜に書き出す | | [8.8](08-book-maintenance.md) |
-| `problem` | ［空き］（24） ［個数］（10） | 局面を問題の形で表示 | | [8.8](08-book-maintenance.md) |
-| `feed-hash` | | book の値をハッシュ表に入れる | | [8.7](08-book-maintenance.md) |
-| `moveinfo` | `id=N` ［`base=`・`stages=`・`umi=`・`parts=` など］ | 全部の合法手の book の評価値・精度の段階・足りない Leaf の数・うみがめ数・局面の数（バックグラウンドで動く。答えは `@` の行） | | [12.4](12-integration.md) |
-| `missing` | `id=N` ［`sq=`・`stage=`・`x= y=`・`n=`］ | 次の段階に足りない Leaf までの手順（バックグラウンドで動く） | | [12.4](12-integration.md) |
-| `levels` | `id=N` ［`scope=all`］ | level ごとの局面の数（バックグラウンドで動く） | | [12.4](12-integration.md) |
-| `bestlines` | `id=N` ［`loss=`・`depth=`・`solved=`・`file=`・`which=`］ | 最善の進行の数と、その端までの手順の書き出し（バックグラウンドで動く） | 指定のファイル | [12.4](12-integration.md) |
-| `findline` | `id=N` `target=局面` ［`n=`］ | 今の局面から局面までの、book の局面だけを通る手順（バックグラウンドで動く） | | [12.4](12-integration.md) |
-| `reducecount` | `id=N` ［`x=`（2）・`y=`（4）］ | `reduce X Y` で残る局面と消える局面の数（バックグラウンドで動く。book は変えない） | | [12.4](12-integration.md) |
+| `book show` | | 今の局面の中身 | | [6.3](06-book-basics.md) |
+| `book info` | | book 全体の情報 | | [6.3](06-book-basics.md) |
+| `book stats` | | 数の内訳 | | [6.3](06-book-basics.md) |
+| `book on`・`book off` | | 対局で book を使う・使わない | | [6.5](06-book-basics.md) |
+| `book randomness` | ［n］（0） | book から手を選ぶ幅 | | [6.5](06-book-basics.md) |
+| `book depth` | ［n］（36） | 深さの設定 | | [6.4](06-book-basics.md) |
+| `book new` | ［level］（21） ［深さ］（36） | 新しい空の book。**メモリの中の今の book は捨てられる**。その後の、名前を書かない保存では、それまでの `book-file` のファイルを `.old` の名前で残す | | [6.7](06-book-basics.md) |
+| `book load`、`book open` | ファイル | book を読む。別のファイルを読んだ後の、名前を書かない保存では、それまでの `book-file` のファイルを `.old` の名前で残す | | [6.6](06-book-basics.md) |
+| `book save` | ［ファイル］（`book-file` のファイル） | book を保存する | | [6.6](06-book-basics.md) |
+| `book verbose` | n | 表示の量（0〜2） | | [8.7](08-book-maintenance.md) |
+| `book analyze`、`book a` | ［手数］ | 棋譜を book の評価値で振り返る | | [3.4](03-playing.md) |
+| `book store` | | 今の対局を入れる | `.store` | [7.2](07-book-learning.md) |
+| `book add` | ファイル | 棋譜のファイルを入れる | `.gam` | [7.2](07-book-learning.md) |
+| `book check` | ファイル | 棋譜を book と比べる | | [7.2](07-book-learning.md) |
+| `book learn` | ファイル | 手順のリストを打ち継いで入れる | `.store` | [7.2](07-book-learning.md) |
+| `book deviate` | ［X］（2） ［Y］（4）。X は −129〜129、Y は 0〜65 | 自動で広げる（片方が外れる変化） | `.dev` | [7.3](07-book-learning.md) |
+| `book deviate2` | ［X］（2） ［Y］（4）。X は 0〜129、Y は 0〜7740 | 自動で広げる（失点の合計。完全読みの Leaf を除く） | `.dev2` | [7.3](07-book-learning.md) |
+| `book deviate3` | 同じ | 同じ（完全読みの Leaf も含む） | `.dev3` | [7.3](07-book-learning.md) |
+| `book enhance` | ［X］（2） ［Y］（4）。0〜129 | 評価値を変えそうな Leaf を広げる | `.enh` | [7.4](07-book-learning.md) |
+| `book fill` | ［n］（1） ［X Y］。n は 1〜61、X は 0〜129、Y は 0〜7740 | 局面の間を埋める。X Y を付けると `book deviate3 X Y` の範囲だけ | `.fill` | [7.4](07-book-learning.md) |
+| `book fill2` | ［n］（2） ［X Y］。数の範囲は `book fill` と同じ | Leaf の先の欠けを埋める | `.fill2` | [7.4](07-book-learning.md) |
+| `book play` | | 手順の先端を、深さまで伸ばす | `.play` | [7.4](07-book-learning.md) |
+| `book negamax` | | 評価値を計算し直す | | [8.2](08-book-maintenance.md) |
+| `book fix` | | 点検・Link の張り直し・negamax | | [8.2](08-book-maintenance.md) |
+| `book merge` | ファイル | 別の book を取り込む | `.mrg` | [8.3](08-book-maintenance.md) |
+| `book subtree` | | 今の局面から先だけを残す | | [8.4](08-book-maintenance.md) |
+| `book prune` | | 片方が最善を打つ変化だけを残す | | [8.4](08-book-maintenance.md) |
+| `book reduce` | X Y。X は 0〜129、Y は 0〜254 | 今の局面から `book deviate3 X Y` でたどれる局面だけを残す | | [8.4](08-book-maintenance.md) |
+| `book export`・`book import` | ファイル | 文字のファイルに書き出す・読み戻す | | [8.5](08-book-maintenance.md) |
+| `book leaf recalculate`・`book leaf recalculate3` | `book deviate` と同じ | Leaf を計算し直す | `.leaf`・`.leaf3` | [8.6](08-book-maintenance.md) |
+| `book leaf recalculate2`・`book leaf recalculate4` | `book deviate2` と同じ | Leaf を計算し直す | `.leaf2`・`.leaf4` | [8.6](08-book-maintenance.md) |
+| `book leaf expand` | ［X Y］。X は 0〜129、Y は 0〜7740 | どの Link よりも良い Leaf を広げる。X Y を付けると `book deviate3 X Y` の範囲だけ | `.lexp` | [7.4](07-book-learning.md) |
+| `book correct` | | 完全読みの局面を確かめ直す | `.err` | [8.7](08-book-maintenance.md) |
+| `book deepen` | | （使わない） | `.dep` | [8.7](08-book-maintenance.md) |
+| `book extract` | ファイル | 最善の手順を棋譜に書き出す | | [8.8](08-book-maintenance.md) |
+| `book problem` | ［空き］（24） ［個数］（10） | 局面を問題の形で表示 | | [8.8](08-book-maintenance.md) |
+| `book feed-hash` | | book の値をハッシュ表に入れる | | [8.7](08-book-maintenance.md) |
+| `book moveinfo` | `id=N` ［`base=`・`stages=`・`umi=`・`parts=` など］ | 全部の合法手の book の評価値・精度の段階・足りない Leaf の数・うみがめ数・局面の数（バックグラウンドで動く。答えは `@` の行） | | [12.4](12-integration.md) |
+| `book missing` | `id=N` ［`sq=`・`stage=`・`x= y=`・`n=`］ | 次の段階に足りない Leaf までの手順（バックグラウンドで動く） | | [12.4](12-integration.md) |
+| `book levels` | `id=N` ［`scope=all`］ | level ごとの局面の数（バックグラウンドで動く） | | [12.4](12-integration.md) |
+| `book bestlines` | `id=N` ［`loss=`・`depth=`・`solved=`・`file=`・`which=`］ | 最善の進行の数と、その端までの手順の書き出し（バックグラウンドで動く） | 指定のファイル | [12.4](12-integration.md) |
+| `book findline` | `id=N` `target=局面` ［`n=`］ | 今の局面から局面までの、book の局面だけを通る手順（バックグラウンドで動く） | | [12.4](12-integration.md) |
+| `book reducecount` | `id=N` ［`x=`（2）・`y=`（4）］ | `book reduce X Y` で残る局面と消える局面の数（バックグラウンドで動く。book は変えない） | | [12.4](12-integration.md) |
 
 ## 14.3 base のコマンド
 
@@ -152,7 +152,7 @@
 | `book-save-interval` | 0〜525600（分） | 60 | 360 | 育てている途中の、時間ごとの保存 |
 | `book-deviate-save-rounds` | 0〜1000000 | 1 | 1 | `book deviate` 系列の、周ごとの保存 |
 | `book-merge-auto-save` | `on`／`off` | `on` | `on` | `book merge` の後の `.mrg` |
-| `book-store-auto-save` | `on`／`off` | `on` | | `book store`・`learn` の後の `.store` |
+| `book-store-auto-save` | `on`／`off` | `on` | | `book store`・`book learn` の後の `.store` |
 | `book-expand-tasks` | 1〜論理 CPU の数、`auto` | 1 | `auto` | 同時に広げる局面の数 |
 | `book-store-tasks` | 1〜論理 CPU の数、`auto` | `auto` | `auto` | 同時に学習する棋譜の数 |
 | `book-leaf-recalculate-rounds` | 1〜1000000 | 1 | 1 | `book leaf recalculate` 系列の回数の上限 |

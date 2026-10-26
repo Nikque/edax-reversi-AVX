@@ -10,7 +10,7 @@ This **fixed version** (`Nikque/edax-reversi-AVX`) is based on that v4.5.5. Its 
 
 - bug fixes (book handling, multi-threaded search, reading and writing games, …);
 - speed and memory improvements, so that large books (hundreds of millions of positions) can be handled;
-- commands to grow and maintain a book (`book deviate2`, `deviate3`, `learn`, `leaf recalculate`, `leaf expand`, `fill2`, …);
+- commands to grow and maintain a book (`book deviate2`, `book deviate3`, `book learn`, `book leaf recalculate`, `book leaf expand`, `book fill2`, …);
 - a library (libedax) for calling Edax from other programs.
 
 The evaluation data (`eval.dat`) and the book file format are the same as in the original Edax 4.5.5. A book from the original Edax can be read without conversion.

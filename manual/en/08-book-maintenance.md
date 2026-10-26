@@ -27,7 +27,7 @@ This chapter explains the commands that repair, merge, trim and export a finishe
 | Verify the values of the exactly solved positions | `book correct` | 8.7 |
 | Take games or problems out of the book | `book extract`, `book problem` | 8.8 |
 
-## 8.2 negamax and fix
+## 8.2 book negamax and book fix
 
 ### book negamax
 
@@ -164,7 +164,7 @@ This keeps only the positions that can be reached from the initial position by l
 
 Use it to make a smaller book for playing. What remains is the range where you can answer with the best move whatever the opponent plays. On a book grown for study to cover mistakes by both sides (expanded with `book deviate2`), most of the book is removed.
 
-### book reduce: keeping only what deviate3 X Y visits, to make the book lighter
+### book reduce: keeping only what book deviate3 X Y visits, to make the book lighter
 
 This command exists since v4.5.5-nikque.20.
 

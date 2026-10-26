@@ -159,7 +159,7 @@ int main(void)
 
 **追加した関数**
 
-- `edax_book_deviate2`・`edax_book_deviate3`：`book deviate2`・`deviate3`。
+- `edax_book_deviate2`・`edax_book_deviate3`：`book deviate2`・`book deviate3`。
 - `libedax_cpu_level`：CPU が動かせる版を返します。`libedax-x64.dll` に問い合わせてから、v3・v4 を読み込む使い方ができます。
 - `edax_book_store_games`：複数の棋譜をまとめて対局・学習します。`book learn` と同じ処理です。棋譜は、1 行に 1 局の文字列で渡します。
 - `edax_book_store_tasks`：同時に学習する棋譜の数を返します。`book-store-tasks` が `auto` なら、`n-tasks` の値です。

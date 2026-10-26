@@ -152,7 +152,7 @@ Notes:
 
 **Added functions**
 
-- `edax_book_deviate2` and `edax_book_deviate3`: `book deviate2` and `deviate3`.
+- `edax_book_deviate2` and `edax_book_deviate3`: `book deviate2` and `book deviate3`.
 - `libedax_cpu_level`: returns which build the CPU can run. A program can query `libedax-x64.dll` first, then load the v3 or v4 library.
 - `edax_book_store_games`: plays and learns several games together, as `book learn` does. The games are given as a string, one game per line.
 - `edax_book_store_tasks`: returns the number of games learned at the same time (`n-tasks` when `book-store-tasks` is `auto`).

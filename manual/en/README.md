@@ -18,7 +18,7 @@ If you are new, read chapters 1, 2 and 3 in order. If you want to build a book, 
 | [4. Settings](04-settings.md) | `config.ini`, command-line options, changes while running. The list of settings and how to choose them |
 | [5. Search basics](05-search.md) | Level, depth, the "%", exact solving, threads, the hash table, how to read the search output |
 | [6. Book basics](06-book-basics.md) | What a book is. Positions, links and leaves, reading `book show`, files and how saving works |
-| [7. Growing a book](07-book-learning.md) | Adding games (`book store`, `add`, `learn`), automatic expansion (`book deviate` and its family, `enhance`, …), saving while it runs |
+| [7. Growing a book](07-book-learning.md) | Adding games (`book store`, `book add`, `book learn`), automatic expansion (`book deviate` and its family, `book enhance`, …), saving while it runs |
 | [8. Maintaining a book](08-book-maintenance.md) | Fixing, merging, cutting, exporting, computing scores again |
 | [9. Large books](09-large-books.md) | Memory, time, settings and cautions for books of tens to hundreds of millions of positions |
 | [10. Game and problem files](10-files.md) | Game formats, the `base` commands, the problem format (OBF) |

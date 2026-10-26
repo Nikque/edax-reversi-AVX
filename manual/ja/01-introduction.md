@@ -12,7 +12,7 @@ Toshihiko Okuhara 氏が、新しい CPU の命令セット（AVX2・AVX-512 な
 
 - 不具合の修正（book の処理、複数スレッドの探索、棋譜の読み書きなど）
 - 大きな book（数億局面）を扱うための、速度とメモリ使用量の改善
-- book を育てる・保守するコマンドの追加（`book deviate2`・`deviate3`・`learn`・`leaf recalculate`・`leaf expand`・`fill2` など）
+- book を育てる・保守するコマンドの追加（`book deviate2`・`book deviate3`・`book learn`・`book leaf recalculate`・`book leaf expand`・`book fill2` など）
 - ほかのプログラムから Edax を呼び出すためのライブラリ（libedax）
 
 評価データ（`eval.dat`）と book のファイル形式は、元の Edax 4.5.5 と同じです。元の Edax の book は、そのまま読めます。
