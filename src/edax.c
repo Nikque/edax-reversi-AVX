@@ -302,6 +302,32 @@ void help_test(void)
 		"  count shapes [d]    compute the number of shapes from the current position up\n  to depth [d].\n");
 }
 
+/**
+ * @brief The hint of the warning of an unknown command that is the name of a book command ("leaf expand 30 30"
+ * for "book leaf expand 30 30"). The names of top-level commands, of options and of base commands are left out.
+ * @param cmd Command (small letters).
+ * @param param Its parameters.
+ * @return " (book command: type ...)", to free; NULL if the command is no book command.
+ */
+static char* book_command_hint(const char *cmd, const char *param)
+{
+	static const char *const names[] = {
+		"store", "on", "off", "randomness", "import", "export", "merge", "fix", "negamax", "prune", "subtree", "reduce",
+		"show", "stats", "add", "learn", "extract", "deviate", "deviate2", "deviate3", "leaf", "pick-count", "enhance",
+		"fill", "fill2", "deepen", "feed-hash", "moveinfo", "missing", "levels", "bestlines", "findline", "reducecount"
+	};
+	const char *space = (param && *param) ? " " : "";
+	char *s;
+	size_t i, size;
+
+	if (param == NULL) param = "";
+	for (i = 0; i < sizeof names / sizeof *names && strcmp(cmd, names[i]) != 0; ++i) ;
+	if (i == sizeof names / sizeof *names) return NULL;
+	size = 2 * (strlen(cmd) + strlen(param)) + 64;
+	s = (char*) malloc(size);
+	if (s) snprintf(s, size, " (book command: type \"book %s%s%s\" or \"b %s%s%s\")", cmd, space, param, cmd, space, param);
+	return s;
+}
 
 /**
  * @brief Moves of the game up to the current position, passes left out ("f5d6c3...").
@@ -1170,7 +1196,9 @@ void ui_loop_edax(UI *ui)
 #endif
 			/* illegal cmd/move */
 			} else {
-				warn("Unknown command/Illegal move: \"%s %s\"\n", cmd, param);
+				char *hint = book_command_hint(cmd, param);
+				warn("Unknown command/Illegal move: \"%s %s\"%s\n", cmd, param, hint ? hint : "");
+				free(hint);
 			}
 		}
 	}

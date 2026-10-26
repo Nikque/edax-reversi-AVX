@@ -25,6 +25,9 @@
  * - 3 to 2 + n: "book deviate x y" (or deviate2, deviate3) with the n ranges of the stages, from the narrowest,
  *   would expand no leaf (the selection walks of book_deviate, book_deviate2 and book_deviate3, without
  *   their expansion).
+ * The stages are kept while the book does not change. The stage of the position after a move takes over what the kept
+ * stages of the current position and of the next positions tell (BaStageInfo): the walks that would find nothing
+ * are left out, with the same stages and missing leaves.
  *
  * Umigame number (memorization number) of a side: the smallest number of line ends that this side has to
  * learn to play every line of the condition (best moves only by default): at its turn it chooses one move,
@@ -453,11 +456,32 @@ enum { BA_CACHE_STAGE = 1, BA_CACHE_UMI = 2, BA_CACHE_COUNT = 3 };
 #define BA_CACHE_SIZE (1 << 15)
 #define BA_CACHE_PROBE 16
 
+/**
+ * What is known of the precision stage of a position (the root of the walks).
+ *
+ * B_k, for the range k of deviate2 / deviate3: the smallest d + e of the leaves that the walk of the range reaches
+ * (d: smallest accumulated loss of the position of the leaf, e: loss of the leaf move; the links and the leaves of a
+ * move loss above x_k are left out, except when ba_stage_total_ok, whose single walk has no move loss limit). The
+ * range is complete (no leaf to expand) when B_k > y_k. B_k of a position is the smallest of the loss of its leaf and
+ * of e + B_k of its next positions (e: loss of the link; walkable next positions only), so it is found from the next
+ * positions, and B_k of a next position is at least B_k - e.
+ * For deviate, lb[k] is y_k + 1 when the range is known complete, 0 otherwise.
+ */
+typedef struct BaStageInfo {
+	int stage;
+	long long missing;
+	bool found;                         /**< a line of best moves reaches a solved position */
+	bool recursive;                     /**< a walk of book deviate went recursive (a position reached with both parities) */
+	unsigned char lb[BA_MAX_STAGES];    /**< B_k is at least lb[k] (255: complete) */
+	unsigned char exact;                /**< ranges whose B_k is lb[k] */
+} BaStageInfo;
+
 typedef struct BaCacheEntry {
 	unsigned long long key;     /**< number of the position << 8 | kind << 1 | side; 0: empty */
 	unsigned long long cond;    /**< hash of the parameters the result depends on */
 	long long a, b;
 	int c;
+	unsigned char lb[BA_MAX_STAGES], exact; /**< BaStageInfo (BA_CACHE_STAGE) */
 } BaCacheEntry;
 
 static BaCacheEntry *ba_cache;
@@ -467,8 +491,8 @@ static inline unsigned long long ba_cache_key(const unsigned int idx, const int 
 	return (((unsigned long long) idx + 1) << 8) | ((unsigned long long) kind << 1) | (unsigned long long) color;
 }
 
-/** @return true if a result is kept (lock held by the caller: no). */
-static bool ba_cache_get(const unsigned long long key, const unsigned long long cond, long long *a, long long *b, int *c)
+/** @return true if a result is kept (lock held by the caller: no); lb and exact may be NULL. */
+static bool ba_cache_get(const unsigned long long key, const unsigned long long cond, long long *a, long long *b, int *c, unsigned char *lb, unsigned char *exact)
 {
 	bool found = false;
 	int i;
@@ -476,13 +500,19 @@ static bool ba_cache_get(const unsigned long long key, const unsigned long long 
 	if (ba_cache) for (i = 0; i < BA_CACHE_PROBE; ++i) {
 		const BaCacheEntry *e = ba_cache + ((ba_hash(key ^ cond) + (unsigned long long) i) & (BA_CACHE_SIZE - 1));
 		if (e->key == 0) break;
-		if (e->key == key && e->cond == cond) { *a = e->a; *b = e->b; *c = e->c; found = true; break; }
+		if (e->key == key && e->cond == cond) {
+			*a = e->a; *b = e->b; *c = e->c;
+			if (lb) memcpy(lb, e->lb, sizeof e->lb);
+			if (exact) *exact = e->exact;
+			found = true;
+			break;
+		}
 	}
 	unlock(&ba);
 	return found;
 }
 
-static void ba_cache_put(const unsigned long long key, const unsigned long long cond, const long long a, const long long b, const int c)
+static void ba_cache_put(const unsigned long long key, const unsigned long long cond, const long long a, const long long b, const int c, const unsigned char *lb, const unsigned char exact)
 {
 	int i;
 	lock(&ba);
@@ -490,7 +520,12 @@ static void ba_cache_put(const unsigned long long key, const unsigned long long 
 	if (ba_cache) {
 		for (i = 0; i < BA_CACHE_PROBE; ++i) {
 			BaCacheEntry *e = ba_cache + ((ba_hash(key ^ cond) + (unsigned long long) i) & (BA_CACHE_SIZE - 1));
-			if (e->key == 0 || (e->key == key && e->cond == cond)) { e->key = key; e->cond = cond; e->a = a; e->b = b; e->c = c; break; }
+			if (e->key == 0 || (e->key == key && e->cond == cond)) {
+				e->key = key; e->cond = cond; e->a = a; e->b = b; e->c = c;
+				if (lb) memcpy(e->lb, lb, sizeof e->lb); else memset(e->lb, 0, sizeof e->lb);
+				e->exact = exact;
+				break;
+			}
 		}
 		if (i == BA_CACHE_PROBE) memset(ba_cache, 0, BA_CACHE_SIZE * sizeof *ba_cache); // (full: start again)
 	}
@@ -519,6 +554,24 @@ static unsigned long long ba_cond_umi(const BaParams *p)
 	h = ba_mix(ba_mix(h, p->x), p->y);
 	h = ba_mix(ba_mix(h, p->lo), p->hi);
 	return ba_mix(h, p->depth);
+}
+
+/** @return true if the stage of a position is kept (BA_CACHE_STAGE). */
+static bool ba_cache_get_stage(const unsigned int idx, const unsigned long long cond, BaStageInfo *s)
+{
+	long long a, b;
+	int c;
+	if (!ba_cache_get(ba_cache_key(idx, BA_CACHE_STAGE, 0), cond, &a, &b, &c, s->lb, &s->exact)) return false;
+	s->stage = (int) a;
+	s->missing = b;
+	s->found = (c & 1) != 0;
+	s->recursive = (c & 2) != 0;
+	return true;
+}
+
+static void ba_cache_put_stage(const unsigned int idx, const unsigned long long cond, const BaStageInfo *s)
+{
+	ba_cache_put(ba_cache_key(idx, BA_CACHE_STAGE, 0), cond, s->stage, s->missing, (s->found ? 1 : 0) | (s->recursive ? 2 : 0), s->lb, s->exact);
 }
 
 /** @brief Forget the numbering of the positions (the book may change). */
@@ -767,6 +820,8 @@ struct BaWork {
 	BaList *bucket;         /**< deviate2/3: items per accumulated loss */
 	int n_bucket;
 	bool oom;
+	bool recursive;         /**< a walk of book deviate went recursive (ba_deviate_pass) */
+	int leaf_min;           /**< smallest d + e of the leaves found by the last ba_expansions of deviate2/3, INT_MAX if none */
 
 	/* umigame */
 	BaUNode *node;
@@ -991,6 +1046,7 @@ static int ba_deviate_pass(BaWork *w, const int which, Position *root, const uns
 	const int r = ba_walk_deviate(w, which, root, root_idx, a, b, lower, upper);
 
 	if (r != 1) return r;
+	w->recursive = true;
 	for (k = n_added; k < t->added.n; ++k) if (!ba_visit_set(&t->seen, (unsigned int) t->added.v[k], 0)) return -1;
 	t->n -= t->added.n - n_added;
 	t->added.n = n_added;
@@ -1057,7 +1113,10 @@ static int ba_walk_total(BaWork *w, const int which, Position *root, const unsig
 			}
 			if (mode == BA_DEVIATE2 && position_is_solved(p)) continue;
 			move_error = v - p->leaf.score;
-			if (p->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && L + move_error <= total_loss && !ba_todo_add(&w->todo, p, idx, which, item)) return -1;
+			if (p->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && L + move_error <= total_loss) {
+				if (!ba_todo_add(&w->todo, p, idx, which, item)) return -1;
+				if (L + move_error < w->leaf_min) w->leaf_min = L + move_error;
+			}
 		}
 	}
 	return 0;
@@ -1070,6 +1129,7 @@ static int ba_walk_total(BaWork *w, const int which, Position *root, const unsig
 static long long ba_expansions(BaWork *w, Position *root, const unsigned int root_idx, const int base, const int x, const int y, const bool keep)
 {
 	ba_todo_reset(&w->todo, keep);
+	w->leaf_min = INT_MAX;
 	if (base == BA_DEVIATE) {
 		// book_deviate: the deviations of the side to move at the root, then those of the other side
 		// (when the first walk expands nothing, the second walk sees the same book)
@@ -1148,15 +1208,18 @@ static bool ba_stage_total_ok(const BaParams *prm)
  * the first stage whose y reaches the smallest d + e is the first one that is not complete. The positions
  * are walked by increasing d, up to the y of that stage only.
  *
+ * @param limit0 largest d + e to look for (the y of the last range, or of the stage when the smallest d + e is known).
+ * @param leaf_min smallest d + e of the leaves (B of BaStageInfo), INT_MAX if none is at most *reach (out).
+ * @param reach largest d + e looked for (out).
  * @return the stage (2 to 2 + n_stage), -1 if stopped.
  */
-static int ba_stage_total(BaWork *w, Position *root, const unsigned int root_idx, long long *missing)
+static int ba_stage_total(BaWork *w, Position *root, const unsigned int root_idx, const int limit0, long long *missing, int *leaf_min, int *reach)
 {
 	const BaParams *prm = w->prm;
 	const Book *book = w->book;
 	BaQueue *q = w->q;
 	const int y_max = prm->stage_y[prm->n_stage - 1];
-	int limit = y_max, best = INT_MAX, L, i, k;
+	int limit = limit0, best = INT_MAX, L, i, k;
 	BaList found = {NULL, 0, 0}; // d + e of the leaves (one per position)
 
 	if (w->n_bucket < y_max + 1) {
@@ -1218,11 +1281,90 @@ static int ba_stage_total(BaWork *w, Position *root, const unsigned int root_idx
 		for (j = 0; j < found.n; ++j) if (found.v[j] <= prm->stage_y[k]) ++*missing;
 	}
 	free(found.v);
+	*leaf_min = best;
+	*reach = limit;
 	return 2 + k;
 
 stop:
 	free(found.v);
 	return -1;
+}
+
+#ifdef BOOK_ANALYZE_TEST
+static long long ba_test_best_walks, ba_test_range_walks; /**< walks of ba_stage_info (test builds) */
+#define BA_TEST_COUNT(n) (++(n))
+#else
+#define BA_TEST_COUNT(n) ((void) 0)
+#endif
+
+/** @brief B_k of a range, as a lower bound, in s (exact if exact). */
+static void ba_stage_bound(BaStageInfo *s, const int k, const int b, const bool exact)
+{
+	if (exact && b < 255) {
+		s->lb[k] = (unsigned char) b;
+		s->exact |= (unsigned char) (1u << k);
+	} else if (!(s->exact & (1u << k)) && b > s->lb[k]) {
+		s->lb[k] = (unsigned char) (b > 255 ? 255 : b);
+	}
+}
+
+/**
+ * @brief Precision stage of a position, the walks known to give nothing left out (see BaStageInfo).
+ * @param s What is known (in: lb and exact; out: all).
+ * @param found_known A line of best moves is known to reach a solved position (s->found).
+ * @return the stage (1 to 2 + n_stage), -1 if stopped.
+ */
+static int ba_stage_info(BaWork *w, Position *root, const unsigned int root_idx, BaStageInfo *s, const bool found_known)
+{
+	const BaParams *prm = w->prm;
+	const int n_stage = prm->n_stage, y_max = prm->stage_y[n_stage - 1];
+	long long n;
+	int k;
+
+	w->recursive = false;
+	s->recursive = false;
+	s->missing = 0;
+	if (!found_known || (root->score.value & 1)) {
+		bool found;
+		BA_TEST_COUNT(ba_test_best_walks);
+		n = ba_best_lines(w, root, root_idx, &found, false);
+		if (n < 0) return -1;
+		s->found = found;
+		if ((root->score.value & 1) || !found) { // (an odd value is not the value of a solved position)
+			s->missing = n;
+			return s->stage = 1;
+		}
+	} else s->found = true;
+
+	for (k = 0; k < n_stage && s->lb[k] > prm->stage_y[k]; ++k) ;
+	if (k == n_stage) return s->stage = 2 + n_stage; // (every range is complete)
+
+	if (ba_stage_total_ok(prm)) {
+		int limit = y_max, best, reach, stage;
+		if ((s->exact & 1) && s->lb[0] <= y_max) { // (the single walk of all the ranges: the same B for each)
+			for (k = 0; prm->stage_y[k] < s->lb[0]; ++k) ;
+			limit = prm->stage_y[k];
+		}
+		BA_TEST_COUNT(ba_test_range_walks);
+		stage = ba_stage_total(w, root, root_idx, limit, &s->missing, &best, &reach);
+		if (stage < 0) return -1;
+		for (k = 0; k < n_stage; ++k) ba_stage_bound(s, k, best == INT_MAX ? reach + 1 : best, best != INT_MAX);
+		return s->stage = stage;
+	}
+	for (k = 0; k < n_stage; ++k) {
+		if (s->lb[k] > prm->stage_y[k]) continue; // complete
+		BA_TEST_COUNT(ba_test_range_walks);
+		n = ba_expansions(w, root, root_idx, prm->base, prm->stage_x[k], prm->stage_y[k], false);
+		if (n < 0) return -1;
+		s->recursive = s->recursive || w->recursive;
+		if (n > 0) {
+			if (prm->base != BA_DEVIATE) ba_stage_bound(s, k, w->leaf_min, true);
+			s->missing = n;
+			return s->stage = 2 + k;
+		}
+		ba_stage_bound(s, k, prm->stage_y[k] + 1, false);
+	}
+	return s->stage = 2 + n_stage;
 }
 
 /**
@@ -1232,28 +1374,11 @@ stop:
  */
 static int ba_stage(BaWork *w, Position *root, const unsigned int root_idx, long long *missing)
 {
-	const BaParams *prm = w->prm;
-	bool found;
-	long long n;
-	int k;
-
-	n = ba_best_lines(w, root, root_idx, &found, false);
-	if (n < 0) return -1;
-	if ((root->score.value & 1) || !found) { // (an odd value is not the value of a solved position)
-		*missing = n;
-		return 1;
-	}
-	if (ba_stage_total_ok(prm)) return ba_stage_total(w, root, root_idx, missing);
-	for (k = 0; k < prm->n_stage; ++k) {
-		n = ba_expansions(w, root, root_idx, prm->base, prm->stage_x[k], prm->stage_y[k], false);
-		if (n < 0) return -1;
-		if (n > 0) {
-			*missing = n;
-			return 2 + k;
-		}
-	}
-	*missing = 0;
-	return 2 + prm->n_stage;
+	BaStageInfo s;
+	memset(&s, 0, sizeof s);
+	if (ba_stage_info(w, root, root_idx, &s, false) < 0) return -1;
+	*missing = s.missing;
+	return s.stage;
 }
 
 /* ------------------------------------------------------------------ positions after a position ------------------------------------------ */
@@ -2048,6 +2173,9 @@ typedef struct BaTeam {
 	int n_move;
 	int next;               /**< next move to take */
 	int part;               /**< BA_PART_STAGE or BA_PART_UMI */
+	const Position *current;    /**< current position, NULL if it is not in the book */
+	BaStageInfo current_info;   /**< its stage, if current_known (kept when it was the position after a move) */
+	bool current_known;
 	Lock lock;
 } BaTeam;
 
@@ -2088,6 +2216,107 @@ static void ba_print_umi(const BaJob *job, const BaMove *m)
 	else ba_print("@move id=%d sq=%s part=umi umi=%lld:%lld%s\n", job->id, m->sq, m->umi[BLACK], m->umi[WHITE], m->umi_exact ? "" : " exact=0");
 }
 
+/**
+ * @brief What the stage of the current position tells of the position after a move (see BaStageInfo).
+ *
+ * deviate2 / deviate3: B_k of the position after a link of loss e is at least B_k of the current position - e.
+ * deviate: the walks of a range from the position after a link of loss 0 whose value is the opposite of the value of
+ * the current position are the walks from the current position after that move (the other side deviates in the
+ * other walk, with the same window), so a range complete for the current position is complete for it, unless a walk
+ * of the current position went recursive.
+ */
+static void ba_stage_down(const BaParams *prm, const Book *book, const Position *current, const BaStageInfo *c, const BaMove *m, BaStageInfo *s)
+{
+	const bool total = ba_stage_total_ok(prm);
+	int e, k;
+
+	if (!m->has_link || !ba_walkable(book, current) || !ba_walkable(book, m->p)) return;
+	e = current->score.value - m->link;
+	if (e < 0) return;
+	if (prm->base == BA_DEVIATE) {
+		if (e != 0 || m->p->score.value != -current->score.value || c->recursive) return;
+		for (k = 0; k < prm->n_stage; ++k) if (c->lb[k] > prm->stage_y[k]) ba_stage_bound(s, k, prm->stage_y[k] + 1, false);
+		return;
+	}
+	for (k = 0; k < prm->n_stage; ++k) if (total || e <= prm->stage_x[k]) ba_stage_bound(s, k, c->lb[k] - e, false);
+}
+
+/**
+ * @brief What the kept stages of the next positions of a position tell of it: B_k (deviate2, deviate3; see
+ * BaStageInfo), and whether a line of best moves reaches a solved position. A position that is not walked
+ * expands no leaf.
+ * @return true if a line of best moves is known to reach a solved position.
+ */
+static bool ba_stage_up(BaWork *w, Position *root, BaStageInfo *s)
+{
+	const BaParams *prm = w->prm;
+	const Book *book = w->book;
+	const unsigned long long cond = ba_cond_stage(prm);
+	const bool total = ba_stage_total_ok(prm), walkable = ba_walkable(book, root), bound = prm->base != BA_DEVIATE && walkable;
+	const int v = root->score.value, e_leaf = v - root->leaf.score;
+	int b[BA_MAX_STAGES], k;
+	unsigned int exact = 0;
+	bool found = board_is_game_over(&root->board) || position_is_solved(root);
+	Link *l;
+
+	for (k = 0; k < prm->n_stage; ++k) { // the leaf of the position
+		b[k] = INT_MAX;
+		if (root->leaf.move != NOMOVE && 0 <= e_leaf && (total || e_leaf <= prm->stage_x[k]) && !(prm->base == BA_DEVIATE2 && position_is_solved(root))) {
+			b[k] = e_leaf;
+			exact |= 1u << k;
+		}
+	}
+	foreach_link(l, root) {
+		const int e = v - l->score;
+		Board target;
+		unsigned int ci;
+		Position *child;
+		BaStageInfo c;
+		bool kept;
+		board_next(&root->board, l->move, &target);
+		child = ba_probe(w, &target, &ci);
+		if (child == NULL) continue;
+		kept = ba_cache_get_stage(ci, cond, &c);
+		if (kept && c.found && l->score == v) found = true;
+		if (!bound || e < 0 || !ba_walkable(book, child)) continue;
+		for (k = 0; k < prm->n_stage; ++k) {
+			const bool x = kept && ((c.exact >> k) & 1);
+			int t;
+			if (!total && e > prm->stage_x[k]) continue;
+			t = e + (kept ? c.lb[k] : 0); // (a next position not kept: B_k is at least 0)
+			if (t < b[k]) { b[k] = t; exact = x ? exact | (1u << k) : exact & ~(1u << k); }
+			else if (t == b[k] && x) exact |= 1u << k;
+		}
+	}
+	if (!walkable) for (k = 0; k < prm->n_stage; ++k) ba_stage_bound(s, k, 255, false);
+	else if (bound) for (k = 0; k < prm->n_stage; ++k) ba_stage_bound(s, k, b[k] == INT_MAX ? 255 : b[k], ((exact >> k) & 1) != 0);
+	return found;
+}
+
+/**
+ * @brief Stage of the position after a move: kept, or found with what the current position and the next positions
+ * of the position after the move tell (see BaStageInfo), and kept.
+ * @param current The current position (NULL if it is not in the book), its stage if current_known.
+ * @return the stage, -1 if stopped.
+ */
+static int ba_move_stage(BaWork *w, const Position *current, const BaStageInfo *current_info, const bool current_known, BaMove *m)
+{
+	const unsigned long long cond = ba_cond_stage(w->prm);
+	BaStageInfo s;
+
+	if (!ba_cache_get_stage(m->idx, cond, &s)) {
+		bool found;
+		memset(&s, 0, sizeof s);
+		if (current && current_known) ba_stage_down(w->prm, w->book, current, current_info, m, &s);
+		found = ba_stage_up(w, m->p, &s);
+		if (ba_stage_info(w, m->p, m->idx, &s, found) < 0) return -1;
+		ba_cache_put_stage(m->idx, cond, &s);
+	}
+	m->stage = s.stage;
+	m->missing = s.missing;
+	return s.stage;
+}
+
 static void* ba_team_run(void *v)
 {
 	BaTeam *team = ((BaThread*) v)->team;
@@ -2105,23 +2334,13 @@ static void* ba_team_run(void *v)
 		m = team->move + i;
 		if (m->p == NULL || m->same >= 0) continue;
 		if (team->part == BA_PART_STAGE) {
-			const unsigned long long key = ba_cache_key(m->idx, BA_CACHE_STAGE, 0), cond = ba_cond_stage(team->prm);
-			long long a, b;
-			int c;
-			if (ba_cache_get(key, cond, &a, &b, &c)) {
-				m->stage = (int) a;
-				m->missing = b;
-			} else {
-				m->stage = ba_stage(&w, m->p, m->idx, &m->missing);
-				if (m->stage < 0) { if (!job->cancel) m->stage = 0; break; }
-				ba_cache_put(key, cond, m->stage, m->missing, 0);
-			}
+			if (ba_move_stage(&w, team->current, &team->current_info, team->current_known, m) < 0) { if (!job->cancel) m->stage = 0; break; }
 			ba_print_stage(job, m);
 		} else {
 			const unsigned long long key = ba_cache_key(m->idx, BA_CACHE_UMI, !job->player), cond = ba_cond_umi(team->prm);
 			long long a, b;
 			int c;
-			if (ba_cache_get(key, cond, &a, &b, &c)) {
+			if (ba_cache_get(key, cond, &a, &b, &c, NULL, NULL)) {
 				m->umi[BLACK] = a;
 				m->umi[WHITE] = b;
 				m->umi_state = c & 3;
@@ -2149,7 +2368,7 @@ static void* ba_team_run(void *v)
 					m->umi_exact = exact;
 				}
 				ba_umi_free(&w);
-				ba_cache_put(key, cond, m->umi[BLACK], m->umi[WHITE], m->umi_state | (m->umi_exact ? 4 : 0));
+				ba_cache_put(key, cond, m->umi[BLACK], m->umi[WHITE], m->umi_state | (m->umi_exact ? 4 : 0), NULL, 0);
 			}
 			ba_print_umi(job, m);
 		}
@@ -2173,16 +2392,17 @@ static void ba_team(BaTeam *team)
 }
 
 /** @brief Moves of the current position, with what the book holds of them. @return their number. */
-static int ba_moves(const BaJob *job, const BaParams *prm, BaWork *w, BaMove *move, Position **current)
+static int ba_moves(const BaJob *job, const BaParams *prm, BaWork *w, BaMove *move, Position **current, unsigned int *current_idx)
 {
 	const Board *board = &job->board;
 	unsigned long long moves = get_moves(board->player, board->opponent);
 	MoveList movelist;
-	unsigned int idx;
+	unsigned int idx = 0;
 	Position *p = ba_probe(w, board, &idx);
 	int n = 0, x, sym = 0;
 
 	*current = p;
+	*current_idx = idx;
 	if (p) sym = position_get_moves(p, board, &movelist);
 	if (moves == 0 && can_move(board->opponent, board->player)) {
 		if (!prm->moves_set || prm->moves_pass) move[n++].x = PASS;
@@ -2235,11 +2455,12 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 	BaTeam team;
 	BaWork w;
 	Position *current;
+	unsigned int current_idx;
 	int i, n;
 
 	memset(move, 0, sizeof move);
 	ba_work_init(&w, job, prm);
-	n = ba_moves(job, prm, &w, move, &current);
+	n = ba_moves(job, prm, &w, move, &current, &current_idx);
 	ba_print("@begin id=%d ply=%d turn=%s moves=%d book=%d\n", job->id, 60 - board_count_empties(&job->board), job->player == BLACK ? "black" : "white", n, current != NULL);
 
 	memset(&team, 0, sizeof team);
@@ -2247,6 +2468,8 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 	team.prm = prm;
 	team.move = move;
 	team.n_move = n;
+	team.current = current;
+	team.current_known = current && ba_cache_get_stage(current_idx, ba_cond_stage(prm), &team.current_info);
 	lock_init(&team);
 	// the moves out of the book first, then the precision of the others
 	for (i = 0; i < n; ++i) if (move[i].p == NULL || !(prm->parts & BA_PART_STAGE)) {
@@ -2281,10 +2504,10 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 			const unsigned long long key = ba_cache_key(move[i].idx, BA_CACHE_COUNT, 0);
 			long long k, b;
 			int c;
-			if (!ba_cache_get(key, 0, &k, &b, &c)) {
+			if (!ba_cache_get(key, 0, &k, &b, &c, NULL, NULL)) {
 				k = ba_reach(&w, move[i].p, move[i].idx, hist);
 				if (k < 0) break;
-				ba_cache_put(key, 0, k, 0, 0);
+				ba_cache_put(key, 0, k, 0, 0, NULL, 0);
 			}
 			ba_print("@move id=%d sq=%s part=count positions=%lld\n", job->id, move[i].sq, k);
 		}

@@ -25,6 +25,7 @@ Common messages and problems, grouped by situation.
 | Message, or what happened | Meaning | What to do |
 |---|---|---|
 | `WARNING: Unknown command/Illegal move: "e3 "` | A square that cannot be played, or an unknown command | The playable squares are the `.` of the board on the left. For the spelling of the commands: [chapter 14](14-reference.md) |
+| `WARNING: Unknown command/Illegal move: "leaf expand 30 30" (book command: type "book leaf expand 30 30" or "b leaf expand 30 30")` | A book command typed without `book` | Type it after `book` (or `b`), as the warning says (the hint is shown from v4.5.5-nikque.23) |
 | You play a move and Edax does not respond | The mode is `mode 3` (just after startup, or after `stop`) | `mode 0` (you are Black) or `mode 1` (you are White). For one move only: `go` |
 | No square can be played and the game does not continue | It is a pass | `ps` |
 | Edax keeps thinking and does not return | The level is high, or the time limit is long | `stop`. Then lower `level` and enter `mode 0` or `mode 1` |

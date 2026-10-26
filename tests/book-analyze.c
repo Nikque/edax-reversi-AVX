@@ -5,7 +5,14 @@
  * skip layers as passes do): the umigame numbers with the shared positions counted once are compared with a
  * search of every choice of moves, and with the numbers that count each line when no position is shared.
  *
+ * precision: random books (positions from the start by random moves, values, links and leaves at random, some
+ * not negamaxed again): the precision stages of the moves taken over from the current position and from the next
+ * positions are compared with the stages walked from each position alone, and the walks left out are counted.
+ *
+ * bookhint: the warning of a book command typed without book tells to type it after book.
+ *
  * Build: tests\build-book-analyze.cmd (Visual Studio 2022 x64 Developer Command Prompt), run: tests\book-analyze.exe umigame
+ * (or precision, precision-book <book file> [stages], bookhint)
  */
 #define BOOK_ANALYZE_TEST
 #define main edax_original_main
@@ -193,11 +200,311 @@ static int umigame_large(void)
 	return 0;
 }
 
+/* ------------------------------------------------------------------ precision stages ------------------------------------------------------ */
+
+#define TB_MAX 8192
+
+static Board tb_board[TB_MAX];  /**< positions of a random book, in the order they were added (by plies) */
+static int tb_n;
+
+static void tb_add(Book *book, const Board *board)
+{
+	Position p;
+	Board unique;
+	board_unique(board, &unique);
+	if (tb_n == TB_MAX || book_probe(book, &unique)) return;
+	position_init(&p);
+	p.board = unique;
+	book_add(book, &p);
+	tb_board[tb_n++] = unique;
+}
+
+/** @brief Value, links and leaf of a position of a random book, after those of its next positions (done when score.upper is set). */
+static int tb_value(Book *book, Position *p)
+{
+	const unsigned long long moves = get_moves(p->board.player, p->board.opponent);
+	int x[MAX_MOVE + 1], n = 0, n_leaf = 0, leaf[MAX_MOVE + 1], best = -SCORE_INF, i;
+
+	if (p->score.upper != SCORE_INF) return p->score.value;
+	p->level = (unsigned char) (rnd(3) == 0 ? 60 : 1 + rnd(20)); // (60: solved)
+	if (moves == 0 && !can_move(p->board.opponent, p->board.player)) { // the end of the game
+		p->score.value = p->score.lower = p->score.upper = (signed char) (2 * ((int) rnd(9) - 4));
+		return p->score.value;
+	}
+	if (moves == 0) x[n++] = PASS;
+	else { unsigned long long m; for (m = moves; m; m &= m - 1) x[n++] = (int) first_bit(m); }
+	for (i = 0; i < n; ++i) {
+		Board next;
+		Position *child;
+		board_next(&p->board, x[i], &next);
+		child = book_probe(book, &next);
+		if (child) {
+			Link link;
+			int s = -tb_value(book, child);
+			if (rnd(25) == 0) s += rnd(2) ? 1 : -2; // (a link not negamaxed again)
+			link.move = (unsigned char) x[i];
+			link.score = (signed char) (s < -SCORE_MAX ? -SCORE_MAX : s > SCORE_MAX ? SCORE_MAX : s);
+			position_add_link(p, &link);
+			if (link.score > best) best = link.score;
+		} else if (x[i] != PASS) leaf[n_leaf++] = x[i];
+	}
+	if (n_leaf && rnd(8)) {
+		int s = best > -SCORE_INF ? best - 2 * (int) rnd(4) + (rnd(4) == 0 ? 2 : 0) : 2 * ((int) rnd(9) - 4);
+		if (rnd(20) == 0) ++s; // (an odd value)
+		p->leaf.move = (unsigned char) leaf[rnd((unsigned) n_leaf)];
+		p->leaf.score = (signed char) (s < -SCORE_MAX ? -SCORE_MAX : s > SCORE_MAX ? SCORE_MAX : s);
+		if (p->leaf.score > best) best = p->leaf.score;
+	}
+	if (best == -SCORE_INF) best = 0;
+	if (rnd(25) == 0) best += rnd(2) ? 1 : -1; // (a value not negamaxed again)
+	p->score.value = p->score.lower = p->score.upper = (signed char) best;
+	return best;
+}
+
+/** @brief A random book: positions from the start by random moves (transpositions, passes), up to some plies. */
+static void tb_build(Book *book, const int plies, const int width)
+{
+	int first = 0, ply, i;
+	Board board;
+
+	book_init(book);
+	book->options.n_empties = 60 - plies + (int) rnd(3); // (the last plies are not walked)
+	tb_n = 0;
+	board_init(&board);
+	tb_add(book, &board);
+	for (ply = 0; ply < plies; ++ply) {
+		const int last = tb_n;
+		for (i = first; i < last; ++i) {
+			const Board cur = tb_board[i];
+			const unsigned long long moves = get_moves(cur.player, cur.opponent);
+			Board next;
+			int k;
+			if (moves == 0) {
+				if (can_move(cur.opponent, cur.player)) { board_next(&cur, PASS, &next); tb_add(book, &next); }
+				continue;
+			}
+			for (k = 1 + (int) rnd((unsigned) width); k > 0; --k) {
+				unsigned long long m = moves;
+				int j = (int) rnd((unsigned) bit_count(moves));
+				while (j--) m &= m - 1;
+				board_next(&cur, (int) first_bit(m), &next);
+				tb_add(book, &next);
+			}
+		}
+		first = last;
+	}
+	for (i = 0; i < tb_n; ++i) tb_value(book, book_probe(book, tb_board + i));
+}
+
+/** Counts of the comparisons of the stages. */
+typedef struct PrecisionCount {
+	long long moves, wrong, down, down_walked;
+	long long saved[3][3], plain[3][3];     /**< walks of the ranges left out, and without taking over: base, order */
+	long long best_saved[3], best_plain[3]; /**< walks of the best lines: order */
+} PrecisionCount;
+
+/**
+ * @brief Compare the stages of the moves of the positions of a book, taken over (ba_move_stage, as book moveinfo
+ * does), with the stages walked from the position after each move alone (ba_stage). The positions are taken in
+ * the order given (the current position is known: the stages go down), backwards (the next positions are known:
+ * up) and at random.
+ */
+static void precision_compare(Book *book, const Board *boards, const int n_board, const BaParams *prm, const char *name, PrecisionCount *c)
+{
+	const unsigned long long cond = ba_cond_stage(prm);
+	int *ref_stage = (int*) malloc((size_t) ba.index.n * sizeof *ref_stage), *ref_walks = (int*) malloc((size_t) ba.index.n * sizeof *ref_walks);
+	int *order = (int*) malloc((size_t) n_board * sizeof *order);
+	long long *ref_missing = (long long*) malloc((size_t) ba.index.n * sizeof *ref_missing);
+	BaJob job;
+	BaWork w;
+	int i, o;
+
+	memset(&job, 0, sizeof job);
+	job.book = book;
+	ba_work_init(&w, &job, prm);
+	for (i = 0; i < n_board; ++i) { // the stage of each position alone
+		unsigned int idx;
+		Position *p = ba_probe(&w, boards + i, &idx);
+		const long long walks = ba_test_range_walks;
+		ref_stage[idx] = ba_stage(&w, p, idx, ref_missing + idx);
+		ref_walks[idx] = (int) (ba_test_range_walks - walks);
+	}
+	for (o = 0; o < 3; ++o) {
+		for (i = 0; i < n_board; ++i) order[i] = o == 1 ? n_board - 1 - i : i;
+		if (o == 2) for (i = n_board - 1; i > 0; --i) { const int j = (int) rnd((unsigned) i + 1), k = order[i]; order[i] = order[j]; order[j] = k; }
+		free(ba_cache); ba_cache = NULL; // (the results are forgotten)
+		for (i = 0; i < n_board; ++i) {
+			BaMove move[MAX_MOVE + 1];
+			BaStageInfo cur_info;
+			Position *cur;
+			unsigned int cur_idx;
+			bool known;
+			int n, k;
+			memset(move, 0, sizeof move);
+			job.board = boards[order[i]];
+			job.player = BLACK;
+			n = ba_moves(&job, prm, &w, move, &cur, &cur_idx);
+			known = ba_cache_get_stage(cur_idx, cond, &cur_info);
+			for (k = 0; k < n; ++k) {
+				BaMove *m = move + k;
+				BaStageInfo kept;
+				const long long walks = ba_test_range_walks, best_walks = ba_test_best_walks;
+				bool is_kept, down;
+				if (m->p == NULL || m->same >= 0) continue;
+				is_kept = ba_cache_get_stage(m->idx, cond, &kept);
+				down =known && cur_info.stage == 2 + prm->n_stage && m->has_link && m->link == cur->score.value
+				    && ba_walkable(book, cur) && ba_walkable(book, m->p)
+				    && (prm->base != BA_DEVIATE || (m->p->score.value == -cur->score.value && !cur_info.recursive));
+				ba_move_stage(&w, cur, &cur_info, known, m);
+				++c->moves;
+				if (m->stage != ref_stage[m->idx] || m->missing != ref_missing[m->idx]) {
+					if (++c->wrong <= 10) printf("FAIL precision %s order %d: stage %d missing %lld, alone %d missing %lld\n",
+						name, o, m->stage, m->missing, ref_stage[m->idx], ref_missing[m->idx]);
+				}
+				if (is_kept) continue; // (given again)
+				c->plain[prm->base - 1][o] += ref_walks[m->idx];
+				c->saved[prm->base - 1][o] += ref_walks[m->idx] - (ba_test_range_walks - walks);
+				++c->best_plain[o];
+				c->best_saved[o] += 1 - (ba_test_best_walks - best_walks);
+				if (down && ref_stage[m->idx] >= 2) {
+					++c->down;
+					if (ba_test_range_walks != walks && ++c->down_walked <= 10) printf("FAIL precision %s order %d: a move of loss 0 from a complete position walked\n", name, o);
+				}
+			}
+		}
+	}
+	ba_work_free(&w);
+	free(ref_stage); free(ref_walks); free(order); free(ref_missing);
+}
+
+static void precision_print(const PrecisionCount *c, const long long t0)
+{
+	int base;
+	printf("  %lld moves, %lld wrong; %lld moves of loss 0 from a complete position, %lld walked\n", c->moves, c->wrong, c->down, c->down_walked);
+	for (base = 0; base < 3; ++base) printf("  %s: walks of the ranges left out (in order, backwards, at random): %lld/%lld, %lld/%lld, %lld/%lld\n",
+		base == 0 ? "deviate " : base == 1 ? "deviate2" : "deviate3", c->saved[base][0], c->plain[base][0], c->saved[base][1], c->plain[base][1], c->saved[base][2], c->plain[base][2]);
+	printf("  walks of the best lines left out: %lld/%lld, %lld/%lld, %lld/%lld; %.1f s\n", c->best_saved[0], c->best_plain[0], c->best_saved[1], c->best_plain[1], c->best_saved[2], c->best_plain[2], (real_clock() - t0) / 1000.0);
+}
+
+static const char *const precision_stages[] = {"1/1,2/2,3/3,4/4,5/5", "0/0,1/2,2/1,3/3", "2/4,1/1", "3/2,4/4,6/6", "0/1"};
+
+static bool precision_params(const int base, const char *stages, BaParams *prm, char *name, const int size)
+{
+	snprintf(name, (size_t) size, "base=%s stages=%s", base == BA_DEVIATE ? "deviate" : base == BA_DEVIATE2 ? "deviate2" : "deviate3", stages);
+	return ba_params_read(name, prm);
+}
+
+/**
+ * @brief The stages taken over in random books (see precision_compare; the positions in the order they were added,
+ * by plies): the same as walked alone; the walks left out: none for the moves of loss 0 from a complete position
+ * (deviate: same value), fewer than without taking over in all.
+ */
+static int precision(void)
+{
+	static Book book;
+	PrecisionCount c;
+	int t, base, si, i, n_solved = 0;
+	const long long t0 = real_clock();
+
+	memset(&c, 0, sizeof c);
+	for (t = 0; t < 200; ++t) {
+		tb_build(&book, 5 + (int) rnd(6), 1 + (int) rnd(3));
+		ba_index_free();
+		ba_index_get(&book);
+		for (i = 0; i < tb_n; ++i) if (position_is_solved(book_probe(&book, tb_board + i))) ++n_solved;
+		for (base = BA_DEVIATE; base <= BA_DEVIATE3; ++base) for (si = 0; si < (int) (sizeof precision_stages / sizeof *precision_stages); ++si) {
+			BaParams prm;
+			char name[160], s[128];
+			if (!precision_params(base, precision_stages[si], &prm, s, (int) sizeof s)) { printf("FAIL precision: %s\n", s); return 2; }
+			snprintf(name, sizeof name, "book %d %s", t, s);
+			precision_compare(&book, tb_board, tb_n, &prm, name, &c);
+		}
+		book_free(&book);
+	}
+	ba_index_free();
+	printf("precision: 200 random books (%d solved positions)\n", n_solved);
+	precision_print(&c, t0);
+	if (c.down == 0 || c.saved[0][0] <= 0 || c.saved[1][0] <= 0 || c.saved[2][0] <= 0 || c.saved[1][1] <= 0 || c.saved[2][1] <= 0 || c.best_saved[1] <= 0) {
+		printf("FAIL precision: no walk left out\n");
+		return 2;
+	}
+	return c.wrong || c.down_walked ? 2 : 0;
+}
+
+/** @brief The stages taken over in a book file (see precision_compare; the positions in the order of the book). */
+static int precision_book(const char *file, const char *stages)
+{
+	static Book book;
+	PrecisionCount c;
+	Board *boards;
+	int base, n = 0, b, j;
+	const long long t0 = real_clock();
+
+	book_init(&book);
+	if (!book_load(&book, file)) { printf("FAIL precision-book: cannot load %s\n", file); return 2; }
+	boards = (Board*) malloc((size_t) book.n_nodes * sizeof *boards);
+	for (b = 0; b < book.n; ++b) for (j = 0; j < book.array[b].n; ++j) boards[n++] = book.array[b].positions[j].board;
+	ba_index_free();
+	ba_index_get(&book);
+	memset(&c, 0, sizeof c);
+	for (base = BA_DEVIATE; base <= BA_DEVIATE3; ++base) {
+		BaParams prm;
+		char s[128];
+		if (!precision_params(base, stages, &prm, s, (int) sizeof s)) { printf("FAIL precision-book: %s\n", s); return 2; }
+		precision_compare(&book, boards, n, &prm, s, &c);
+	}
+	ba_index_free();
+	printf("precision-book %s: %d positions, stages=%s\n", file, n, stages);
+	precision_print(&c, t0);
+	free(boards);
+	book_free(&book);
+	return c.wrong || c.down_walked ? 2 : 0;
+}
+
+/* ------------------------------------------------------------------ book commands typed without book ------------------------------------- */
+
+/** @brief The hint of the warning when a book command is typed without book (edax.c, book_command_hint). */
+static int bookhint(void)
+{
+	static const struct { const char *cmd, *param, *hint; } cases[] = {
+		{"leaf", "expand 30 30", " (book command: type \"book leaf expand 30 30\" or \"b leaf expand 30 30\")"},
+		{"leaf", "recalculate 30 30", " (book command: type \"book leaf recalculate 30 30\" or \"b leaf recalculate 30 30\")"},
+		{"fill2", "2", " (book command: type \"book fill2 2\" or \"b fill2 2\")"},
+		{"deviate3", "5 5", " (book command: type \"book deviate3 5 5\" or \"b deviate3 5 5\")"},
+		{"moveinfo", "id=1", " (book command: type \"book moveinfo id=1\" or \"b moveinfo id=1\")"},
+		{"store", "", " (book command: type \"book store\" or \"b store\")"},
+		{"reduce", "2 4", " (book command: type \"book reduce 2 4\" or \"b reduce 2 4\")"},
+		// top-level commands and options of the same name, base commands, others: no hint
+		{"new", "x", ""}, {"load", "a.dat", ""}, {"open", "a.dat", ""}, {"save", "a.dat", ""}, {"play", "f5", ""},
+		{"a", "", ""}, {"analyze", "", ""}, {"info", "", ""}, {"verbose", "", ""}, {"depth", "", ""},
+		{"check", "", ""}, {"correct", "", ""}, {"problem", "", ""}, {"echo", "M1", ""}, {"f5", "", ""},
+		{"leafexpand", "30 30", ""}, {"book", "leaf expand 30 30", ""},
+	};
+	int i, n_bad = 0;
+	for (i = 0; i < (int) (sizeof cases / sizeof *cases); ++i) {
+		char *hint = book_command_hint(cases[i].cmd, cases[i].param);
+		if (strcmp(hint ? hint : "", cases[i].hint) != 0) {
+			++n_bad;
+			printf("FAIL bookhint \"%s %s\": \"%s\", wanted \"%s\"\n", cases[i].cmd, cases[i].param, hint ? hint : "", cases[i].hint);
+		}
+		free(hint);
+	}
+	printf("bookhint: %d cases, %d wrong\n", i, n_bad);
+	return n_bad ? 2 : 0;
+}
+
 int main(int argc, char **argv)
 {
 	setbuf(stdout, NULL);
 	if (argc < 2) return 1;
 	if (strcmp(argv[1], "umigame") == 0) return umigame();
 	if (strcmp(argv[1], "umigame-large") == 0) return umigame_large();
+	if (strcmp(argv[1], "bookhint") == 0) return bookhint();
+	if (strcmp(argv[1], "precision") == 0 || (strcmp(argv[1], "precision-book") == 0 && argc >= 3)) {
+		bit_init(); edge_stability_init(); search_global_init();
+		options.n_task = 1;
+		if (argv[1][9] == '\0') return precision();
+		return precision_book(argv[2], argc >= 4 ? argv[3] : precision_stages[0]);
+	}
 	return 1;
 }

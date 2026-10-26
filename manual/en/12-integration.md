@@ -266,6 +266,7 @@ These commands let a GUI program delegate to Edax the counts that require traver
 | 3 to 7 | `book deviate 1 1` to `book deviate 5 5` from the position after the move would add nothing |
 
 - The reference command can be changed to `base=deviate2` or `base=deviate3`, and the ranges with `stages=1/1,2/2,3/3,4/4,5/5`.
+- The stages found are kept until the book changes. For the position after a move, what the kept stages of the current position and of the next positions already tell is not walked again (from v4.5.5-nikque.23; the answers are the same).
 
 **Umigame numbers** (`umi=black:white`)
 

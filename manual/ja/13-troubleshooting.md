@@ -25,6 +25,7 @@
 | 表示・起きたこと | 意味 | 対処 |
 |---|---|---|
 | `WARNING: Unknown command/Illegal move: "e3 "` | 打てないマスか、知らないコマンド | 打てるマスは、左の盤の `.`。コマンドの綴りは [14 章](14-reference.md) |
+| `WARNING: Unknown command/Illegal move: "leaf expand 30 30" (book command: type "book leaf expand 30 30" or "b leaf expand 30 30")` | book のコマンドを `book` なしで打った | 案内のとおり、`book`（または `b`）の後に書く（v4.5.5-nikque.23 から案内が出ます） |
 | 手を打っても Edax が打ってこない | `mode 3` になっている（起動した直後、`stop` の後） | `mode 0`（自分が黒）か `mode 1`（自分が白）。1 手だけなら `go` |
 | 打てるマスがなくて進まない | パスの番 | `ps` |
 | Edax が考え続けて戻ってこない | level が高い、または持ち時間が長い | `stop`。その後 `level` を下げて `mode 0`／`mode 1` |
