@@ -267,6 +267,7 @@ These commands let a GUI program delegate to Edax the counts that require traver
 
 - The reference command can be changed to `base=deviate2` or `base=deviate3`, and the ranges with `stages=1/1,2/2,3/3,4/4,5/5`.
 - The stages found are kept until the book changes. For the position after a move, what the kept stages of the current position and of the next positions already tell is not walked again (from v4.5.5-nikque.23; the answers are the same).
+- `book missing` answers 0 lines without walking when the kept precision stages already tell that the range asked (`x=`, `y=`) finds nothing from that position (from v4.5.5-nikque.24; the answers are the same).
 
 **Umigame numbers** (`umi=black:white`)
 
@@ -278,6 +279,9 @@ These commands let a GUI program delegate to Edax the counts that require traver
   - `umi=loss x=… y=…`: loss per move, and total loss.
   - `umi=range lo=… hi=…`: a range of values.
 - With a wide range, a number that may not be the smallest is marked `exact=0`.
+- The umigame numbers found are kept until the book changes. When the position after a move is counted, the values of the positions 1 and 2 moves further are kept too, and they are not counted again when those positions become the current position (from v4.5.5-nikque.24).
+  - Kept: every position with `umi=best`; the positions reached with a loss of 0 with `umi=loss`; with `umi=range`, the positions with the same side to move as the position after the move (all of them when `lo=-hi`). No value is kept from a count marked `exact=0`.
+  - The answers are the same, except that a move marked `exact=0` when counted from its position alone may get the exact value kept from the position before (not marked, smaller or equal).
 
 Example (a test book):
 
@@ -298,6 +302,7 @@ Example (a test book):
 - It first answers the moves out of the book, then the precision stages, the umigame numbers (`part=umi`) and the numbers of positions (`part=count`).
 - Near the start of a large book, the numbers of positions take time. A part can be requested alone, as in `parts=stage,umi`.
 - `lines=` is the number of unterminated lines recorded in the book (counted at once; a transposition is counted once for each line).
+- The numbers of positions (`part=count`) and the counts of `book levels` (except `scope=all`) are kept for each position until the book changes. `book levels` at a position already counted, or the same move counted again, does not walk the book again (from v4.5.5-nikque.24; the answers are the same).
 
 **`book bestlines`**
 

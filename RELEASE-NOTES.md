@@ -2,6 +2,17 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.12 (with the changes of v4.5.5-nikque.24)
+
+**Not released** (the next version). The changes of v4.5.5-nikque.24 (the nikque.24 entry below: the umigame numbers, the numbers of positions, `book levels` and `book missing` taken over from the positions before) are added to v4.5.5-eval2.11. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The code of the search is not changed.
+
+- Manual: 12.4 describes the three changes of nikque.24, with the same text as the nikque manual.
+
+Checks:
+
+- Tests (`tests/book-analyze.c`, the tests of nikque.24): the umigame numbers, the numbers of positions and the answers of `book missing` taken over were compared with the answers found from each position alone, for every move, with no difference. The tests of the precision stages and of the hint pass too (the same numbers as eval2.11).
+- The node counts of the search and the build of the package are checked at the release.
+
 ## v4.5.5-eval2.11 (with the changes of v4.5.5-nikque.23)
 
 The changes of v4.5.5-nikque.23 (the nikque.23 entry below: the precision stages of `book moveinfo` taken over from the answers of the positions before and after, the hint for a book command typed without `book`) are added to v4.5.5-eval2.10. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The search and its results are those of v4.5.5-eval2.10.
@@ -156,6 +167,21 @@ Speed (release executables: time of this version with the new `eval.dat`, divide
 Training data: the search scores of self-play games of Edax itself (level 8, about 840,000 games), the positions and scores of a book learned with this fork, and the training data published on the site of [Egaroucid](https://www.egaroucid.nyanyan.dev/). For Egaroucid, only the published data was used for training: its patterns and trained weights are not used. The training data is not in the package.
 
 Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
+## v4.5.5-nikque.24
+
+**Not released** (the next version). The umigame numbers (`part=umi`) and the numbers of positions (`part=count`) of the candidate moves of the GUI, `book levels` and `book missing` are taken over from the answers of the positions before, so that the same counts are not made again. The answers are the same as in v4.5.5-nikque.23 (an umigame number marked `exact=0` when counted from its position alone may become the exact value kept from the position before).
+
+- Umigame numbers: when the graph of the position after a move is counted, the values of the positions 1 and 2 moves further in it are kept (with `umi=loss`, the positions reached with a loss of 0; with `umi=range`, the positions with the same side to move as the position after the move, or all when `lo=-hi`; nothing from a graph whose terms were dropped). On the games of 3 test books, with their positions looked at from the first move on, the nodes of the graphs built went down by about 38% to 46% with `umi=best`, and by about 4% to 53% with `umi=loss x=2 y=4`.
+- Numbers of positions and `book levels`: the answer of each position is kept until the book changes, and `book levels` does not walk the book when a position after a move already counted has become the current position.
+- `book missing`: when the kept precision stages already tell that the range asked finds nothing, it answers 0 lines without walking (not with the defaults of the GUI, `base=deviate` and `x=2 y=4`).
+- Manual: 12.4 describes the three changes above.
+
+Checks:
+
+- Tests (`tests/book-analyze.c`): the answers taken over were compared with the answers found from each position alone, for every move, with no difference (umigame numbers: 40,000 random graphs, 100 random books and 3 test books, 6 conditions, 3 orders of the positions; numbers of positions: 200 random books and 3 test books; `book missing`: 100 random books and 1 test book).
+- The `@` lines of the same commands as v4.5.5-nikque.23 (2 test books, 5 conditions) are the same.
+- The speed on a real book and the behaviour in the GUI were not checked.
+
 ## v4.5.5-nikque.23
 
 The precision of the candidate moves of the GUI (`stage=` and `missing=` of `book moveinfo`) is taken over from the answers of the positions before and after, so that less is walked. The answers are the same as in v4.5.5-nikque.22.
