@@ -4,7 +4,23 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.10).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.22) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.11).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.23) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+
+## Changes in v4.5.5-eval2.11
+
+The changes of v4.5.5-nikque.23 (the nikque.23 entry below: the precision stages of `book moveinfo` taken over from the answers of the positions before and after, the hint for a book command typed without `book`) are added to v4.5.5-eval2.10. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The search and its results are those of v4.5.5-eval2.10.
+
+- Manual: every book command is written in the form `book …` (`book leaf expand 30 30` and so on). The review of the wording of the nikque manual was applied to the eval2 manual too. The version described (v4.5.5-eval2.10), the names of the versions (`v4.5.5-eval2.N`), the version of `eval.dat` (3.3.0) and the place of the records (this `README-NIKQUE.*`) follow eval2, and the figures measured with nikque versions and the original `eval.dat` say so.
+- The rewriting of the nikque documents (README, release notes, records moved to `docs/validation/`, `README-NIKQUE.*` removed) is not in eval2.
+
+Checks:
+
+- Tests (`tests/book-analyze.c`): the precision stages taken over were compared with the stages walked from each position alone, for every move, with no difference (200 random books, 3 bases, 5 ranges, 3 orders of the positions; one test book). The hint of the warning (24 cases) and the umigame test pass too.
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`).
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (78,733,223) and lines as v4.5.5-eval2.10; the 7 Cassio cases pass. The 3 DLLs: 204 API checks, 0 failures. Suite F of `book-reproducible` gives the same books as v4.5.5-eval2.10. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 204 API checks, 0 failures. Android (NDK r27d): no warning. Release CI (run 40423804909): the Linux and macOS libraries pass 204 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,192,396, arm64 2,196,096). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The warning of `book_analyze.c` in the gcc 11.4 `x86-64-v4` build (a write that might go beyond an array, a false alarm: the number of ranges is at most 8 when the command is read) is gone with one line that checks the number of the range (it works the same).
+- The search, the evaluation, the book learning and the file format are not changed (the code changed finds the precision stages of `book moveinfo`, and writes the warning of an unknown command). The node counts above check that the search is the same.
+- Size (against v4.5.5-eval2.10): the 5 Windows programs +1,536 to +3,584 bytes, the 3 DLLs +512 bytes. Built by the release workflow: Linux programs +8,192 to +16,384 bytes and libraries +8,192 to +12,288 bytes, macOS programs +8,200 and +16,528 bytes and library +0 bytes, Android programs +2,520 and +4,368 bytes and libraries +2,352 and +4,368 bytes, Windows ARM64 +4,096 bytes.
 
 ## Changes in v4.5.5-eval2.10
 
@@ -248,6 +264,25 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+## Changes in v4.5.5-nikque.23
+
+The precision of the candidate moves of the GUI (`stage=` and `missing=` of `book moveinfo`) is taken over from the answers of the positions before and after, so that less is walked. The answers are the same as in v4.5.5-nikque.22.
+
+- What the kept stage of the current position and the kept stages of the next positions of the position after a move already tell is not walked. When the current position is complete for a range, the position after a move of loss 0 is complete for that range too (with `base=deviate`, when the value of the position after the move is the opposite of the value of the current position). With `base=deviate2` and `deviate3`, the smallest loss to a leaf is kept for each position, built from the values of the next positions and passed on to them. Whether a line of best moves reaches a solved position is found from the answers of the next positions.
+- A book command typed at the top level (`leaf expand 30 30`, `fill2 2`, …) adds `(book command: type "book leaf expand 30 30" or "b leaf expand 30 30")` to the warning. Names that are also top-level commands, settings or `base` commands (`new`, `load`, `save`, `play`, `info`, `check`, …) get no hint.
+- Manual: every book command is written in the form `book …`, and the wording was reviewed in Japanese and English (12.4 and 13.2 describe the two changes above).
+
+Checks:
+
+- Tests (`tests/book-analyze.c`): the stages taken over were compared with the stages walked from each position alone, for every move, with no difference (200 random books and 2 test books, 3 bases, 3 orders of the positions). On a test book of about 410,000 positions, looked at in the order of the book, the walks of the ranges went down by about 14% with `deviate` and about 29% with `deviate2` and `deviate3`, and the walks of the best lines by about 99%.
+- The answers of `book moveinfo` to the same commands as v4.5.5-nikque.22 (2 test books, each position of 2 games, 3 bases) are the same. The hint of the warning was checked by a test of 24 cases and with a file of commands given to the executable.
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`).
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (77,639,567) and lines as v4.5.5-nikque.22; the 7 Cassio cases pass. The 3 DLLs: 204 API checks, 0 failures. Suite F of `book-reproducible` gives the same books as v4.5.5-nikque.22. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 204 API checks, 0 failures. Android (NDK r27d): no warning. Release CI (run 40423800206): the Linux and macOS libraries pass 204 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,175,751, arm64 2,181,259). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The warning of `book_analyze.c` in the gcc 11.4 `x86-64-v4` build (a write that might go beyond an array, a false alarm: the number of ranges is at most 8 when the command is read) is gone with one line that checks the number of the range (it works the same).
+- The search, the evaluation, the book learning and the file format are not changed (the code changed finds the precision stages of `book moveinfo`, and writes the warning of an unknown command). The node counts above check that the search is the same.
+- Size (against v4.5.5-nikque.22): the 5 Windows programs +2,560 to +3,072 bytes, the 3 DLLs +512 bytes. Built by the release workflow: Linux executables +12,288 to +16,384 bytes and libraries +8,192 bytes, macOS executables +4,096 and +16,528 bytes and library +0 bytes, Android executables +2,536 and +4,368 bytes and libraries +2,368 and +4,352 bytes, Windows ARM64 +4,608 bytes.
+- The speed on a real book and the behaviour in the GUI were not checked.
+
 ## Changes in v4.5.5-nikque.22
 
 `book reduce`, which makes the book lighter, and `book reducecount`, which counts first, take less time and memory with large books. **The positions kept and what each of them holds (values, links, leaves...) are those of v4.5.5-nikque.21.** The search, `eval.dat` and the book file format are not changed.
