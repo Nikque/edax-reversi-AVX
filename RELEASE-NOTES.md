@@ -14,6 +14,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 | nikque | eval2 | newedax |
 |---|---|---|
+| nikque.24 (not released) | eval2.12 (not released) | newedax.9 (not released) |
 | nikque.23 | eval2.11 | newedax.8 |
 | nikque.22 | eval2.10 | newedax.7 |
 | nikque.21 | eval2.9 | newedax.6 |
@@ -30,6 +31,31 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 ---
 
 # nikque line
+
+## v4.5.5-nikque.24
+
+**Not released** (the next version). The umigame numbers and the numbers of positions of the candidate moves of the GUI, `book levels` and `book missing` are taken over from the answers of the positions before, so that the same counts are not made again.
+
+**Changes**
+
+- Umigame numbers (`part=umi` of `book moveinfo`): when the graph of the position after a move is counted, the values of the positions 1 and 2 moves further in it are taken out and kept, so that their graphs are not built again when they become the current position.
+  - Kept: every position with `umi=best`; the positions reached with a loss of 0 with `umi=loss`; with `umi=range`, the positions with the same side to move as the position after the move (all of them when `lo=-hi`).
+  - Nothing is kept from a graph whose terms were dropped (`exact=0`). A value whose terms are dropped when it is taken out is not used either.
+  - On the games of 3 test books, with their positions looked at from the first move on, the nodes of the graphs built went down by about 38% to 46% with `umi=best`, and by about 4% to 53% with `umi=loss x=2 y=4`.
+- Numbers of positions (`part=count`) and `book levels`: the answer of each position (the number of positions and the number per level) is kept until the book changes. `book levels` sent when a position after a move already counted has become the current position does not walk the book.
+- `book missing`: when the kept precision stages already tell that the range asked (`x=`, `y=`) finds nothing, it answers 0 lines without walking. With the defaults of the GUI (`base=deviate`, ranges `1/1` to `5/5`, `x=2 y=4`) this does not apply, as there is no range 2/4; it applies with `base=deviate2` and `deviate3`, or with a range 2/4.
+- Manual: 12.4 describes the three changes above.
+
+**Compatibility**
+
+- The answers of `book moveinfo`, `book levels` and `book missing` are the same as in nikque.23, except that an umigame number marked `exact=0` when counted from its position alone may become the exact value kept from the position before (not marked, smaller or equal).
+- The search results, `eval.dat` and the book file format do not change.
+
+**Checked**: the answers taken over were compared with the answers found from each position alone, for every move (umigame numbers: 40,000 random graphs, 100 random books and 3 test books, 6 conditions, 3 orders of the positions; numbers of positions: 200 random books and 3 test books; `book missing`: 100 random books and 1 test book; no difference). The `@` lines of the same commands as nikque.23 (2 test books, 5 conditions) are the same.
+
+**Not checked**: the speed on a real book, the behaviour in the GUI.
+
+---
 
 ## v4.5.5-nikque.23
 
@@ -922,6 +948,23 @@ This is the first release, based on upstream Edax v4.5.5. It adds `book deviate2
 # eval2 line
 
 The nikque line plus a new evaluation function (mobility weights), published from the `eval2` branch. Each version contains all changes of the nikque versions listed in the "Versions" table above.
+
+## v4.5.5-eval2.12
+
+**Not released** (the next version). The changes of v4.5.5-nikque.24 are included ([nikque.24](#v455-nikque24)).
+
+**Changes**
+
+- The umigame numbers, the numbers of positions, `book levels` and `book missing` taken over from the positions before (the same as in nikque.24).
+- Manual: 12.4 has the same text as the nikque manual.
+
+**Compatibility**
+
+- The evaluation function and `eval.dat` are those of eval2.1 (the same file).
+- The code of the search is not changed (the node counts are checked at the release).
+- The answers of `book moveinfo`, `book levels` and `book missing` are the same as in eval2.11 (with the same exception as nikque.24 for the umigame numbers marked `exact=0`).
+
+---
 
 ## v4.5.5-eval2.11
 
