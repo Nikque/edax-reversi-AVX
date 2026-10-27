@@ -5,6 +5,20 @@ Tests and measurements done for each version, moved without changes from the for
 For what changed, see the [release notes](../../RELEASE-NOTES.md). "Above" and "below" in the text refer to positions in the former document.
 
 
+## v4.5.5-nikque.23
+
+Checks:
+
+- The test of the stages taken over (`precision` of `tests/book-analyze.c`): on 200 random books (transpositions, passes, solved positions, positions beyond the book depth, values not negamaxed again and links that differ mixed in), for 502,470 moves (3 bases × 5 ranges × 3 orders of the positions), the stages and missing leaves taken over are those walked from each position alone. The 6,268 moves of loss 0 from a complete position were not walked at all.
+- On 2 test books (1,547 and 409,494 positions), every move of every position gives the same answer (about 4.78 million moves on the book of 409,494 positions). The answers of `book moveinfo` (3 bases, each position of 2 games) are the same as those of a program built from the source of v4.5.5-nikque.22.
+- The test of the hint of the warning (`bookhint`): 24 cases. With a file of commands given to the program: `leaf expand 30 30`, `fill2 2` and the like get the hint, `new x`, `check`, `correct` and `echo` do not.
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`).
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (77,639,567) and lines as v4.5.5-nikque.22; the 7 Cassio cases pass. The 3 DLLs: 204 API checks, 0 failures. Suite F of `book-reproducible` gives the same books as v4.5.5-nikque.22. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 204 API checks, 0 failures. Android (NDK r27d): no warning. Release CI (run 40423800206): the Linux and macOS libraries pass 204 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,175,751, arm64 2,181,259). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The warning of `book_analyze.c` in the gcc 11.4 `x86-64-v4` build (a write that might go beyond an array, a false alarm: the number of ranges is at most 8 when the command is read) is gone with one line that checks the number of the range (it works the same).
+- The search, the evaluation, the book learning and the file format are not changed (the code changed finds the precision stages of `book moveinfo`, and writes the warning of an unknown command). The node counts above check that the search is the same.
+- Size (against v4.5.5-nikque.22): the 5 Windows programs +2,560 to +3,072 bytes, the 3 DLLs +512 bytes. Built by the release workflow: Linux executables +12,288 to +16,384 bytes and libraries +8,192 bytes, macOS executables +4,096 and +16,528 bytes and library +0 bytes, Android executables +2,536 and +4,368 bytes and libraries +2,368 and +4,352 bytes, Windows ARM64 +4,608 bytes.
+- Speed: not measured (the time of `book moveinfo` was measured neither on a real book nor in the GUI).
+
 ## v4.5.5-nikque.22
 
 Checks:

@@ -5,6 +5,17 @@ Tests and measurements done for each version, moved without changes from the for
 For what changed, see the [release notes](../../RELEASE-NOTES.md). "Above" and "below" in the text refer to positions in the former document.
 
 
+## v4.5.5-eval2.11
+
+Checks:
+
+- The tests of the stages taken over and of the hint (the tests of nikque.23): for 502,470 moves of 200 random books, the stages taken over are those walked from each position alone; the same on one test book (1,547 positions); the 24 cases of the hint pass.
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`).
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (78,733,223) and lines as v4.5.5-eval2.10; the 7 Cassio cases pass. The 3 DLLs: 204 API checks, 0 failures. Suite F of `book-reproducible` gives the same books as v4.5.5-eval2.10. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 204 API checks, 0 failures. Android (NDK r27d): no warning. Release CI (run 40423804909): the Linux and macOS libraries pass 204 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,192,396, arm64 2,196,096). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The warning of `book_analyze.c` in the gcc 11.4 `x86-64-v4` build (a write that might go beyond an array, a false alarm: the number of ranges is at most 8 when the command is read) is gone with one line that checks the number of the range (it works the same).
+- The search, the evaluation, the book learning and the file format are not changed (the code changed finds the precision stages of `book moveinfo`, and writes the warning of an unknown command). The node counts above check that the search is the same.
+- Size (against v4.5.5-eval2.10): the 5 Windows programs +1,536 to +3,584 bytes, the 3 DLLs +512 bytes. Built by the release workflow: Linux programs +8,192 to +16,384 bytes and libraries +8,192 to +12,288 bytes, macOS programs +8,200 and +16,528 bytes and library +0 bytes, Android programs +2,520 and +4,368 bytes and libraries +2,352 and +4,368 bytes, Windows ARM64 +4,096 bytes.
+
 ## v4.5.5-eval2.10
 
 Checks:

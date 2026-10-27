@@ -14,7 +14,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 | nikque | eval2 | newedax |
 |---|---|---|
-| nikque.23 (not released) | eval2.11 (not released) | newedax.8 (not released) |
+| nikque.23 | eval2.11 | newedax.8 |
 | nikque.22 | eval2.10 | newedax.7 |
 | nikque.21 | eval2.9 | newedax.6 |
 | nikque.20 | eval2.8 | newedax.5 |
@@ -33,7 +33,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 ## v4.5.5-nikque.23
 
-**Not released** (the next version). The precision of the candidate moves of the GUI (`stage=` of `book moveinfo`) is taken over from the answers of the positions before and after, so that less is walked. A book command typed without `book` gets a hint on how to type it. The manual and the documents were rewritten.
+The precision of the candidate moves of the GUI (`stage=` of `book moveinfo`) is taken over from the answers of the positions before and after, so that less is walked. A book command typed without `book` gets a hint on how to type it. The manual and the documents were rewritten.
 
 **Changes**
 
@@ -58,6 +58,8 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 **Checked**: the stages taken over were compared with the stages walked from each position alone, for every move (200 random books and 2 test books, 3 bases, 3 orders of the positions; no difference). The answers of `book moveinfo` to the same commands are the same as those of nikque.22.
 
 **Not checked**: the speed on a real book, the behaviour in the GUI.
+
+[Tests and measurements](docs/validation/nikque.en.md#v455-nikque23)
 
 ---
 
@@ -923,7 +925,7 @@ The nikque line plus a new evaluation function (mobility weights), published fro
 
 ## v4.5.5-eval2.11
 
-**Not released** (the next version). The changes of v4.5.5-nikque.23 are included ([nikque.23](#v455-nikque23)).
+The changes of v4.5.5-nikque.23 are included ([nikque.23](#v455-nikque23)).
 
 **Changes**
 
@@ -934,8 +936,10 @@ The nikque line plus a new evaluation function (mobility weights), published fro
 **Compatibility**
 
 - The evaluation function and `eval.dat` are those of eval2.1 (the same file).
-- The code of the search is not changed (the node counts are checked at the release).
+- The results of the search (scores and node counts) are those of eval2.10.
 - The answers of `book moveinfo` are the same as in eval2.10.
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval211)
 
 ---
 
