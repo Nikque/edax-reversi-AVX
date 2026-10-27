@@ -452,7 +452,7 @@ static bool ba_index_get(const Book *book)
 static inline unsigned long long ba_hash(const unsigned long long);
 
 /* results kept while the book does not change (going back to a position gives them at once) */
-enum { BA_CACHE_STAGE = 1, BA_CACHE_UMI = 2, BA_CACHE_COUNT = 3 };
+enum { BA_CACHE_STAGE = 1, BA_CACHE_UMI = 2 };
 #define BA_CACHE_SIZE (1 << 15)
 #define BA_CACHE_PROBE 16
 
@@ -574,11 +574,64 @@ static void ba_cache_put_stage(const unsigned int idx, const unsigned long long 
 	ba_cache_put(ba_cache_key(idx, BA_CACHE_STAGE, 0), cond, s->stage, s->missing, (s->found ? 1 : 0) | (s->recursive ? 2 : 0), s->lb, s->exact);
 }
 
+/* positions reached from a position and their levels (book moveinfo parts=count, book levels), kept while the book does not change */
+#define BA_REACHED_SIZE 4096
+#define BA_REACHED_PROBE 8
+
+typedef struct BaReached {
+	unsigned int key;       /**< number of the position + 1; 0: empty */
+	long long n;
+	long long hist[61];
+} BaReached;
+
+static BaReached *ba_reached;
+
+/** @return true if the positions reached from a position are kept. */
+static bool ba_reached_get(const unsigned int idx, long long *n, long long hist[61])
+{
+	bool found = false;
+	int i;
+	lock(&ba);
+	if (ba_reached) for (i = 0; i < BA_REACHED_PROBE; ++i) {
+		const BaReached *e = ba_reached + ((ba_hash(idx + 1) + (unsigned long long) i) & (BA_REACHED_SIZE - 1));
+		if (e->key == 0) break;
+		if (e->key == idx + 1) {
+			*n = e->n;
+			memcpy(hist, e->hist, sizeof e->hist);
+			found = true;
+			break;
+		}
+	}
+	unlock(&ba);
+	return found;
+}
+
+static void ba_reached_put(const unsigned int idx, const long long n, const long long hist[61])
+{
+	int i;
+	lock(&ba);
+	if (ba_reached == NULL) ba_reached = (BaReached*) calloc(BA_REACHED_SIZE, sizeof *ba_reached);
+	if (ba_reached) {
+		for (i = 0; i < BA_REACHED_PROBE; ++i) {
+			BaReached *e = ba_reached + ((ba_hash(idx + 1) + (unsigned long long) i) & (BA_REACHED_SIZE - 1));
+			if (e->key == 0 || e->key == idx + 1) {
+				e->key = idx + 1; e->n = n;
+				memcpy(e->hist, hist, sizeof e->hist);
+				break;
+			}
+		}
+		if (i == BA_REACHED_PROBE) memset(ba_reached, 0, BA_REACHED_SIZE * sizeof *ba_reached); // (full: start again)
+	}
+	unlock(&ba);
+}
+
 /** @brief Forget the numbering of the positions (the book may change). */
 static void ba_index_free(void)
 {
 	free(ba_cache);
 	ba_cache = NULL;
+	free(ba_reached);
+	ba_reached = NULL;
 	free(ba.index.first);
 	ba.index.first = NULL;
 	free(ba.index.table);
@@ -786,6 +839,7 @@ typedef struct BaUNode {
 	unsigned short loss;
 	unsigned char color;    /**< side to move */
 	unsigned char key;      /**< 2 * discs + (side to move can move): the next positions have a greater key */
+	unsigned char depth;    /**< moves from the root (the fewest; 255 at most) */
 	bool end;               /**< end of the lines */
 } BaUNode;
 
@@ -842,6 +896,8 @@ struct BaWork {
 	unsigned long long pool_kept;  /**< numbers in the pool after the last ba_pool_compact */
 	bool inexact;           /**< terms were dropped: the value may be too large */
 	bool too_large;
+	int keep_depth;         /**< the values of the nodes 1 to keep_depth moves from the root are kept (see ba_umi_keep_value) */
+	long long *kept;       /**< values of the nodes as counted from each alone, by node and side; -1: not known */
 };
 
 #define BA_TERM_MAX 128                     /**< terms kept in an expression (more: the value is an upper bound, that a choice of moves reaches) */
@@ -872,7 +928,8 @@ static void ba_umi_free(BaWork *w)
 	free(w->rep); free(w->def); free(w->g); w->rep = w->def = NULL; w->g = NULL;
 	free(w->uses); free(w->remain); free(w->stamp); free(w->found);
 	w->uses = NULL; w->remain = w->stamp = w->found = NULL;
-	free(w->node); free(w->edge); free(w->order); free(w->rank); free(w->pool);
+	free(w->node); free(w->edge); free(w->order); free(w->rank); free(w->pool); free(w->kept);
+	w->kept = NULL;
 	w->node = NULL; w->edge = NULL; w->order = w->rank = NULL; w->pool = NULL;
 	w->n_node = w->size_node = 0; w->n_edge = w->size_edge = 0; w->n_pool = w->size_pool = 0;
 	ba_map_free(&w->map); ba_map_free(&w->end_map);
@@ -1292,9 +1349,13 @@ stop:
 
 #ifdef BOOK_ANALYZE_TEST
 static long long ba_test_best_walks, ba_test_range_walks; /**< walks of ba_stage_info (test builds) */
+static long long ba_test_reach_walks; /**< walks of ba_reach (test builds) */
+static long long ba_test_umi_builds, ba_test_umi_nodes, ba_test_umi_keeps; /**< lines of umigame numbers found, their nodes, values kept (test builds) */
 #define BA_TEST_COUNT(n) (++(n))
+#define BA_TEST_ADD(n, k) ((n) += (k))
 #else
 #define BA_TEST_COUNT(n) ((void) 0)
+#define BA_TEST_ADD(n, k) ((void) 0)
 #endif
 
 /** @brief B_k of a range, as a lower bound, in s (exact if exact). */
@@ -1481,6 +1542,7 @@ static long long ba_reach(BaWork *w, Position *root, const unsigned int root_idx
 	int i;
 
 	if (bits == NULL) return -1;
+	BA_TEST_COUNT(ba_test_reach_walks);
 	memset(t, 0, sizeof t);
 	for (i = 0; i < 61; ++i) hist[i] = 0;
 	ba_bit_set(bits, root_idx);
@@ -1513,6 +1575,16 @@ static long long ba_reach(BaWork *w, Position *root, const unsigned int root_idx
 	free(cur.v);
 	free((void*) bits);
 	return w->job->cancel ? -1 : n;
+}
+
+/** @brief ba_reach, kept (see BaReached). @return the number, -1 if stopped. */
+static long long ba_reach_kept(BaWork *w, Position *root, const unsigned int root_idx, long long hist[61])
+{
+	long long n;
+	if (ba_reached_get(root_idx, &n, hist)) return n;
+	n = ba_reach(w, root, root_idx, hist);
+	if (n >= 0) ba_reached_put(root_idx, n, hist);
+	return n;
 }
 
 /* ------------------------------------------------------------------ umigame numbers --------------------------------------------------------- */
@@ -1650,6 +1722,7 @@ static int ba_umi_build(BaWork *w, Position *root, const unsigned int root_idx, 
 				if (child == NULL) continue;
 				c = ba_umi_node(w, child, ci, !color, child_loss, &added);
 				if (c == UINT_MAX || !ba_edge_push(w, c)) return -1;
+				if (added) w->node[c].depth = (unsigned char) (w->node[i].depth < 255 ? w->node[i].depth + 1 : 255);
 			}
 		}
 		w->node[i].edge = (unsigned int) first;
@@ -1687,6 +1760,8 @@ static int ba_umi_build(BaWork *w, Position *root, const unsigned int root_idx, 
 			w->rank[i] = r;
 		}
 	}
+	BA_TEST_COUNT(ba_test_umi_builds);
+	BA_TEST_ADD(ba_test_umi_nodes, w->n_node);
 	return 0;
 }
 
@@ -2028,6 +2103,36 @@ static bool ba_eliminate(BaWork *w, BaTerms *e, const int counter)
 }
 
 /**
+ * @brief Keep the value of a node as counted from it alone: its expression only holds its next positions, whose
+ * values do not depend on the lines before it. Not known (-1) if terms were dropped, then or before. The numbers of
+ * the pool used are given back and the flags left as they were, so that the value of the root is found as without
+ * it; if terms were dropped, the values of the shared nodes found then are forgotten (found again when needed).
+ * @return false if stopped.
+ */
+static bool ba_umi_keep_value(BaWork *w, const unsigned int v, const int counter)
+{
+	const unsigned long long n_pool = w->n_pool;
+	const bool too_large = w->too_large;
+	long long value = -1;
+
+	if (!w->inexact) {
+		BA_TEST_COUNT(ba_test_umi_keeps);
+		value = ba_resolve(w, w->rep + v, counter);
+		if (w->job->cancel) return false;
+		if (w->inexact) {
+			unsigned int u;
+			for (u = 0; u < w->n_node; ++u) w->g[u] = -1;
+			w->inexact = false;
+			value = -1;
+		}
+	}
+	w->n_pool = n_pool;
+	w->too_large = too_large;
+	w->kept[2 * v + counter] = value;
+	return true;
+}
+
+/**
  * @brief Umigame number of a side, the shared positions counted once.
  *
  * The positions are done from the last ones. The expression of a position is a list of terms (alternatives):
@@ -2057,6 +2162,11 @@ static long long ba_umi_count(BaWork *w, const int counter)
 	w->n_pool = 0;
 	w->pool_kept = 0;
 	w->inexact = false;
+	if (w->keep_depth > 0 && w->kept == NULL) {
+		w->kept = (long long*) malloc((size_t) w->n_node * 2 * sizeof *w->kept);
+		if (w->kept == NULL) return -1;
+		for (v = 0; v < 2 * w->n_node; ++v) w->kept[v] = -1;
+	}
 
 	for (r = 0; r < w->n_node; ++r) {
 		BaTerms e = {NULL, 0, 0}, sum = {NULL, 0, 0};
@@ -2103,6 +2213,7 @@ static long long ba_umi_count(BaWork *w, const int counter)
 			w->uses[r] = 1;
 		}
 		w->rep[v] = e;
+		if (w->node[v].depth >= 1 && w->node[v].depth <= w->keep_depth && !ba_umi_keep_value(w, v, counter)) return -1;
 	}
 	value = ba_resolve(w, w->rep, counter); // (the root is node 0)
 	return value;
@@ -2318,6 +2429,84 @@ static int ba_move_stage(BaWork *w, const Position *current, const BaStageInfo *
 	return s.stage;
 }
 
+static int ba_umi_keep_depth = 2;   /**< the numbers kept from the lines of the position after a move: 1 to this many moves after it (the tests change it) */
+
+/**
+ * @brief Keep the umigame numbers of the nodes whose values were kept (see ba_umi_keep_value) and whose own lines are
+ * their lines here: umi=best, all; umi=loss, those reached with no loss; umi=range, those where the values of the
+ * range are seen by the same side (the side not to move there), or all if lo = -hi. A position whose value is out of
+ * the range (seen by the side not to move there) has no number, as ba_umi_build tells.
+ * @param gui_color Side whose values of the range the lines followed.
+ */
+static void ba_umi_keep(BaWork *w, const int gui_color)
+{
+	const BaParams *prm = w->prm;
+	const unsigned long long cond = ba_cond_umi(prm);
+	unsigned int v;
+
+	if (w->kept == NULL) return;
+	for (v = 0; v < w->n_node; ++v) {
+		const BaUNode *u = w->node + v;
+		const unsigned long long key = ba_cache_key(u->idx, BA_CACHE_UMI, u->color);
+		if (u->depth < 1 || u->depth > w->keep_depth || u->alias != v) continue;
+		if (prm->umi == BA_UMI_LOSS && u->loss != 0) continue;
+		if (prm->umi == BA_UMI_RANGE) {
+			const int s = -u->p->score.value;
+			if (s < prm->lo || s > prm->hi) { ba_cache_put(key, cond, 0, 0, 1 | 4, NULL, 0); continue; }
+			if (u->color == gui_color && prm->lo != -prm->hi) continue;
+		}
+		if (w->kept[2 * v + BLACK] < 0 || w->kept[2 * v + WHITE] < 0) continue;
+		ba_cache_put(key, cond, w->kept[2 * v + BLACK], w->kept[2 * v + WHITE], 4, NULL, 0);
+	}
+}
+
+/**
+ * @brief Umigame numbers of the position after a move: kept, or counted and kept (with the numbers of the positions
+ * of its lines 1 or 2 moves after it, see ba_umi_keep).
+ * @param player Side to move at the current position.
+ * @return false if stopped.
+ */
+static bool ba_move_umi(BaWork *w, const int player, BaMove *m)
+{
+	const unsigned long long key = ba_cache_key(m->idx, BA_CACHE_UMI, !player), cond = ba_cond_umi(w->prm);
+	long long a, b;
+	int c, r;
+
+	if (ba_cache_get(key, cond, &a, &b, &c, NULL, NULL)) {
+		m->umi[BLACK] = a;
+		m->umi[WHITE] = b;
+		m->umi_state = c & 3;
+		m->umi_exact = (c & 4) != 0;
+		return true;
+	}
+	w->keep_depth = ba_umi_keep_depth;
+	r = ba_umi_build(w, m->p, m->idx, !player, player);
+	m->umi_state = 0;
+	if (r == 1) { // the position after the move is out of the range
+		m->umi_state = 1;
+		m->umi[0] = m->umi[1] = 0;
+		m->umi_exact = true;
+	} else if (r < 0) {
+		if (w->job->cancel) return false;
+		m->umi_state = 2;
+	} else {
+		bool exact;
+		m->umi[BLACK] = ba_umi_count(w, BLACK);
+		exact = !w->inexact;
+		ba_umi_clear(w);
+		m->umi[WHITE] = (m->umi[BLACK] >= 0) ? ba_umi_count(w, WHITE) : -1;
+		exact = exact && !w->inexact;
+		ba_umi_clear(w);
+		if (w->job->cancel) return false;
+		if (m->umi[BLACK] < 0 || m->umi[WHITE] < 0) m->umi_state = 2;
+		else ba_umi_keep(w, player);
+		m->umi_exact = exact;
+	}
+	ba_umi_free(w);
+	ba_cache_put(key, cond, m->umi[BLACK], m->umi[WHITE], m->umi_state | (m->umi_exact ? 4 : 0), NULL, 0);
+	return true;
+}
+
 static void* ba_team_run(void *v)
 {
 	BaTeam *team = ((BaThread*) v)->team;
@@ -2338,39 +2527,7 @@ static void* ba_team_run(void *v)
 			if (ba_move_stage(&w, team->current, &team->current_info, team->current_known, m) < 0) { if (!job->cancel) m->stage = 0; break; }
 			ba_print_stage(job, m);
 		} else {
-			const unsigned long long key = ba_cache_key(m->idx, BA_CACHE_UMI, !job->player), cond = ba_cond_umi(team->prm);
-			long long a, b;
-			int c;
-			if (ba_cache_get(key, cond, &a, &b, &c, NULL, NULL)) {
-				m->umi[BLACK] = a;
-				m->umi[WHITE] = b;
-				m->umi_state = c & 3;
-				m->umi_exact = (c & 4) != 0;
-			} else {
-				const int r = ba_umi_build(&w, m->p, m->idx, !job->player, job->player);
-				m->umi_state = 0;
-				if (r == 1) { // the position after the move is out of the range
-					m->umi_state = 1;
-					m->umi[0] = m->umi[1] = 0;
-					m->umi_exact = true;
-				} else if (r < 0) {
-					if (job->cancel) break;
-					m->umi_state = 2;
-				} else {
-					bool exact;
-					m->umi[BLACK] = ba_umi_count(&w, BLACK);
-					exact = !w.inexact;
-					ba_umi_clear(&w);
-					m->umi[WHITE] = (m->umi[BLACK] >= 0) ? ba_umi_count(&w, WHITE) : -1;
-					exact = exact && !w.inexact;
-					ba_umi_clear(&w);
-					if (job->cancel) break;
-					if (m->umi[BLACK] < 0 || m->umi[WHITE] < 0) m->umi_state = 2;
-					m->umi_exact = exact;
-				}
-				ba_umi_free(&w);
-				ba_cache_put(key, cond, m->umi[BLACK], m->umi[WHITE], m->umi_state | (m->umi_exact ? 4 : 0), NULL, 0);
-			}
+			if (!ba_move_umi(&w, job->player, m)) break;
 			ba_print_umi(job, m);
 		}
 	}
@@ -2502,14 +2659,8 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 	if ((prm->parts & BA_PART_COUNT) && !job->cancel) {
 		long long hist[61];
 		for (i = 0; i < n && !job->cancel; ++i) if (move[i].p) {
-			const unsigned long long key = ba_cache_key(move[i].idx, BA_CACHE_COUNT, 0);
-			long long k, b;
-			int c;
-			if (!ba_cache_get(key, 0, &k, &b, &c, NULL, NULL)) {
-				k = ba_reach(&w, move[i].p, move[i].idx, hist);
-				if (k < 0) break;
-				ba_cache_put(key, 0, k, 0, 0, NULL, 0);
-			}
+			const long long k = ba_reach_kept(&w, move[i].p, move[i].idx, hist);
+			if (k < 0) break;
 			ba_print("@move id=%d sq=%s part=count positions=%lld\n", job->id, move[i].sq, k);
 		}
 	}
@@ -2566,6 +2717,24 @@ static int ba_leaf_move(const Position *p, const Board *board)
 	return NOMOVE;
 }
 
+/**
+ * @brief Tell if the walk of book missing of the move loss x and the total loss y from a position is known to find no
+ * leaf to expand, by the kept stage of the position (see BaStageInfo): deviate, a complete range of the same losses;
+ * deviate2, deviate3, a range of the same move loss whose B_k is above y.
+ */
+static bool ba_missing_complete(const BaParams *prm, const unsigned int idx, const int x, const int y)
+{
+	BaStageInfo s;
+	int k;
+
+	if (!ba_cache_get_stage(idx, ba_cond_stage(prm), &s)) return false;
+	for (k = 0; k < prm->n_stage; ++k) {
+		if (prm->stage_x[k] != x || s.lb[k] <= y) continue;
+		if (prm->base != BA_DEVIATE || prm->stage_y[k] == y) return true;
+	}
+	return false;
+}
+
 static int ba_missing(BaJob *job, const BaParams *prm)
 {
 	const long long t = real_clock();
@@ -2616,7 +2785,7 @@ static int ba_missing(BaJob *job, const BaParams *prm)
 		count = ba_best_lines(&w, root, root_idx, &found, true);
 	} else {
 		if (stage >= 3) { x = prm->stage_x[stage - 3]; y = prm->stage_y[stage - 3]; }
-		count = ba_expansions(&w, root, root_idx, prm->base, x, y, true);
+		count = ba_missing_complete(prm, root_idx, x, y) ? 0 : ba_expansions(&w, root, root_idx, prm->base, x, y, true);
 	}
 	if (count < 0) { ba_work_free(&w); return -1; }
 
@@ -2673,7 +2842,7 @@ static int ba_levels(BaJob *job, const BaParams *prm)
 		Position *root;
 		ba_work_init(&w, job, prm);
 		root = ba_probe(&w, &job->board, &idx);
-		if (root) n = ba_reach(&w, root, idx, hist);
+		if (root) n = ba_reach_kept(&w, root, idx, hist);
 		ba_work_free(&w);
 		if (n < 0) return -1;
 	}
