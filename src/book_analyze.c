@@ -1351,11 +1351,30 @@ stop:
 static long long ba_test_best_walks, ba_test_range_walks; /**< walks of ba_stage_info (test builds) */
 static long long ba_test_reach_walks; /**< walks of ba_reach (test builds) */
 static long long ba_test_umi_builds, ba_test_umi_nodes, ba_test_umi_keeps; /**< lines of umigame numbers found, their nodes, values kept (test builds) */
+static unsigned long long ba_test_shuffle; /**< not 0: the terms are put in a random order before they are sorted (test builds) */
 #define BA_TEST_COUNT(n) (++(n))
 #define BA_TEST_ADD(n, k) ((n) += (k))
+#define BA_TEST_SHUFFLE(v, n) ba_test_mix((v), (n), sizeof *(v))
+
+/** @brief Put n items of an array in a random order, when ba_test_shuffle is set (test builds). */
+static void ba_test_mix(void *v, const int n, const size_t size)
+{
+	unsigned char *a = (unsigned char*) v, tmp[64];
+	int i;
+	if (ba_test_shuffle == 0 || size > sizeof tmp) return;
+	for (i = n - 1; i > 0; --i) {
+		int j;
+		ba_test_shuffle ^= ba_test_shuffle << 13; ba_test_shuffle ^= ba_test_shuffle >> 7; ba_test_shuffle ^= ba_test_shuffle << 17;
+		j = (int) (ba_test_shuffle % (unsigned long long) (i + 1));
+		memcpy(tmp, a + (size_t) i * size, size);
+		memcpy(a + (size_t) i * size, a + (size_t) j * size, size);
+		memcpy(a + (size_t) j * size, tmp, size);
+	}
+}
 #else
 #define BA_TEST_COUNT(n) ((void) 0)
 #define BA_TEST_ADD(n, k) ((void) 0)
+#define BA_TEST_SHUFFLE(v, n) ((void) 0)
 #endif
 
 /** @brief B_k of a range, as a lower bound, in s (exact if exact). */
@@ -1841,20 +1860,24 @@ static int ba_dominates(BaWork *w, const BaTerm *a, const BaTerm *b, const int c
 	return 1;
 }
 
+/** @brief Order of the terms: ends, then size of the set, then place of the set (terms equal in all three are the same term). */
 static int ba_term_cmp(const void *x, const void *y)
 {
 	const BaTerm *a = (const BaTerm*) x, *b = (const BaTerm*) y;
 	if (a->c != b->c) return a->c < b->c ? -1 : 1;
-	return (a->len > b->len) - (a->len < b->len);
+	if (a->len != b->len) return a->len < b->len ? -1 : 1;
+	return (a->off > b->off) - (a->off < b->off);
 }
 
 typedef struct BaBound { unsigned long long lb, ub; int i; } BaBound;
 
+/** @brief Order of the bounds: lower bound, then upper bound, then the order of the terms. */
 static int ba_bound_cmp(const void *x, const void *y)
 {
 	const BaBound *a = (const BaBound*) x, *b = (const BaBound*) y;
 	if (a->lb != b->lb) return a->lb < b->lb ? -1 : 1;
-	return (a->ub > b->ub) - (a->ub < b->ub);
+	if (a->ub != b->ub) return a->ub < b->ub ? -1 : 1;
+	return (a->i > b->i) - (a->i < b->i);
 }
 
 /**
@@ -1873,6 +1896,7 @@ static bool ba_prune(BaWork *w, BaTerms *e, const int counter, const bool bound)
 	bool vars = false;
 
 	if (e->n <= 1) return true;
+	BA_TEST_SHUFFLE(e->t, e->n);
 	qsort(e->t, (size_t) e->n, sizeof *e->t, ba_term_cmp);
 	for (n = 0, j = 0; j < e->n; ++j) {
 		int dominated = 0;
@@ -1902,6 +1926,7 @@ static bool ba_prune(BaWork *w, BaTerms *e, const int counter, const bool bound)
 			b[i].i = i;
 			if (b[i].ub < best) best = b[i].ub;
 		}
+		BA_TEST_SHUFFLE(b, n);
 		qsort(b, (size_t) n, sizeof *b, ba_bound_cmp);
 		for (j = 0; j < n && b[j].lb <= best; ++j) ;
 		if (j > BA_TERM_MAX) { j = BA_TERM_MAX; w->inexact = true; }

@@ -2,6 +2,17 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.13 (with the changes of v4.5.5-nikque.25)
+
+**Not released** (the next version). The changes of v4.5.5-nikque.25 (the nikque.25 entry below: an umigame number marked `exact=0` is the same whatever the build) are added to v4.5.5-eval2.12. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The code of the search is not changed.
+
+- Manual: 12.4 has the same text as the nikque manual.
+
+Checks:
+
+- Tests (`tests/book-analyze.c`, the tests of nikque.25): every test, `umigame-order` included, passes with the same numbers as nikque.25.
+- The node counts of the search and the build of the package are checked at the release.
+
 ## v4.5.5-eval2.12 (with the changes of v4.5.5-nikque.24)
 
 The changes of v4.5.5-nikque.24 (the nikque.24 entry below: the umigame numbers, the numbers of positions, `book levels` and `book missing` taken over from the positions before) are added to v4.5.5-eval2.11. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The search and its results are those of v4.5.5-eval2.11.
@@ -170,6 +181,19 @@ Speed (release executables: time of this version with the new `eval.dat`, divide
 Training data: the search scores of self-play games of Edax itself (level 8, about 840,000 games), the positions and scores of a book learned with this fork, and the training data published on the site of [Egaroucid](https://www.egaroucid.nyanyan.dev/). For Egaroucid, only the published data was used for training: its patterns and trained weights are not used. The training data is not in the package.
 
 Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
+## v4.5.5-nikque.25
+
+**Not released** (the next version). An umigame number marked `exact=0` is the same whatever the build (the C library).
+
+- When terms (the candidates of the count) are dropped because there are more than 128 of them, the terms of the same size are put in a fixed order, so that the terms kept are the same with any build. Before, the sort (`qsort`) left the order of equal terms open, so that a number marked `exact=0` could differ between Windows and Linux.
+- A number marked `exact=0` may differ from v4.5.5-nikque.24 (both are upper bounds; one of the 46,092 `@` lines of 2 test books in 5 conditions changed). The other answers are the same.
+- Manual: 12.4 says so.
+
+Checks:
+
+- Test `umigame-order`: the numbers and the `exact` marks are the same with the terms in random orders before they are sorted (200 graphs of about 1,300 positions and the 1,744 graphs after their nodes, 3 orders; before the fix some numbers changed). gcc and MSVC give the same numbers in the test of dropped terms (39).
+- The speed on a real book and the behaviour in the GUI were not checked.
+
 ## v4.5.5-nikque.24
 
 The umigame numbers (`part=umi`) and the numbers of positions (`part=count`) of the candidate moves of the GUI, `book levels` and `book missing` are taken over from the answers of the positions before, so that the same counts are not made again. The answers are the same as in v4.5.5-nikque.23 (an umigame number marked `exact=0` when counted from its position alone may become the exact value kept from the position before).

@@ -279,6 +279,7 @@ These commands let a GUI program delegate to Edax the counts that require traver
   - `umi=loss x=… y=…`: loss per move, and total loss.
   - `umi=range lo=… hi=…`: a range of values.
 - With a wide range, a number that may not be the smallest is marked `exact=0`.
+  - A number marked `exact=0` is the same whatever the build (Windows, Linux, …) (from v4.5.5-nikque.25).
 - The umigame numbers found are kept until the book changes. When the position after a move is counted, the values of the positions 1 and 2 moves further are kept too, and they are not counted again when those positions become the current position (from v4.5.5-nikque.24).
   - Kept: every position with `umi=best`; the positions reached with a loss of 0 with `umi=loss`; with `umi=range`, the positions with the same side to move as the position after the move (all of them when `lo=-hi`). No value is kept from a count marked `exact=0`.
   - The answers are the same, except that a move marked `exact=0` when counted from its position alone may get the exact value kept from the position before (not marked, smaller or equal).

@@ -6,6 +6,7 @@
  * search of every choice of moves, and with the numbers that count each line when no position is shared; the values
  * of the nodes kept while the root is counted are compared with the numbers of the part after each node counted alone.
  * umigame-large: larger graphs, where terms are dropped: the numbers are the same with the values of the nodes kept.
+ * umigame-order: the same graphs: the numbers are the same with the terms in random orders before they are sorted.
  *
  * precision: random books (positions from the start by random moves, values, links and leaves at random, some
  * not negamaxed again): the precision stages of the moves taken over from the current position and from the next
@@ -19,7 +20,7 @@
  * bookhint: the warning of a book command typed without book tells to type it after book.
  *
  * Build: tests\build-book-analyze.cmd (Visual Studio 2022 x64 Developer Command Prompt), run: tests\book-analyze.exe umigame
- * (or umigame-large, precision, precision-book <book file> [stages], reach, reach-book <book file> <games file>, missing,
+ * (or umigame-large, umigame-order, precision, precision-book <book file> [stages], reach, reach-book <book file> <games file>, missing,
  * missing-book <book file> <games file>, umi-inherit, umi-book <book file> <games file> [umi=...], bookhint)
  */
 #define BOOK_ANALYZE_TEST
@@ -293,6 +294,81 @@ static int umigame_large(void)
 	ba_umi_free(&w2);
 	printf("umigame large: 200 graphs of about %d positions, %d inexact numbers; %lld values of nodes kept (%lld below an inexact number alone), %d wrong, %.1f s\n",
 		g.n, n_inexact, n_kept, n_below, n_bad, (real_clock() - t0) / 1000.0);
+	return n_bad ? 2 : 0;
+}
+
+/**
+ * @brief The number of a graph counted with the terms as built, then with the terms in 3 random orders before they
+ * are sorted. @return the orders that give another number or another exact mark.
+ */
+static int umigame_orders(BaWork *w, const int c, const unsigned long long seed, const char *name, int *n_inexact)
+{
+	long long ref;
+	bool ref_exact;
+	int k, n_bad = 0;
+	ba_test_shuffle = 0;
+	ref = ba_umi_count(w, c);
+	ref_exact = !w->inexact;
+	ba_umi_clear(w);
+	if (!ref_exact) ++*n_inexact;
+	for (k = 1; k <= 3; ++k) {
+		long long got;
+		ba_test_shuffle = seed + (unsigned long long) k;
+		got = ba_umi_count(w, c);
+		if (got != ref || w->inexact == ref_exact) {
+			++n_bad;
+			printf("FAIL umigame order %s side %d order %d: %lld%s, %lld%s with the terms as built\n", name, c, k, got, w->inexact ? " inexact" : "", ref, ref_exact ? "" : " inexact");
+		}
+		ba_umi_clear(w);
+	}
+	ba_test_shuffle = 0;
+	return n_bad;
+}
+
+/**
+ * @brief Larger graphs, where terms are dropped: the numbers and their exact marks are the same when the terms are
+ * put in random orders before they are sorted (the order that qsort gives to equal keys depends on the C library);
+ * so are the numbers of the parts of the graphs after the nodes up to 2 moves from the root.
+ */
+static int umigame_order(void)
+{
+	static TestGraph g, s;
+	BaJob job;
+	BaParams prm;
+	BaWork w, w2;
+	int t, c, u, n_inexact = 0, n_part_inexact = 0, n_bad = 0;
+	long long t0 = real_clock(), n_part = 0;
+	char name[64];
+
+	memset(&job, 0, sizeof job);
+	ba_params_default(&prm);
+	memset(&w, 0, sizeof w);
+	w.job = &job;
+	w.prm = &prm;
+	w2 = w;
+	for (t = 0; t < 200; ++t) {
+		test_graph(&g, 40, 60, 3);
+		test_load(&w, &g);
+		for (c = 0; c < 2; ++c) {
+			snprintf(name, sizeof name, "graph %d", t);
+			if (n_bad < 10) n_bad += umigame_orders(&w, c, (unsigned long long) (1000000 * t + 10 * c), name, &n_inexact);
+		}
+		for (u = 1; u < g.n; ++u) {
+			if (w.node[u].depth > 2) continue;
+			test_subgraph(&g, u, &s);
+			test_load(&w2, &s);
+			for (c = 0; c < 2; ++c) {
+				snprintf(name, sizeof name, "graph %d node %d", t, u);
+				++n_part;
+				if (n_bad < 10) n_bad += umigame_orders(&w2, c, (unsigned long long) (1000000 * t + 100 * u + 10 * c), name, &n_part_inexact);
+			}
+		}
+	}
+	ba_umi_free(&w);
+	ba_umi_free(&w2);
+	printf("umigame order: 200 graphs of about %d positions (%d inexact numbers) and %lld parts after the nodes up to 2 moves (%d inexact), each counted again with the terms in 3 random orders: %d wrong, %.1f s\n",
+		g.n, n_inexact, n_part, n_part_inexact, n_bad, (real_clock() - t0) / 1000.0);
+	if (n_inexact == 0) { printf("FAIL umigame order: no inexact number\n"); return 2; }
 	return n_bad ? 2 : 0;
 }
 
@@ -1098,6 +1174,7 @@ int main(int argc, char **argv)
 	if (argc < 2) return 1;
 	if (strcmp(argv[1], "umigame") == 0) return umigame();
 	if (strcmp(argv[1], "umigame-large") == 0) return umigame_large();
+	if (strcmp(argv[1], "umigame-order") == 0) return umigame_order();
 	if (strcmp(argv[1], "bookhint") == 0) return bookhint();
 	if (strcmp(argv[1], "precision") == 0 || (strcmp(argv[1], "precision-book") == 0 && argc >= 3)) {
 		bit_init(); edge_stability_init(); search_global_init();
