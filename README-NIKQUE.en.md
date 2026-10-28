@@ -4,7 +4,21 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.12).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.24) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.13).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.25) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+
+## Changes in v4.5.5-eval2.13
+
+The changes of v4.5.5-nikque.25 (the nikque.25 entry below: an umigame number marked `exact=0` is the same whatever the build) are added to v4.5.5-eval2.12. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The search and its results are those of v4.5.5-eval2.12 (but the umigame numbers marked `exact=0`).
+
+- Manual: 12.4 has the same text as the nikque manual.
+
+Checks:
+
+- Tests (`tests/book-analyze.c`, the tests of nikque.25): every test, `umigame-order` included, passes with the same numbers as nikque.25.
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`).
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (78,733,223) and lines as v4.5.5-eval2.12; the 7 Cassio cases pass. The 3 DLLs: 204 API checks, 0 failures. Suite F of `book-reproducible` gives the same books as v4.5.5-eval2.12. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 204 API checks, 0 failures. Android (NDK r27d): no warning. Release CI (run 40650324945): the Linux and macOS libraries pass 204 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,192,396, arm64 2,196,096). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The search, the evaluation, the book learning and the file format are not changed (only the order in which `book_analyze.c` drops the terms of an umigame number is changed). The node counts above check that the search is the same.
+- Size (against v4.5.5-eval2.12): the 5 Windows programs +0 to +1,536 bytes, the 3 DLLs the same size. Built by the release workflow: the Linux and macOS executables and libraries and Windows ARM64 the same size, Android executables +32 and +32 bytes and libraries +32 and +16 bytes.
 
 ## Changes in v4.5.5-eval2.12
 
@@ -278,6 +292,23 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+## Changes in v4.5.5-nikque.25
+
+An umigame number marked `exact=0` is the same whatever the build (the C library).
+
+- When terms (the candidates of the count) are dropped because there are more than 128 of them, the terms of the same size are put in a fixed order, so that the terms kept are the same with any build. Before, the sort (`qsort`) left the order of equal terms open, so that a number marked `exact=0` could differ between Windows and Linux.
+- A number marked `exact=0` may differ from v4.5.5-nikque.24 (both are upper bounds; one of the 46,092 `@` lines of 2 test books in 5 conditions changed). The other answers are the same.
+- Manual: 12.4 says so.
+
+Checks:
+
+- Test `umigame-order`: the numbers and the `exact` marks are the same with the terms in random orders before they are sorted (200 graphs of about 1,300 positions and the 1,744 graphs after their nodes, 3 orders; before the fix some numbers changed). gcc and MSVC give the same numbers in the test of dropped terms (39).
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`).
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (77,639,567) and lines as v4.5.5-nikque.24; the 7 Cassio cases pass. The 3 DLLs: 204 API checks, 0 failures. Suite F of `book-reproducible` gives the same books as v4.5.5-nikque.24. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 204 API checks, 0 failures. Android (NDK r27d): no warning. Release CI (run 40650319801): the Linux and macOS libraries pass 204 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,175,751, arm64 2,181,259). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The search, the evaluation, the book learning and the file format are not changed (only the order in which `book_analyze.c` drops the terms of an umigame number is changed). The node counts above check that the search is the same.
+- Size (against v4.5.5-nikque.24): the 5 Windows programs +0 to +1,536 bytes, the 3 DLLs the same size. Built by the release workflow: the Linux and macOS executables and libraries the same size, Android executables +32 and +32 bytes and libraries +32 and +16 bytes, Windows ARM64 +512 bytes.
+- The speed on a real book and the behaviour in the GUI were not checked.
+
 ## Changes in v4.5.5-nikque.24
 
 The umigame numbers (`part=umi`) and the numbers of positions (`part=count`) of the candidate moves of the GUI, `book levels` and `book missing` are taken over from the answers of the positions before, so that the same counts are not made again. The answers are the same as in v4.5.5-nikque.23 (an umigame number marked `exact=0` when counted from its position alone may become the exact value kept from the position before).
