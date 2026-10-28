@@ -14,7 +14,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 | nikque | eval2 | newedax |
 |---|---|---|
-| nikque.25 (not released) | eval2.13 (not released) | newedax.10 (not released) |
+| nikque.25 | eval2.13 | newedax.10 |
 | nikque.24 | eval2.12 | newedax.9 |
 | nikque.23 | eval2.11 | newedax.8 |
 | nikque.22 | eval2.10 | newedax.7 |
@@ -35,7 +35,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 ## v4.5.5-nikque.25
 
-**Not released** (the next version). An umigame number marked `exact=0` is the same whatever the build (the C library).
+An umigame number marked `exact=0` is the same whatever the build (the C library).
 
 **Changes**
 
@@ -51,6 +51,8 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 **Checked**: the numbers and the `exact` marks are the same when the terms are put in random orders before they are sorted (test `umigame-order`: 200 graphs of about 1,300 positions and the 1,744 graphs after their nodes up to 2 moves, in 3 orders; before the fix some numbers changed). gcc (WSL) and MSVC give the same numbers in the test of dropped terms (39 in `umigame-large`; 40 and 37 before). The earlier tests all pass.
 
 **Not checked**: the speed on a real book, the behaviour in the GUI.
+
+[Tests and measurements](docs/validation/nikque.en.md#v455-nikque25)
 
 ---
 
@@ -975,7 +977,7 @@ The nikque line plus a new evaluation function (mobility weights), published fro
 
 ## v4.5.5-eval2.13
 
-**Not released** (the next version). The changes of v4.5.5-nikque.25 are included ([nikque.25](#v455-nikque25)).
+The changes of v4.5.5-nikque.25 are included ([nikque.25](#v455-nikque25)).
 
 **Changes**
 
@@ -984,8 +986,10 @@ The nikque line plus a new evaluation function (mobility weights), published fro
 **Compatibility**
 
 - The evaluation function and `eval.dat` are those of eval2.1 (the same file).
-- The code of the search is not changed (the node counts are checked at the release).
+- The results of the search (scores and node counts) are those of eval2.12.
 - Except the numbers marked `exact=0`, the answers are the same as in eval2.12.
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval213)
 
 ---
 
