@@ -14,7 +14,7 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 
 | nikque | eval2 | newedax |
 |---|---|---|
-| nikque.24（未公開） | eval2.12（未公開） | newedax.9（未公開） |
+| nikque.24 | eval2.12 | newedax.9 |
 | nikque.23 | eval2.11 | newedax.8 |
 | nikque.22 | eval2.10 | newedax.7 |
 | nikque.21 | eval2.9 | newedax.6 |
@@ -34,7 +34,7 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 
 ## v4.5.5-nikque.24
 
-**未公開**（次の版）。GUI の候補手の表のうみがめ数・局面の数と、`book levels`・`book missing` を、前の局面の答えから引き継いで、同じ計算をし直さないようにしました。
+GUI の候補手の表のうみがめ数・局面の数と、`book levels`・`book missing` を、前の局面の答えから引き継いで、同じ計算をし直さないようにしました。
 
 **変更**
 
@@ -54,6 +54,8 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 **確認**：引き継いだ答えを、その局面だけから求めた答えと全部の手で比べました（うみがめ数は乱数の網 40,000 個と、作り物の book 100 冊・試験用の book 3 つ、条件 6 つ、局面を見る順 3 つ。局面の数は作り物の book 200 冊と試験用の book 3 つ。`book missing` は作り物の book 100 冊と試験用の book 1 つ。違い 0）。nikque.23 と同じ命令を流した `@` の行（試験用の book 2 つ、条件 5 つ）も同じでした。
 
 **未確認**：実 book での速さ、GUI での動き。
+
+[検証記録](docs/validation/nikque.ja.md#v455-nikque24)
 
 ---
 
@@ -951,7 +953,7 @@ nikque 系列に新しい評価関数（着手可能数の重み）を足した�
 
 ## v4.5.5-eval2.12
 
-**未公開**（次の版）。v4.5.5-nikque.24 の変更を取り込みます（[nikque.24](#v455-nikque24)）。
+v4.5.5-nikque.24 の変更を取り込みました（[nikque.24](#v455-nikque24)）。
 
 **変更**
 
@@ -961,8 +963,10 @@ nikque 系列に新しい評価関数（着手可能数の重み）を足した�
 **互換性**
 
 - 評価関数と `eval.dat` は eval2.1 のままです（同じファイル）。
-- 探索のコードは変えていません（ノード数での確かめは、公開のときに行います）。
+- 探索の結果（評価値・ノード数）は eval2.11 と同じです。
 - `book moveinfo`・`book levels`・`book missing` の答えは eval2.11 と同じです（うみがめ数の `exact=0` には nikque.24 と同じ例外があります）。
+
+[検証記録](docs/validation/eval2.ja.md#v455-eval212)
 
 ---
 

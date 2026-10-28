@@ -14,7 +14,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 | nikque | eval2 | newedax |
 |---|---|---|
-| nikque.24 (not released) | eval2.12 (not released) | newedax.9 (not released) |
+| nikque.24 | eval2.12 | newedax.9 |
 | nikque.23 | eval2.11 | newedax.8 |
 | nikque.22 | eval2.10 | newedax.7 |
 | nikque.21 | eval2.9 | newedax.6 |
@@ -34,7 +34,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 ## v4.5.5-nikque.24
 
-**Not released** (the next version). The umigame numbers and the numbers of positions of the candidate moves of the GUI, `book levels` and `book missing` are taken over from the answers of the positions before, so that the same counts are not made again.
+The umigame numbers and the numbers of positions of the candidate moves of the GUI, `book levels` and `book missing` are taken over from the answers of the positions before, so that the same counts are not made again.
 
 **Changes**
 
@@ -54,6 +54,8 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 **Checked**: the answers taken over were compared with the answers found from each position alone, for every move (umigame numbers: 40,000 random graphs, 100 random books and 3 test books, 6 conditions, 3 orders of the positions; numbers of positions: 200 random books and 3 test books; `book missing`: 100 random books and 1 test book; no difference). The `@` lines of the same commands as nikque.23 (2 test books, 5 conditions) are the same.
 
 **Not checked**: the speed on a real book, the behaviour in the GUI.
+
+[Tests and measurements](docs/validation/nikque.en.md#v455-nikque24)
 
 ---
 
@@ -951,7 +953,7 @@ The nikque line plus a new evaluation function (mobility weights), published fro
 
 ## v4.5.5-eval2.12
 
-**Not released** (the next version). The changes of v4.5.5-nikque.24 are included ([nikque.24](#v455-nikque24)).
+The changes of v4.5.5-nikque.24 are included ([nikque.24](#v455-nikque24)).
 
 **Changes**
 
@@ -961,8 +963,10 @@ The nikque line plus a new evaluation function (mobility weights), published fro
 **Compatibility**
 
 - The evaluation function and `eval.dat` are those of eval2.1 (the same file).
-- The code of the search is not changed (the node counts are checked at the release).
+- The results of the search (scores and node counts) are those of eval2.11.
 - The answers of `book moveinfo`, `book levels` and `book missing` are the same as in eval2.11 (with the same exception as nikque.24 for the umigame numbers marked `exact=0`).
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval212)
 
 ---
 

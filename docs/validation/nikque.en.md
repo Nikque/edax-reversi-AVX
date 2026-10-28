@@ -5,6 +5,21 @@ Tests and measurements done for each version, moved without changes from the for
 For what changed, see the [release notes](../../RELEASE-NOTES.md). "Above" and "below" in the text refer to positions in the former document.
 
 
+## v4.5.5-nikque.24
+
+Checks:
+
+- The tests of what is taken over (`tests/book-analyze.c`): for the umigame numbers, the values of every node are taken out when the root of 20,000 random graphs is counted for both colours, and the 157,258 values are those of the graphs from those nodes. On 200 graphs of about 1,300 positions (131 numbers with dropped terms among them), the values of the roots and the `exact` marks are the same with and without the values taken out, and the 1,214 values taken out up to depth 2 are those counted again from their nodes (37 of them below the bound found when the count from the node drops terms). On 100 random books × 6 conditions × 3 orders of the positions (55,188 moves each) and 3 test books (12,576 moves), the umigame numbers taken over are those counted again from the position after each move alone.
+- Numbers of positions and `book levels` (`reach`): the 56,244 answers on 200 random books and the 6,174 answers on 3 test books (the number of positions and the number per level) are those counted from each position alone. `book levels` at a position already counted (13,404 times on the 200 books, 1,462 times on the test books) never walked the book.
+- `book missing` (`missing`): of the 2,673,783 walks asked on 100 random books, the 1,013,269 known from the table to find nothing find 0 lines when walked; the same for 5,658 walks on a test book.
+- The tests of the precision stages (`precision`, 502,470 moves; 14,805 moves on a test book) and of the hint of the warning (`bookhint`, 24 cases) give the numbers of v4.5.5-nikque.23, with no error.
+- Programs (a test AVX2 build, 1 thread): on each position of 10 games of 2 test books (610 positions), the commands of the GUI (the stages and umigame numbers of `book moveinfo`, the numbers of positions, `book levels`, `book missing`) in 5 conditions give 46,092 `@` lines, all the same as those of a program built from the source of v4.5.5-nikque.23.
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`).
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (77,639,567) and lines as v4.5.5-nikque.23; the 7 Cassio cases pass. The 3 DLLs: 204 API checks, 0 failures. Suite F of `book-reproducible` gives the same books as v4.5.5-nikque.23. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 204 API checks, 0 failures. Android (NDK r27d): no warning. Release CI (run 40629262755): the Linux and macOS libraries pass 204 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,175,751, arm64 2,181,259). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The search, the evaluation, the book learning and the file format are not changed (only the code of `book_analyze.c` that finds the umigame numbers and the numbers of positions of `book moveinfo`, `book levels` and `book missing` is changed). The node counts above check that the search is the same.
+- Size (against v4.5.5-nikque.23): the 5 Windows programs +0 to +2,048 bytes, the 3 DLLs the same size. Built by the release workflow: Linux executables +0 to +4,096 bytes and libraries +4,096 bytes, macOS executables +0 and +4,096 bytes and library +0 bytes, Android executables +1,488 and +832 bytes and libraries +1,504 and +848 bytes, Windows ARM64 +512 bytes.
+- Speed: not measured (the time of the umigame numbers, the numbers of positions, `book levels` and `book missing` was measured neither on a real book nor in the GUI; what went down was counted by the nodes of the graphs built and the walks).
+
 ## v4.5.5-nikque.23
 
 Checks:
