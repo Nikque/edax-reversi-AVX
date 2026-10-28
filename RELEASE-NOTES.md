@@ -14,6 +14,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 | nikque | eval2 | newedax |
 |---|---|---|
+| nikque.25 (not released) | eval2.13 (not released) | newedax.10 (not released) |
 | nikque.24 | eval2.12 | newedax.9 |
 | nikque.23 | eval2.11 | newedax.8 |
 | nikque.22 | eval2.10 | newedax.7 |
@@ -31,6 +32,27 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 ---
 
 # nikque line
+
+## v4.5.5-nikque.25
+
+**Not released** (the next version). An umigame number marked `exact=0` is the same whatever the build (the C library).
+
+**Changes**
+
+- When terms (the candidates of the count) are dropped because there are more than 128 of them, the terms of the same size are put in a fixed order, so that the terms kept are the same with any build. Before, the sort (`qsort`) left the order of equal terms open, so that a number marked `exact=0` could differ between Windows and Linux.
+- Manual: 12.4 says so.
+
+**Compatibility**
+
+- The umigame numbers not marked `exact=0` and the other answers are the same as in nikque.24.
+- A number marked `exact=0` may differ from nikque.24 (both are upper bounds; of the 46,092 `@` lines of 2 test books in 5 conditions, one changed: `umi=3:15 exact=0` → `umi=2:15 exact=0`).
+- The search results, `eval.dat` and the book file format do not change.
+
+**Checked**: the numbers and the `exact` marks are the same when the terms are put in random orders before they are sorted (test `umigame-order`: 200 graphs of about 1,300 positions and the 1,744 graphs after their nodes up to 2 moves, in 3 orders; before the fix some numbers changed). gcc (WSL) and MSVC give the same numbers in the test of dropped terms (39 in `umigame-large`; 40 and 37 before). The earlier tests all pass.
+
+**Not checked**: the speed on a real book, the behaviour in the GUI.
+
+---
 
 ## v4.5.5-nikque.24
 
@@ -950,6 +972,22 @@ This is the first release, based on upstream Edax v4.5.5. It adds `book deviate2
 # eval2 line
 
 The nikque line plus a new evaluation function (mobility weights), published from the `eval2` branch. Each version contains all changes of the nikque versions listed in the "Versions" table above.
+
+## v4.5.5-eval2.13
+
+**Not released** (the next version). The changes of v4.5.5-nikque.25 are included ([nikque.25](#v455-nikque25)).
+
+**Changes**
+
+- An umigame number marked `exact=0` is the same whatever the build (the same as nikque.25).
+
+**Compatibility**
+
+- The evaluation function and `eval.dat` are those of eval2.1 (the same file).
+- The code of the search is not changed (the node counts are checked at the release).
+- Except the numbers marked `exact=0`, the answers are the same as in eval2.12.
+
+---
 
 ## v4.5.5-eval2.12
 
