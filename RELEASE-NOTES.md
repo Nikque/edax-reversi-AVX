@@ -4,9 +4,18 @@
 
 ## v4.5.5-eval2.14 (with the changes of v4.5.5-nikque.26)
 
-**Not released** (the next version). The changes of v4.5.5-nikque.26 (the nikque.26 entry below: the `export` of `book deviate`, `book deviate2` and `book deviate3`, `edax_book_deviate_export` of libedax, the mark `@cancel id=N state=none export=1`) are added to v4.5.5-eval2.13. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The answers of the commands without `export` and the search are those of v4.5.5-eval2.13.
+The changes of v4.5.5-nikque.26 (the nikque.26 entry below: the `export` of `book deviate`, `book deviate2` and `book deviate3`, `edax_book_deviate_export` of libedax, the mark `@cancel id=N state=none export=1`) are added to v4.5.5-eval2.13. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The answers of the commands without `export` and the search are those of v4.5.5-eval2.13.
 
 - Manual: 7.3 and 12.4 have the same text as the nikque manual.
+
+Checks:
+
+- The test of the export: the lines written are compared with sets computed apart in Python (the positions with a leaf to expand, the ends, all the positions of the lines): on 41 positions of 3 test books, the 4,545 cases (3 commands, 5 ranges, 3 kinds) are all the same; every line can be played from the start, its moves follow the walk, and with `book deviate2` and `book deviate3` its total loss is the smallest. The mark `export=1` in the first answer is there.
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`). The unit tests of the analyses (`tests/book-analyze.c`) pass with the numbers of the previous version.
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (78,733,223) and lines as v4.5.5-eval2.13; the 7 Cassio cases pass. The 3 DLLs: 204 API checks (verify18), 0 failures; the test with the export (`tests/libedax_test.c`, 218 checks) has no failure either. Suite F of `book-reproducible` gives the same books as v4.5.5-eval2.13. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 218 checks, 0 failures. Android (NDK r27d): no warning. Release CI (run 41843776946): the Linux and macOS libraries pass 218 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,192,396, arm64 2,196,096). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The search, the evaluation, the book learning and the file format are not changed (only the export and its mark in `book_analyze.c`, the reading of the command and `help book` in `edax.c`, and the function of libedax are new). The node counts above check that the search is the same.
+- Size (against v4.5.5-eval2.13): the 5 Windows programs +3,584 to +5,120 bytes, the 3 DLLs +17,920 to +19,456 bytes. Built by the release workflow: the Linux programs +8,192 to +12,288 and libraries +8,192 to +16,384, the macOS programs +16,512 and +12,288 and library +128, Windows ARM64 +6,656, the Android programs +7,496 and +3,656 and libraries +8,520 and +4,368 bytes (the functions of the export).
+- Speed: not measured.
 
 ## v4.5.5-eval2.13 (with the changes of v4.5.5-nikque.25)
 
@@ -192,7 +201,7 @@ Training data: the search scores of self-play games of Edax itself (level 8, abo
 Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
 ## v4.5.5-nikque.26
 
-**Not released** (the next version). `book deviate`, `book deviate2` and `book deviate3` can write the lines they walk to a text file without expanding the book (`export`).
+`book deviate`, `book deviate2` and `book deviate3` can write the lines they walk to a text file without expanding the book (`export`).
 
 **Changes**
 

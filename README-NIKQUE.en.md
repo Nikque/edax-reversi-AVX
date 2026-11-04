@@ -4,7 +4,22 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.13).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.25) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.14).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.26) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+
+## Changes in v4.5.5-eval2.14
+
+The changes of v4.5.5-nikque.26 (the nikque.26 entry below: the `export` of `book deviate`, `book deviate2` and `book deviate3`, `edax_book_deviate_export` of libedax, the mark `@cancel id=N state=none export=1`) are added to v4.5.5-eval2.13. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The answers of the commands without `export` and the search are those of v4.5.5-eval2.13.
+
+- Manual: 7.3 and 12.4 have the same text as the nikque manual.
+
+Checks:
+
+- The test of the export: the lines written are compared with sets computed apart in Python (the positions with a leaf to expand, the ends, all the positions of the lines): on 41 positions of 3 test books, the 4,545 cases (3 commands, 5 ranges, 3 kinds) are all the same; every line can be played from the start, its moves follow the walk, and with `book deviate2` and `book deviate3` its total loss is the smallest. The mark `export=1` in the first answer is there.
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`). The unit tests of the analyses (`tests/book-analyze.c`) pass with the numbers of the previous version.
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (78,733,223) and lines as v4.5.5-eval2.13; the 7 Cassio cases pass. The 3 DLLs: 204 API checks (verify18), 0 failures; the test with the export (`tests/libedax_test.c`, 218 checks) has no failure either. Suite F of `book-reproducible` gives the same books as v4.5.5-eval2.13. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 218 checks, 0 failures. Android (NDK r27d): no warning. Release CI (run 41843776946): the Linux and macOS libraries pass 218 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,192,396, arm64 2,196,096). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The search, the evaluation, the book learning and the file format are not changed (only the export and its mark in `book_analyze.c`, the reading of the command and `help book` in `edax.c`, and the function of libedax are new). The node counts above check that the search is the same.
+- Size (against v4.5.5-eval2.13): the 5 Windows programs +3,584 to +5,120 bytes, the 3 DLLs +17,920 to +19,456 bytes. Built by the release workflow: the Linux programs +8,192 to +12,288 and libraries +8,192 to +16,384, the macOS programs +16,512 and +12,288 and library +128, Windows ARM64 +6,656, the Android programs +7,496 and +3,656 and libraries +8,520 and +4,368 bytes (the functions of the export).
+- Speed: not measured.
 
 ## Changes in v4.5.5-eval2.13
 
@@ -292,6 +307,27 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+## Changes in v4.5.5-nikque.26
+
+`book deviate`, `book deviate2` and `book deviate3` can write the lines they walk to a text file without expanding the book (`export`).
+
+**Changes**
+
+- With `export <file> [leaf|ends|all]` after the numbers (for instance `book deviate2 2 4 export lines.txt ends`), the command writes the lines it walks from the current position and expands nothing: `leaf` (when left out) the positions whose leaf it would expand in its first round, `ends` the ends of the lines, `all` all the positions of the lines.
+- One position a line, the moves from the start in small letters (the passes are not written). A position reached by several lines is written once, with the line of the fewest moves (`book deviate`) or of the smallest total loss (`book deviate2`, `book deviate3`).
+- libedax: `edax_book_deviate_export`.
+- The answer to a `stop id=N` with nothing to stop is `@cancel id=N state=none export=1` (the mark of the export). An earlier version does not read the words after `export` and expands the book: a user interface should look for this mark before sending one.
+- Manual: 7.3 (the export) and 12.4 (the mark). `help book` has it too.
+
+**Compatibility**
+
+- The commands without `export` are the same as in nikque.25. The search results, `eval.dat` and the book file format do not change.
+- The answer `@cancel id=N state=none` ends with `export=1`.
+
+**Checked**: the lines written are compared with sets computed apart in Python (the positions with a leaf to expand, the ends, all the positions of the lines): on 41 positions of 3 test books, the 4,545 cases (3 commands, 5 ranges, 3 kinds) are all the same; every line can be played from the start, its moves follow the walk, and its total loss is the smallest. The 218 checks of the test of libedax pass.
+
+**Not checked**: the time and the memory on a real book.
+
 ## Changes in v4.5.5-nikque.25
 
 An umigame number marked `exact=0` is the same whatever the build (the C library).

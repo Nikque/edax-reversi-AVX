@@ -4,9 +4,18 @@
 
 ## v4.5.5-eval2.14（v4.5.5-nikque.26 の変更を取り込み）
 
-**未公開**（次の版）。v4.5.5-eval2.13 に、v4.5.5-nikque.26 の変更（下の nikque.26 の項：`book deviate`・`book deviate2`・`book deviate3` の `export`、libedax の `edax_book_deviate_export`、`@cancel id=N state=none export=1` の印）を取り込みます。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。`export` を付けないコマンドの答えと探索は v4.5.5-eval2.13 と同じです。
+v4.5.5-eval2.13 に、v4.5.5-nikque.26 の変更（下の nikque.26 の項：`book deviate`・`book deviate2`・`book deviate3` の `export`、libedax の `edax_book_deviate_export`、`@cancel id=N state=none export=1` の印）を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。`export` を付けないコマンドの答えと探索は v4.5.5-eval2.13 と同じです。
 
 - 手引き：7.3・12.4 に、nikque の手引きと同じ文を書きました。
+
+確認：
+
+- 書き出しの試験：Python で別に計算した集まり（広げる Leaf の局面・進行の端・進行の局面すべて）と、書かれた行を比べた。試験用の book 3 つの 41 局面で、3 つのコマンド・5 つの範囲・3 種類の 4,545 通りが全部同じ。どの行も初手から打てて、手順がたどりの条件に合い、`book deviate2`・`book deviate3` では石損の合計がいちばん少ない。起動の答えの `export=1` も確かめた。
+- 配布物の `wEdax-x86-64-v3.exe` で：`book reduce` の試験（小さな book 2 つで 500 通り）と、壊れた book と誤った語の試験（14 件）がすべて通る。これまでの解析の命令の試験（小さな book 3 つ、本物の `book deviate` 系、ランダムな局面のつながり 40,000 個、裏のスレッド、`book bestlines`・`book findline` の手順）も誤り 0。解析の単体試験（`tests/book-analyze.c`）も全部通り、数は前の版と同じ。
+- 探索：配布物の Windows の 5 種（PGO）は、fforum-20-39 を 1 スレッドで解いた結果・ノード数（78,733,223）・読み筋が v4.5.5-eval2.13 と同じ。Cassio 7 件も通過。DLL 3 種は API 試験 204 項目（verify18）・失敗 0、書き出しを足した試験（`tests/libedax_test.c`、218 項目）も失敗 0。`book-reproducible` の suite F の book は v4.5.5-eval2.13 と同じ。Linux（WSL、gcc 11.4、配布物を作る workflow と同じ作り方）の 4 種も同じ結果の行、ライブラリ 3 種は 218 項目・失敗 0。Android（NDK r27d）は警告 0。配布物を作る workflow（run 41843776946）：Linux・macOS のライブラリの API 試験 218 項目・失敗 0、macOS の fforum-1-19 のノード数は前と同じ（x64 2,192,396・arm64 2,196,096）。Windows の x86・x64 の実行ファイルと DLL は手元の PGO の組み立てです。実行ファイルとライブラリに、ビルドしたフォルダーは入っていません。
+- 探索・評価関数・book の学習の処理・ファイルの形は変えていません（変えたのは `book_analyze.c` の書き出しと答えの印、`edax.c` の命令の読み取りと `help book`、libedax の関数だけです）。上のノード数の確かめで、探索が同じことを確かめました。
+- 大きさ（v4.5.5-eval2.13 との差）：Windows の実行ファイル 5 種が +3,584〜+5,120 バイト、DLL 3 種が +17,920〜+19,456 バイト。配布物を作る workflow の組み立てで、Linux の実行ファイル +8,192〜+12,288・ライブラリ +8,192〜+16,384、macOS の実行ファイル +16,512・+12,288・ライブラリ +128、Windows ARM64 +6,656、Android の実行ファイル +7,496・+3,656・ライブラリ +8,520・+4,368 バイト（書き出しの関数のぶん）。
+- 速さ：測っていません。
 
 ## v4.5.5-eval2.13（v4.5.5-nikque.25 の変更を取り込み）
 
@@ -192,7 +201,7 @@ v4.5.5-eval2.1 に、v4.5.5-nikque.10〜13 の変更を全部取り込みまし�
 確認：上流の `eval.dat` で、Windows 5種・Linux 4種の1スレッドの結果とノード数、bookの回帰試験（1スレッド、84ファイル）が v4.5.5-nikque.9 と一致。新しい `eval.dat` で、Windows 5種・Linux 4種のノード数が互いに一致、完全読みの評価値は上流の `eval.dat` と全問同じ、API試験191項目に合格（Windows 3種・Linux 3種）。 macOS版・Android版・Windows ARM64版は動作を確認していません（Android版・Windows ARM64版はビルドだけ）。
 ## v4.5.5-nikque.26
 
-**未公開**（次の版）。`book deviate`・`book deviate2`・`book deviate3` に、book を広げずに、たどる手順をテキストファイルに書き出す `export` を足しました。
+`book deviate`・`book deviate2`・`book deviate3` に、book を広げずに、たどる手順をテキストファイルに書き出す `export` を足しました。
 
 **変更**
 
