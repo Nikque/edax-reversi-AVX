@@ -2,6 +2,12 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-eval2.14（v4.5.5-nikque.26 の変更を取り込み）
+
+**未公開**（次の版）。v4.5.5-eval2.13 に、v4.5.5-nikque.26 の変更（下の nikque.26 の項：`book deviate`・`book deviate2`・`book deviate3` の `export`、libedax の `edax_book_deviate_export`、`@cancel id=N state=none export=1` の印）を取り込みます。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。`export` を付けないコマンドの答えと探索は v4.5.5-eval2.13 と同じです。
+
+- 手引き：7.3・12.4 に、nikque の手引きと同じ文を書きました。
+
 ## v4.5.5-eval2.13（v4.5.5-nikque.25 の変更を取り込み）
 
 v4.5.5-eval2.12 に、v4.5.5-nikque.25 の変更（下の nikque.25 の項：うみがめ数の `exact=0` が付く値が、組み立てた環境によらず同じになる）を取り込みました。**評価関数と `eval.dat` は v4.5.5-eval2.1 のままです**（同じファイル）。探索と結果は v4.5.5-eval2.12 と同じです（うみがめ数の `exact=0` が付く値を除く）。
@@ -184,6 +190,27 @@ v4.5.5-eval2.1 に、v4.5.5-nikque.10〜13 の変更を全部取り込みまし�
 学習データ：Edax 自身の自己対局（level 8、約84万局）の探索の値、このforkで学習したbookの局面と値、[Egaroucid](https://www.egaroucid.nyanyan.dev/) のサイトで公開されている学習データ。Egaroucid については、公開されているデータを学習に使っただけで、パターンや学習ずみの重みは使っていません。学習データは配布物に入っていません。
 
 確認：上流の `eval.dat` で、Windows 5種・Linux 4種の1スレッドの結果とノード数、bookの回帰試験（1スレッド、84ファイル）が v4.5.5-nikque.9 と一致。新しい `eval.dat` で、Windows 5種・Linux 4種のノード数が互いに一致、完全読みの評価値は上流の `eval.dat` と全問同じ、API試験191項目に合格（Windows 3種・Linux 3種）。 macOS版・Android版・Windows ARM64版は動作を確認していません（Android版・Windows ARM64版はビルドだけ）。
+## v4.5.5-nikque.26
+
+**未公開**（次の版）。`book deviate`・`book deviate2`・`book deviate3` に、book を広げずに、たどる手順をテキストファイルに書き出す `export` を足しました。
+
+**変更**
+
+- 数の後ろに `export <ファイル> [leaf|ends|all]` を付けると（例 `book deviate2 2 4 export lines.txt ends`）、そのコマンドが今の局面からたどる手順を、book を広げずに書き出します。`leaf`（省いたとき）は 1 周目に広げる Leaf を持つ局面、`ends` は進行の端の局面、`all` は進行の局面すべてです。
+- 1 行に 1 局面で、初手からの手順を小文字で書きます（パスは書きません）。合流した局面は 1 回だけで、手順は `book deviate` では手数、`book deviate2`・`book deviate3` では失った石数の合計がいちばん少ないものです。
+- libedax：`edax_book_deviate_export` を足しました。
+- 解析の `stop id=N` に、止めるものがないときの答えを `@cancel id=N state=none export=1` にしました（書き出しを持つ印）。前の版は `export` 以降の語を読まずに book を広げるので、画面のソフトは、この印を確かめてから送ってください。
+- 手引き：7.3（書き出し）と 12.4（印）に書きました。`help book` にも足しました。
+
+**互換性**
+
+- `export` を付けないコマンドは nikque.25 と同じです。探索の結果・`eval.dat`・book のファイル形式は変わりません。
+- `@cancel id=N state=none` の答えの後ろに `export=1` が付きます。
+
+**確認**：Python で別に計算した集まり（広げる Leaf・端・進行の局面）と、書かれた行を比べました。試験用の book 3 つの 41 局面で、3 つのコマンド・5 つの範囲・3 種類の 4,545 通りが全部同じで、どの行も初手から打てて、その手順がたどりの条件に合い、手順の石損の合計がいちばん少ないことを確かめました。libedax の試験は 218 項目が全部通りました。
+
+**未確認**：実 book での時間とメモリ。
+
 ## v4.5.5-nikque.25
 
 うみがめ数の `exact=0` が付く値が、組み立てた環境（C ライブラリ）によらず同じになるようにしました。

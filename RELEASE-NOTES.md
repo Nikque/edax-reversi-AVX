@@ -2,6 +2,12 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.14 (with the changes of v4.5.5-nikque.26)
+
+**Not released** (the next version). The changes of v4.5.5-nikque.26 (the nikque.26 entry below: the `export` of `book deviate`, `book deviate2` and `book deviate3`, `edax_book_deviate_export` of libedax, the mark `@cancel id=N state=none export=1`) are added to v4.5.5-eval2.13. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The answers of the commands without `export` and the search are those of v4.5.5-eval2.13.
+
+- Manual: 7.3 and 12.4 have the same text as the nikque manual.
+
 ## v4.5.5-eval2.13 (with the changes of v4.5.5-nikque.25)
 
 The changes of v4.5.5-nikque.25 (the nikque.25 entry below: an umigame number marked `exact=0` is the same whatever the build) are added to v4.5.5-eval2.12. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The search and its results are those of v4.5.5-eval2.12 (but the umigame numbers marked `exact=0`).
@@ -184,6 +190,27 @@ Speed (release executables: time of this version with the new `eval.dat`, divide
 Training data: the search scores of self-play games of Edax itself (level 8, about 840,000 games), the positions and scores of a book learned with this fork, and the training data published on the site of [Egaroucid](https://www.egaroucid.nyanyan.dev/). For Egaroucid, only the published data was used for training: its patterns and trained weights are not used. The training data is not in the package.
 
 Checks: With the upstream `eval.dat`, the single-thread results and node counts of the 5 Windows and 4 Linux executables and the book regression tests (1 thread, 84 files) are those of v4.5.5-nikque.9. With the new `eval.dat`, the 5 Windows and 4 Linux executables give the same node counts, the exact scores are the same as with the upstream `eval.dat` for every problem, and the 191 api checks pass (3 Windows and 3 Linux libraries). The macOS, Android and Windows ARM64 builds were not run (the Android and Windows ARM64 builds were only built).
+## v4.5.5-nikque.26
+
+**Not released** (the next version). `book deviate`, `book deviate2` and `book deviate3` can write the lines they walk to a text file without expanding the book (`export`).
+
+**Changes**
+
+- With `export <file> [leaf|ends|all]` after the numbers (for instance `book deviate2 2 4 export lines.txt ends`), the command writes the lines it walks from the current position and expands nothing: `leaf` (when left out) the positions whose leaf it would expand in its first round, `ends` the ends of the lines, `all` all the positions of the lines.
+- One position a line, the moves from the start in small letters (the passes are not written). A position reached by several lines is written once, with the line of the fewest moves (`book deviate`) or of the smallest total loss (`book deviate2`, `book deviate3`).
+- libedax: `edax_book_deviate_export`.
+- The answer to a `stop id=N` with nothing to stop is `@cancel id=N state=none export=1` (the mark of the export). An earlier version does not read the words after `export` and expands the book: a user interface should look for this mark before sending one.
+- Manual: 7.3 (the export) and 12.4 (the mark). `help book` has it too.
+
+**Compatibility**
+
+- The commands without `export` are the same as in nikque.25. The search results, `eval.dat` and the book file format do not change.
+- The answer `@cancel id=N state=none` ends with `export=1`.
+
+**Checked**: the lines written are compared with sets computed apart in Python (the positions with a leaf to expand, the ends, all the positions of the lines): on 41 positions of 3 test books, the 4,545 cases (3 commands, 5 ranges, 3 kinds) are all the same; every line can be played from the start, its moves follow the walk, and its total loss is the smallest. The 218 checks of the test of libedax pass.
+
+**Not checked**: the time and the memory on a real book.
+
 ## v4.5.5-nikque.25
 
 An umigame number marked `exact=0` is the same whatever the build (the C library).

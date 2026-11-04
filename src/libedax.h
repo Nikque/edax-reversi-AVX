@@ -277,6 +277,7 @@ LIBEDAX_API int edax_board_get_square_color(const LibedaxBoard*, const int);
  */
 LIBEDAX_API void edax_book_deviate2(int, int);
 LIBEDAX_API void edax_book_deviate3(int, int);
+LIBEDAX_API long long edax_book_deviate_export(int, int, int, const char*, int); /* book deviate|deviate2|deviate3 <x> <y> export <file> [leaf|ends|all] */
 LIBEDAX_API void edax_book_leaf_recalculate(int, int);
 LIBEDAX_API void edax_book_leaf_recalculate2(int, int);
 LIBEDAX_API void edax_book_leaf_recalculate3(int, int);

@@ -3072,6 +3072,250 @@ end:
 	return result;
 }
 
+/* ------------------------------------------------------------------ book deviate export ------------------------------------------------------ */
+
+#define BA_EXPORT_ON 2          /**< (marks of book deviate export) a walk goes on from the position to a position of the book */
+#define BA_EXPORT_WRITTEN 4     /**< its line is written */
+
+/**
+ * @brief Moves of a line of a walk from the current position, on the board of the user interface, without the passes.
+ * @return the number of letters written.
+ */
+static int ba_export_moves(const BaQueue *q, long long item, const Board *root, char *s)
+{
+	long long chain[512];
+	int n = 0, k, sym, m = 0;
+	Board board = *root;
+
+	while (item >= 0 && n < 512) { chain[n++] = item; item = q->item[item].parent; }
+	for (k = n - 2; k >= 0; --k) { // (chain[n - 1] is the root)
+		const BaItem *parent = q->item + q->item[chain[k]].parent;
+		const int x = q->item[chain[k]].move;
+		Board t, next;
+		int real = x;
+		if (x != PASS) for (sym = 0; sym < 8; ++sym) {
+			board_symetry(&parent->p->board, sym, &t);
+			if (board_equal(&t, &board)) { real = symetry(x, sym); break; }
+		}
+		if (real != PASS) { ba_square(real, s + m); m += 2; }
+		board_next(&board, real, &next);
+		board = next;
+	}
+	s[m] = '\0';
+	return m;
+}
+
+/**
+ * @brief Mark the positions from which the walks of ba_expansions (book deviate: two walks; deviate2, deviate3: one
+ * walk) go on, and add to the walk of deviate2 / deviate3 the next positions it does not walk.
+ *
+ * A position of the lines is the root or a position of the book that a link followed by a walk leads to (walked
+ * or not: the end of the game, the depth of the book). A walk goes on from a position it walks when one of the links
+ * it follows there leads to a position of the book.
+ * @return false if memory is exhausted.
+ */
+static bool ba_export_marks(BaWork *w, Position *root, const unsigned int root_idx, const int base, const int x, const int y, BaVisit *mark)
+{
+	const Book *book = w->book;
+	BaVisit walked;
+	int which;
+	bool ok = true;
+
+	ba_visit_init(&walked, ba.index.n);
+	if (base != BA_DEVIATE && w->q[0].n == 0) ok = ba_push(w->q, root, root_idx, -1, NOMOVE, 0, 0); // (a root that is not walked)
+	for (which = 0; ok && which < (base == BA_DEVIATE ? 2 : 1); ++which) {
+		BaQueue *q = w->q + which;
+		const int s = root->score.value, lower = s - y, upper = s + y;
+		long long i;
+
+		ba_visit_clear(&walked);
+		for (i = 0; ok && i < q->n; ++i) {
+			const BaItem it = q->item[i]; // (q->item may move: ba_push below)
+			Position *p = it.p;
+			const int v = p->score.value;
+			Link *l;
+
+			if (ba_visit_get(&walked, it.idx) || !ba_walkable(book, p)) continue;
+			if (base == BA_DEVIATE) { // (as ba_walk_deviate and ba_deviate_rec: the first item of a position that passes is the one walked)
+				const int parity = it.depth & 1;
+				const int deviation = (parity ^ which) ? 0 : x; // (walk 0: x for the side to move at the root; walk 1: for the other side)
+				const int lo = parity ? -upper : lower, up = parity ? -lower : upper;
+				if (!(lo <= v && v <= up)) continue;
+				ok = ba_visit_set(&walked, it.idx, 1);
+				foreach_link(l, p) {
+					if (ok && v - l->score <= deviation && lo <= l->score && l->score <= up) {
+						Board target;
+						unsigned int ci;
+						board_next(&p->board, l->move, &target);
+						if (ba_probe(w, &target, &ci)) { ok = ba_visit_set(mark, it.idx, ba_visit_get(mark, it.idx) | BA_EXPORT_ON); break; }
+					}
+				}
+			} else { // (as ba_walk_total: the item of the smallest loss is the one walked; the next positions not walked are added)
+				if (ba_visit_get(&w->visit, it.idx) != it.loss + 1) continue;
+				ok = ba_visit_set(&walked, it.idx, 1);
+				foreach_link(l, p) {
+					const int move_error = v - l->score;
+					if (ok && 0 <= move_error && move_error <= x && it.loss + move_error <= y) {
+						Board target;
+						unsigned int ci;
+						Position *child;
+						board_next(&p->board, l->move, &target);
+						child = ba_probe(w, &target, &ci);
+						if (child == NULL) continue;
+						ok = ba_visit_set(mark, it.idx, ba_visit_get(mark, it.idx) | BA_EXPORT_ON);
+						if (ok && !ba_walkable(book, child)) ok = ba_push(q, child, ci, i, l->move, it.depth + 1, it.loss + move_error);
+					}
+				}
+			}
+		}
+	}
+	ba_visit_free(&walked);
+	return ok;
+}
+
+/** An item of a walk that reaches a position: the line of the position is the one of the smallest key. */
+typedef struct BaExportPick {
+	unsigned int idx;       /**< number of the position */
+	unsigned int key;       /**< moves from the root (deviate), or accumulated loss (deviate2, deviate3) */
+	long long ref;          /**< walk << 40 | item */
+} BaExportPick;
+
+static int ba_export_pick_cmp(const void *a, const void *b)
+{
+	const BaExportPick *x = (const BaExportPick*) a, *y = (const BaExportPick*) b;
+	if (x->idx != y->idx) return x->idx < y->idx ? -1 : 1;
+	if (x->key != y->key) return x->key < y->key ? -1 : 1;
+	return (x->ref > y->ref) - (x->ref < y->ref);
+}
+
+static int ba_export_ref_cmp(const void *a, const void *b)
+{
+	const long long x = *(const long long*) a, y = *(const long long*) b;
+	return (x > y) - (x < y);
+}
+
+/**
+ * @brief The line of each position of the lines of the walks: the fewest moves (book deviate), the smallest
+ * accumulated loss (deviate2, deviate3), then the first reached; in the order of the walks.
+ * @return false if memory is exhausted.
+ */
+static bool ba_export_order(const BaWork *w, const int base, BaList *order)
+{
+	const int n_walk = base == BA_DEVIATE ? 2 : 1;
+	long long n = 0, i, k = 0;
+	int which;
+	BaExportPick *pick;
+
+	for (which = 0; which < n_walk; ++which) n += w->q[which].n;
+	pick = (BaExportPick*) malloc((size_t) (n ? n : 1) * sizeof *pick);
+	if (pick == NULL) return false;
+	for (which = 0; which < n_walk; ++which) {
+		const BaQueue *q = w->q + which;
+		for (i = 0; i < q->n; ++i, ++k) {
+			pick[k].idx = q->item[i].idx;
+			pick[k].key = base == BA_DEVIATE ? q->item[i].depth : q->item[i].loss;
+			pick[k].ref = ((long long) which << 40) | i;
+		}
+	}
+	qsort(pick, (size_t) n, sizeof *pick, ba_export_pick_cmp);
+	for (k = 0; k < n; ++k) {
+		if (k > 0 && pick[k].idx == pick[k - 1].idx) continue;
+		if (!ba_list_push(order, pick[k].ref)) { free(pick); return false; }
+	}
+	free(pick);
+	qsort(order->v, (size_t) order->n, sizeof *order->v, ba_export_ref_cmp);
+	return true;
+}
+
+/**
+ * @brief book deviate, deviate2, deviate3 <x> <y> export <file> [leaf|ends|all]: write the lines of the walk of the
+ * command from the current position, without expanding the book: one line a position (from the start of the game,
+ * without the passes), the line of the fewest moves (deviate) or of the smallest accumulated loss (deviate2,
+ * deviate3).
+ *
+ * - BOOK_EXPORT_LEAF: the positions whose leaf the command would expand in its first round.
+ * - BOOK_EXPORT_ENDS: the positions of the lines from which no walk goes on.
+ * - BOOK_EXPORT_ALL: all the positions of the lines.
+ *
+ * @param book Opening book.
+ * @param board Current position.
+ * @param line Moves of the game up to the current position (written first), or NULL.
+ * @param base 1: book deviate, 2: deviate2, 3: deviate3.
+ * @param x Relative error (deviate), or loss of one move (deviate2, deviate3).
+ * @param y Absolute error (deviate), or cumulative loss (deviate2, deviate3).
+ * @param file File to write.
+ * @param which BOOK_EXPORT_LEAF, BOOK_EXPORT_ENDS or BOOK_EXPORT_ALL.
+ * @return the number of lines written, -1 on error (said).
+ */
+long long book_deviate_export(Book *book, const Board *board, const char *line, const int base, const int x, const int y, const char *file, const int which)
+{
+	static const char *names[] = {"", "deviate", "deviate2", "deviate3"}, *whats[] = {"leaf", "ends", "all"};
+	const char *name = names[base], *what = whats[which];
+	BaJob job;
+	BaParams prm;
+	BaWork w;
+	BaVisit mark;
+	BaList order = {0};
+	Position *root;
+	unsigned int root_idx;
+	long long k, written = 0;
+	bool ok;
+	FILE *f = fopen(file, "w");
+
+	if (f == NULL) {
+		printf("ERROR: book %s %d %d export: cannot write the file %s\n", name, x, y, file);
+		return -1;
+	}
+	book_analysis_init();
+	lock(&ba);
+	ok = ba_index_get(book);
+	unlock(&ba);
+	if (!ok) {
+		fclose(f);
+		printf("ERROR: book %s %d %d export: not enough memory\n", name, x, y);
+		return -1;
+	}
+	memset(&job, 0, sizeof job);
+	memset(&prm, 0, sizeof prm);
+	job.book = book;
+	job.board = *board;
+	ba_work_init(&w, &job, &prm);
+	ba_visit_init(&mark, ba.index.n);
+	root = ba_probe(&w, board, &root_idx);
+	ok = root == NULL || ba_expansions(&w, root, root_idx, base, x, y, true) >= 0;
+	if (ok && root) ok = ba_export_marks(&w, root, root_idx, base, x, y, &mark) && ba_export_order(&w, base, &order);
+	if (ok && root) {
+		static char buffer[1 << 20];
+		char s[1024];
+		setvbuf(f, buffer, _IOFBF, sizeof buffer);
+		for (k = 0; k < order.n; ++k) {
+			const long long ref = order.v[k], item = ref & ((1LL << 40) - 1);
+			const BaQueue *q = w.q + (ref >> 40);
+			const BaItem *it = q->item + item;
+			const unsigned char m = ba_visit_get(&mark, it->idx);
+			if (which == BOOK_EXPORT_ENDS && (m & BA_EXPORT_ON)) continue;
+			if (which == BOOK_EXPORT_LEAF && !ba_visit_get(&w.todo.seen, it->idx)) continue; // (a leaf to expand)
+			// (the passes are not written: after a pass, the line of the position before it, already written, is the same)
+			if (it->move == PASS && it->parent >= 0 && (ba_visit_get(&mark, q->item[it->parent].idx) & BA_EXPORT_WRITTEN)) continue;
+			if (!ba_visit_set(&mark, it->idx, m | BA_EXPORT_WRITTEN)) { ok = false; break; }
+			ba_export_moves(q, item, board, s);
+			if (fprintf(f, "%s%s\n", line ? line : "", s) < 0) break;
+			++written;
+		}
+	}
+	ok = ok & (ferror(f) == 0) & (fclose(f) == 0);
+	ba_visit_free(&mark);
+	free(order.v);
+	ba_work_free(&w);
+	if (!ok) {
+		printf("ERROR: book %s %d %d export: not enough memory, or the file %s cannot be written\n", name, x, y, file);
+		return -1;
+	}
+	if (root == NULL) printf("Book %s %d %d export %s...finished: the position is not in the book, 0 lines written (%s)\n", name, x, y, what, file);
+	else printf("Book %s %d %d export %s...finished: %lld lines written (%s)\n", name, x, y, what, written, file);
+	return written;
+}
+
 /* ------------------------------------------------------------------ book findline ----------------------------------------------------------- */
 
 #define BA_FIND_N_MAX 100                   /**< lines of book findline */
@@ -4373,8 +4617,9 @@ bool book_analysis_stop(const char *param)
 		ba_print("@error word=id\n");
 		return true;
 	}
+	// (export=1: the engine has book deviate ... export; a user interface asks it at the start, before any analysis)
 	if (!ba.init) {
-		if (has_id) ba_print("@cancel id=%d state=none\n", id);
+		if (has_id) ba_print("@cancel id=%d state=none export=1\n", id);
 		return has_id;
 	}
 	lock(&ba);
@@ -4384,7 +4629,7 @@ bool book_analysis_stop(const char *param)
 	}
 	ba_cancel_waiting(!has_id, id, &found);
 	unlock(&ba);
-	if (has_id && !found) ba_print("@cancel id=%d state=none\n", id);
+	if (has_id && !found) ba_print("@cancel id=%d state=none export=1\n", id);
 	return has_id;
 }
 

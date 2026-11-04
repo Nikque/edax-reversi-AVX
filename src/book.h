@@ -142,6 +142,10 @@ void book_extract_positions(Book*, const int, const int);
 
 void book_feed_hash(const Book*, Board*, Search*);
 
+/** what book deviate, deviate2, deviate3 ... export writes */
+enum { BOOK_EXPORT_LEAF, BOOK_EXPORT_ENDS, BOOK_EXPORT_ALL };
+long long book_deviate_export(Book*, const Board*, const char*, const int, const int, const int, const char*, const int);
+
 void book_analysis_init(void);
 bool book_analysis_command(Book*, const char*, const Board*, const int, const char*);
 bool book_analysis_stop(const char*);

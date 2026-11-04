@@ -362,6 +362,7 @@ GUI のソフトが、book をたどって数える計算を Edax に任せる�
 - `stop id=N` が、終わった後の解析や、まだ受け付けていない解析に届いたときは、`@cancel id=N state=none` と答えます。
   - 終わった解析は、その前に `@end id=N` を答えています。
   - 受け付ける前の解析は、その後で最後まで行い、`@end id=N` を答えます。
+  - v4.5.5-nikque.26 から、この答えに `export=1` が付きます（`@cancel id=N state=none export=1`）。`book deviate`・`deviate2`・`deviate3` の `export`（[7.3](07-book-learning.md)）を持つ印です。`export` を知らない前の版は、その語を読まずに book を広げるので、画面のソフトは、起動のときの `stop id=N` の答えでこの印を確かめてから送ってください。
 
 ### このマニュアルの作成で確かめたこと
 

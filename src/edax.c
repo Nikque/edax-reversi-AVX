@@ -252,6 +252,7 @@ void help_book(void)
 		"  deviate <n1> <n2>   add positions by deviating with a relative error <n1> and\n  an absolute error <n2>.\n"
 		"  deviate2 <n1> <n2>  add positions with a per-move loss limit <n1> and\n  a cumulative loss limit for both players <n2>; skip solved leaves.\n"
 		"  deviate3 <n1> <n2>  same loss limits as deviate2, including solved leaves.\n"
+		"  deviate.. <n1> <n2> export <file> [leaf|ends|all]  write the lines that deviate,\n  deviate2 or deviate3 walks to a text file, without adding positions: the\n  positions whose leaf it would expand (leaf, default), the ends of its lines\n  (ends), or every position of its lines (all).\n"
 		"  enhance <n1> <n2>   add positions by improving score accuracy with a midgame\n  error <n1> and an endcut error <n2>.\n"
 		"  fill [n] [n1 n2]    add positions between existing positions exactly <n> moves\n  apart (default 1); with <n1> <n2>, only from the positions that deviate3\n  <n1> <n2> walks.\n"
 		"  fill2 [n] [n1 n2]   same as fill (default 2), only through the leaf (best move\n  not in the book yet) of a position; with <n1> <n2>, only from the leaves\n  that deviate3 <n1> <n2> would expand.\n"
@@ -347,6 +348,40 @@ static const char* game_moves(const Play *play, char *s)
 	}
 	s[n] = '\0';
 	return s;
+}
+
+/**
+ * @brief "export <file> [leaf|ends|all]" after the numbers of book deviate, deviate2, deviate3: the lines of its walk
+ * are written to the file, nothing is expanded (see book_deviate_export).
+ * @return false if the words are not there (the command expands the book).
+ */
+static bool deviate_export(Play *play, const char *param, const int base, const int x, int y)
+{
+	char word[16], file[FILENAME_MAX + 1], game_line[2 * PLAY_GAME_SIZE + 1];
+	int which = BOOK_EXPORT_LEAF;
+
+	param = parse_word(param, word, sizeof word - 1);
+	string_to_lowercase(word);
+	if (strcmp(word, "export") != 0) return false;
+	param = parse_word(param, file, FILENAME_MAX);
+	parse_word(param, word, sizeof word - 1);
+	string_to_lowercase(word);
+	if (strcmp(word, "ends") == 0) which = BOOK_EXPORT_ENDS;
+	else if (strcmp(word, "all") == 0) which = BOOK_EXPORT_ALL;
+	else if (*word && strcmp(word, "leaf") != 0) {
+		printf("ERROR: book deviate export: unknown word %s (leaf, ends or all)\n", word);
+		return true;
+	}
+	if (!*file) {
+		printf("ERROR: book deviate export: no file\n");
+		return true;
+	}
+	if (base != 1 && y > 254) { // (as book deviate2, deviate3: a mark of one byte a position)
+		warn("total loss %d reduced to %d\n", y, 254);
+		y = 254;
+	}
+	book_deviate_export(play->book, &play->board, game_moves(play, game_line), base, x, y, file, which);
+	return true;
 }
 
 /**
@@ -956,18 +991,18 @@ void ui_loop_edax(UI *ui)
 				} else if (strcmp(book_cmd, "deviate") == 0) {
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, -129, 129, "relative error");
 					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 65, "absolute error");
-					book_deviate(book, &play->board, val_1, val_2);
+					if (!deviate_export(play, book_param, 1, val_1, val_2)) book_deviate(book, &play->board, val_1, val_2);
 
 				// add positions while limiting per-move and cumulative errors
 				} else if (strcmp(book_cmd, "deviate2") == 0) {
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
 					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
-					book_deviate2(book, &play->board, val_1, val_2);
+					if (!deviate_export(play, book_param, 2, val_1, val_2)) book_deviate2(book, &play->board, val_1, val_2);
 
 				} else if (strcmp(book_cmd, "deviate3") == 0) {
 					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
 					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
-					book_deviate3(book, &play->board, val_1, val_2);
+					if (!deviate_export(play, book_param, 3, val_1, val_2)) book_deviate3(book, &play->board, val_1, val_2);
 
 				// search again the leaves that book deviate (1, 3) or book deviate2 (2, 4) reaches:
 				// the leaves it would expand (1, 2), or the leaves of all the positions of its walk (3, 4)
