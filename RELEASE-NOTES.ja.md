@@ -14,7 +14,7 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 
 | nikque | eval2 | newedax |
 |---|---|---|
-| nikque.26（未公開） | eval2.14（未公開） | newedax.11（未公開） |
+| nikque.26 | eval2.14 | newedax.11 |
 | nikque.25 | eval2.13 | newedax.10 |
 | nikque.24 | eval2.12 | newedax.9 |
 | nikque.23 | eval2.11 | newedax.8 |
@@ -36,7 +36,7 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 
 ## v4.5.5-nikque.26
 
-**未公開**（次の版）。`book deviate`・`book deviate2`・`book deviate3` に、book を広げずに、たどる手順をテキストファイルに書き出す `export` を足しました。
+`book deviate`・`book deviate2`・`book deviate3` に、book を広げずに、たどる手順をテキストファイルに書き出す `export` を足しました。
 
 **変更**
 
@@ -54,6 +54,8 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 **確認**：Python で別に計算した集まり（広げる Leaf・端・進行の局面）と、書かれた行を比べました。試験用の book 3 つの 41 局面で、3 つのコマンド・5 つの範囲・3 種類の 4,545 通りが全部同じで、どの行も初手から打てて、その手順がたどりの条件に合い、手順の石損の合計がいちばん少ないことを確かめました。libedax の試験は 218 項目が全部通りました。
 
 **未確認**：実 book での時間とメモリ。
+
+[検証記録](docs/validation/nikque.ja.md#v455-nikque26)
 
 ---
 
@@ -1001,7 +1003,7 @@ nikque 系列に新しい評価関数（着手可能数の重み）を足した�
 
 ## v4.5.5-eval2.14
 
-**未公開**（次の版）。v4.5.5-nikque.26 の変更を取り込みます（[nikque.26](#v455-nikque26)）。
+v4.5.5-nikque.26 の変更を取り込みました（[nikque.26](#v455-nikque26)）。
 
 **変更**
 
@@ -1010,7 +1012,9 @@ nikque 系列に新しい評価関数（着手可能数の重み）を足した�
 **互換性**
 
 - 評価関数と `eval.dat` は eval2.1 のままです（同じファイル）。
-- 探索のコードは変えていません。`export` を付けないコマンドは eval2.13 と同じです。
+- 探索の結果（評価値・ノード数）は eval2.13 と同じです。`export` を付けないコマンドは eval2.13 と同じです。
+
+[検証記録](docs/validation/eval2.ja.md#v455-eval214)
 
 ---
 

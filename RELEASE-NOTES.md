@@ -14,7 +14,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 | nikque | eval2 | newedax |
 |---|---|---|
-| nikque.26 (not released) | eval2.14 (not released) | newedax.11 (not released) |
+| nikque.26 | eval2.14 | newedax.11 |
 | nikque.25 | eval2.13 | newedax.10 |
 | nikque.24 | eval2.12 | newedax.9 |
 | nikque.23 | eval2.11 | newedax.8 |
@@ -36,7 +36,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 ## v4.5.5-nikque.26
 
-**Not released** (the next version). `book deviate`, `book deviate2` and `book deviate3` can write the lines they walk to a text file without expanding the book (`export`).
+`book deviate`, `book deviate2` and `book deviate3` can write the lines they walk to a text file without expanding the book (`export`).
 
 **Changes**
 
@@ -54,6 +54,8 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 **Checked**: the lines written are compared with sets computed apart in Python (the positions with a leaf to expand, the ends, all the positions of the lines): on 41 positions of 3 test books, the 4,545 cases (3 commands, 5 ranges, 3 kinds) are all the same; every line can be played from the start, its moves follow the walk, and its total loss is the smallest. The 218 checks of the test of libedax pass.
 
 **Not checked**: the time and the memory on a real book.
+
+[Tests and measurements](docs/validation/nikque.en.md#v455-nikque26)
 
 ---
 
@@ -1001,7 +1003,7 @@ The nikque line plus a new evaluation function (mobility weights), published fro
 
 ## v4.5.5-eval2.14
 
-**Not released** (the next version). The changes of v4.5.5-nikque.26 are included ([nikque.26](#v455-nikque26)).
+The changes of v4.5.5-nikque.26 are included ([nikque.26](#v455-nikque26)).
 
 **Changes**
 
@@ -1010,7 +1012,9 @@ The nikque line plus a new evaluation function (mobility weights), published fro
 **Compatibility**
 
 - The evaluation and `eval.dat` are those of eval2.1 (the same file).
-- The search code does not change. The commands without `export` are the same as in eval2.13.
+- The results of the search (scores and node counts) are those of eval2.13. The commands without `export` are the same as in eval2.13.
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval214)
 
 ---
 
