@@ -160,6 +160,7 @@ Notes:
   - `edax_book_save_checked`: saves the book and reports whether it was saved.
   - `edax_book_failed`: reports whether the last book function failed to add a position.
 - Added in v4.5.5-nikque.12: `edax_book_leaf_recalculate`, `edax_book_leaf_recalculate2`, `3` and `4` (the `book leaf recalculate` commands, named `book leaf-recalculate` up to v4.5.5-nikque.13).
+- Added in v4.5.5-nikque.26: `edax_book_deviate_export(base, x, y, file, which)`, the `export` of `book deviate` (`base` 1), `book deviate2` (2) and `book deviate3` (3) ([7.3](07-book-learning.md)). It writes the lines that the command walks from the current position to the file `file`, without expanding the book. `which` is 0 for `leaf`, 1 for `ends` and 2 for `all`. It returns the number of lines written (0, with an empty file, when the current position is not in the book), or −1 when an argument is wrong, the file cannot be written or there is not enough memory. `x` and `y` have the ranges of the commands (`y` up to 254 for `book deviate2` and `book deviate3`).
 
 **Differences from the original libedax (Edax 4.4)**
 
@@ -193,7 +194,7 @@ The library and the edax program (for the same CPU) search the same number of no
 **Tests**
 
 - `tests/libedax_test.c` calls every function.
-  - Number of checks: 147 (v4.5.5-nikque.7); 191 in v4.5.5-nikque.9, 193 in v4.5.5-nikque.10, 197 in v4.5.5-nikque.12, 198 in v4.5.5-nikque.13. The checks of v4.5.5-eval2.10 ran 204 of them with no failure (`README-NIKQUE.en.md` in the package).
+  - Number of checks: 147 (v4.5.5-nikque.7); 191 in v4.5.5-nikque.9, 193 in v4.5.5-nikque.10, 197 in v4.5.5-nikque.12, 198 in v4.5.5-nikque.13. The checks of v4.5.5-eval2.10 ran 204 of them with no failure (`README-NIKQUE.en.md` in the package). The checks of v4.5.5-eval2.14 ran 218 (14 of them for the export) with no failure.
   - The 3 Windows and the 3 Linux libraries pass.
   - The original libedax gives the same results on the checks it supports.
 - 28 of the 29 tests of libedax4dart 7.67.0 pass. The remaining one compares a search score. The score differs because of the default level and the state left by previous searches; a fresh search at the same level gives the same score as the original libedax.

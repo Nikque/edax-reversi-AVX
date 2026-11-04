@@ -69,6 +69,7 @@
 | `book deviate` | ［X］（2） ［Y］（4）。X は −129〜129、Y は 0〜65 | 自動で広げる（片方が外れる変化） | `.dev` | [7.3](07-book-learning.md) |
 | `book deviate2` | ［X］（2） ［Y］（4）。X は 0〜129、Y は 0〜7740 | 自動で広げる（失点の合計。完全読みの Leaf を除く） | `.dev2` | [7.3](07-book-learning.md) |
 | `book deviate3` | 同じ | 同じ（完全読みの Leaf も含む） | `.dev3` | [7.3](07-book-learning.md) |
+| `book deviate`・`deviate2`・`deviate3` の `export` | X Y の後ろに `export ファイル` ［`leaf`・`ends`・`all`］（`leaf`） | 広げずに、たどる手順をテキストファイルに書き出す（v4.5.5-nikque.26 から） | | [7.3](07-book-learning.md) |
 | `book enhance` | ［X］（2） ［Y］（4）。0〜129 | 評価値を変えそうな Leaf を広げる | `.enh` | [7.4](07-book-learning.md) |
 | `book fill` | ［n］（1） ［X Y］。n は 1〜61、X は 0〜129、Y は 0〜7740 | 局面の間を埋める。X Y を付けると `book deviate3 X Y` の範囲だけ | `.fill` | [7.4](07-book-learning.md) |
 | `book fill2` | ［n］（2） ［X Y］。数の範囲は `book fill` と同じ | Leaf の先の欠けを埋める | `.fill2` | [7.4](07-book-learning.md) |
