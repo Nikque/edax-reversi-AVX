@@ -263,6 +263,7 @@ book deviate2 2 4 export lines.txt ends
 - The total loss of `book deviate2` and `book deviate3` is at most 254 (as when they expand).
 - At the end, `Book deviate2 2 4 export ends...finished: 120 lines written (lines.txt)` is shown. When the current position is not in the book, an empty file is made.
 - The book does not change: nothing is saved, and no progress file is written.
+- When it cannot write the lines, it prints a line beginning with `ERROR:` and does not expand the book: with no file name (`ERROR: book deviate export: no file`), with a last word other than `leaf`, `ends` and `all` (`unknown word`), or when the file cannot be written (`ERROR: book deviate2 2 4 export: cannot write the file lines.txt`).
 
 ## 7.4 Automatic expansion: the other commands
 
@@ -465,6 +466,7 @@ The cautions for books of hundreds of millions of positions are collected in [ch
 | `book deviate X Y` | Expand the lines where one side is off by up to X discs and the score is within ±Y |
 | `book deviate2 X Y` | Expand the lines with losses of up to X discs per move and Y discs in total (leaves of exactly solved positions excluded) |
 | `book deviate3 X Y` | The same (leaves of exactly solved positions included) |
+| `export file` [`leaf`, `ends` or `all`] after X Y of the `book deviate` family | Write the lines it walks to a text file, without expanding the book (example: `book deviate2 2 4 export lines.txt ends`) |
 | `book enhance X Y` | Expand the leaves that could change a score once the error of the search is allowed for |
 | `book fill n` [X Y] | Fill in between the positions of the book (with X Y: in the range of `book deviate3` only) |
 | `book fill2 n` [X Y] | Fill the gaps after the leaves |

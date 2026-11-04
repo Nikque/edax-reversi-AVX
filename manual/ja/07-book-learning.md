@@ -296,6 +296,7 @@ book deviate2 2 4 export lines.txt ends
 - `book deviate2`・`book deviate3` の合計の上限は 254 までです（広げるときと同じ）。
 - 終わると `Book deviate2 2 4 export ends...finished: 120 lines written (lines.txt)` と出ます。今の局面が book にないときは、空のファイルを作ります。
 - book は変わらないので、保存も途中経過のファイルもありません。
+- 書き出せないときは `ERROR:` で始まる行が出て、book は広げません。ファイル名がないとき（`ERROR: book deviate export: no file`）、最後の語が `leaf`・`ends`・`all` のどれでもないとき（`unknown word`）、ファイルに書けないとき（`ERROR: book deviate2 2 4 export: cannot write the file lines.txt`）です。
 
 ## 7.4 自動で広げる：そのほかのコマンド
 
@@ -511,6 +512,7 @@ Book play...1/153 done: 1 positions, 1 links
 | `book deviate X Y` | 片方の側が X 石まで外れ、評価値が ±Y の範囲の変化を広げる |
 | `book deviate2 X Y` | 1 手 X 石まで・合計 Y 石までの失点の変化を広げる（完全読みの Leaf を除く） |
 | `book deviate3 X Y` | 同じ（完全読みの Leaf も含む） |
+| `book deviate` 系列の X Y の後ろに `export ファイル` ［`leaf`・`ends`・`all`］ | 広げずに、たどる手順をテキストファイルに書き出す（例：`book deviate2 2 4 export lines.txt ends`） |
 | `book enhance X Y` | 探索の誤差を見込んで、評価値を変えそうな Leaf を広げる |
 | `book fill n` ［X Y］ | book の局面と局面の間を埋める（X Y で `book deviate3` の範囲だけ） |
 | `book fill2 n` ［X Y］ | Leaf の先の欠けを埋める |

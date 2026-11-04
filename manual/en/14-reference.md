@@ -69,6 +69,7 @@ These are entered after `book` (or `b`). The word that follows may be in upper c
 | `book deviate` | [X] (2) [Y] (4). X from −129 to 129, Y from 0 to 65 | Automatic expansion (lines where one side is off) | `.dev` | [7.3](07-book-learning.md) |
 | `book deviate2` | [X] (2) [Y] (4). X from 0 to 129, Y from 0 to 7740 | Automatic expansion (total of the losses; leaves of exactly solved positions excluded) | `.dev2` | [7.3](07-book-learning.md) |
 | `book deviate3` | the same | The same (leaves of exactly solved positions included) | `.dev3` | [7.3](07-book-learning.md) |
+| `export` of `book deviate`, `deviate2` and `deviate3` | `export file` [`leaf`, `ends` or `all`] (`leaf`) after X Y | Write the lines walked to a text file, without expanding the book (since v4.5.5-nikque.26) | | [7.3](07-book-learning.md) |
 | `book enhance` | [X] (2) [Y] (4). 0 to 129 | Expand the leaves that could change a score | `.enh` | [7.4](07-book-learning.md) |
 | `book fill` | [n] (1) [X Y]. n: 1 to 61, X: 0 to 129, Y: 0 to 7740 | Fill in between positions. With X Y: in the range of `book deviate3 X Y` only | `.fill` | [7.4](07-book-learning.md) |
 | `book fill2` | [n] (2) [X Y]; the ranges of the numbers as for `book fill` | Fill the gaps after the leaves | `.fill2` | [7.4](07-book-learning.md) |

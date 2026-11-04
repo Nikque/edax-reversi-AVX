@@ -39,7 +39,7 @@ Each eval2 and newedax release includes all changes of the nikque release it nam
 - **New learning commands**: `book deviate2` / `book deviate3` (limits on loss per move and in total).
 - **Faster learning on many cores**: several book positions are expanded at the same time (`book-expand-tasks`, `book-store-tasks`); with 32 threads at level 18, up to about 4.7 times faster.
 - **Less memory**: about 50 bytes per book position (58 before).
-- **Book analysis and maintenance**: `book moveinfo`, `book missing`, `book bestlines`, `book reduce` and others (used by nikque GUI).
+- **Book analysis and maintenance**: `book moveinfo`, `book missing`, `book bestlines`, `book reduce`, the `export` of the `book deviate` family (the lines they walk, written without expanding the book) and others (used by nikque GUI).
 - **17 other fixes** in file I/O, time control, PGN/GGF and protocols (XBoard, GTP, NBoard).
 
 The complete list is in the [release notes](RELEASE-NOTES.md).
@@ -92,7 +92,7 @@ eval2・newedax の各版は、対応する nikque の版の変更をすべて�
 - **学習のコマンドを追加**：`book deviate2`・`book deviate3`（1 手ごと・合計の損失で範囲を指定）。
 - **多コアでの学習を高速化**：複数の局面を同時に展開します（`book-expand-tasks`、`book-store-tasks`）。32 スレッド・level 18 で最大約 4.7 倍。
 - **メモリの削減**：book の 1 局面あたり約 50 バイト（以前は約 58 バイト）。
-- **book の解析と整理**：`book moveinfo`・`book missing`・`book bestlines`・`book reduce` など（nikque GUI が使います）。
+- **book の解析と整理**：`book moveinfo`・`book missing`・`book bestlines`・`book reduce`、`book deviate` の仲間の `export`（たどる進行を、book を広げずに書き出す）など（nikque GUI が使います）。
 - **そのほか 17 件の修正**：ファイルの入出力、持ち時間、PGN・GGF、通信（XBoard・GTP・NBoard）。
 
 すべての変更は [修正一覧](RELEASE-NOTES.ja.md) にあります。

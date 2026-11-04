@@ -167,6 +167,7 @@ int main(void)
   - `edax_book_save_checked`：book を保存し、保存できたかどうかを返します。
   - `edax_book_failed`：直前の book の処理が、局面を追加できなかったかどうかを返します。
 - v4.5.5-nikque.12 で追加：`edax_book_leaf_recalculate`・`edax_book_leaf_recalculate2`・`3`・`4`（`book leaf recalculate` 系列のコマンド。v4.5.5-nikque.13 までの名前は `book leaf-recalculate`）。
+- v4.5.5-nikque.26 で追加：`edax_book_deviate_export(base, x, y, file, which)`。`book deviate`（`base` が 1）・`book deviate2`（2）・`book deviate3`（3）の `export` です（[7.3](07-book-learning.md)）。book を広げずに、今の局面からたどる手順をファイル `file` に書き出します。`which` は 0 が `leaf`、1 が `ends`、2 が `all` です。書いた行の数を返します（今の局面が book にないときは 0 で、空のファイルを作ります）。引数が正しくないとき、ファイルに書けないとき、メモリが足りないときは −1 を返します。`x`・`y` の範囲はコマンドと同じです（`book deviate2`・`book deviate3` の `y` は 254 まで）。
 
 **元の libedax（Edax 4.4）との違い**
 
@@ -200,7 +201,7 @@ int main(void)
 **テスト**
 
 - `tests/libedax_test.c` が全関数を呼び出します。
-  - 項目の数：147 項目。v4.5.5-nikque.9 では 191 項目、v4.5.5-nikque.10 では 193 項目、v4.5.5-nikque.12 では 197 項目、v4.5.5-nikque.13 では 198 項目。
+  - 項目の数：147 項目。v4.5.5-nikque.9 では 191 項目、v4.5.5-nikque.10 では 193 項目、v4.5.5-nikque.12 では 197 項目、v4.5.5-nikque.13 では 198 項目、v4.5.5-nikque.26 では 218 項目（書き出しの 14 項目を含む）。
   - Windows 3 種と Linux 3 種で合格しました。
   - 元の libedax でも、対応する項目は同じ結果です。
 - libedax4dart 7.67.0 のテスト 29 件のうち、28 件が合格しました。
