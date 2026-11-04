@@ -14,6 +14,7 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 
 | nikque | eval2 | newedax |
 |---|---|---|
+| nikque.26 (not released) | eval2.14 (not released) | newedax.11 (not released) |
 | nikque.25 | eval2.13 | newedax.10 |
 | nikque.24 | eval2.12 | newedax.9 |
 | nikque.23 | eval2.11 | newedax.8 |
@@ -32,6 +33,29 @@ Each eval2 and newedax version contains all changes of the nikque version on the
 ---
 
 # nikque line
+
+## v4.5.5-nikque.26
+
+**Not released** (the next version). `book deviate`, `book deviate2` and `book deviate3` can write the lines they walk to a text file without expanding the book (`export`).
+
+**Changes**
+
+- With `export <file> [leaf|ends|all]` after the numbers (for instance `book deviate2 2 4 export lines.txt ends`), the command writes the lines it walks from the current position and expands nothing: `leaf` (when left out) the positions whose leaf it would expand in its first round, `ends` the ends of the lines, `all` all the positions of the lines.
+- One position a line, the moves from the start in small letters (the passes are not written). A position reached by several lines is written once, with the line of the fewest moves (`book deviate`) or of the smallest total loss (`book deviate2`, `book deviate3`).
+- libedax: `edax_book_deviate_export`.
+- The answer to a `stop id=N` with nothing to stop is `@cancel id=N state=none export=1` (the mark of the export). An earlier version does not read the words after `export` and expands the book: a user interface should look for this mark before sending one.
+- Manual: 7.3 (the export) and 12.4 (the mark). `help book` has it too.
+
+**Compatibility**
+
+- The commands without `export` are the same as in nikque.25. The search results, `eval.dat` and the book file format do not change.
+- The answer `@cancel id=N state=none` ends with `export=1`.
+
+**Checked**: the lines written are compared with sets computed apart in Python (the positions with a leaf to expand, the ends, all the positions of the lines): on 41 positions of 3 test books, the 4,545 cases (3 commands, 5 ranges, 3 kinds) are all the same; every line can be played from the start, its moves follow the walk, and its total loss is the smallest. The 218 checks of the test of libedax pass.
+
+**Not checked**: the time and the memory on a real book.
+
+---
 
 ## v4.5.5-nikque.25
 
@@ -974,6 +998,21 @@ This is the first release, based on upstream Edax v4.5.5. It adds `book deviate2
 # eval2 line
 
 The nikque line plus a new evaluation function (mobility weights), published from the `eval2` branch. Each version contains all changes of the nikque versions listed in the "Versions" table above.
+
+## v4.5.5-eval2.14
+
+**Not released** (the next version). The changes of v4.5.5-nikque.26 are included ([nikque.26](#v455-nikque26)).
+
+**Changes**
+
+- The `export` of `book deviate`, `book deviate2` and `book deviate3` (the lines they walk written to a file, the book not expanded), `edax_book_deviate_export` of libedax and the mark `@cancel id=N state=none export=1` (the same as nikque.26).
+
+**Compatibility**
+
+- The evaluation and `eval.dat` are those of eval2.1 (the same file).
+- The search code does not change. The commands without `export` are the same as in eval2.13.
+
+---
 
 ## v4.5.5-eval2.13
 

@@ -14,6 +14,7 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 
 | nikque | eval2 | newedax |
 |---|---|---|
+| nikque.26（未公開） | eval2.14（未公開） | newedax.11（未公開） |
 | nikque.25 | eval2.13 | newedax.10 |
 | nikque.24 | eval2.12 | newedax.9 |
 | nikque.23 | eval2.11 | newedax.8 |
@@ -32,6 +33,29 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 ---
 
 # nikque 系列
+
+## v4.5.5-nikque.26
+
+**未公開**（次の版）。`book deviate`・`book deviate2`・`book deviate3` に、book を広げずに、たどる手順をテキストファイルに書き出す `export` を足しました。
+
+**変更**
+
+- 数の後ろに `export <ファイル> [leaf|ends|all]` を付けると（例 `book deviate2 2 4 export lines.txt ends`）、そのコマンドが今の局面からたどる手順を、book を広げずに書き出します。`leaf`（省いたとき）は 1 周目に広げる Leaf を持つ局面、`ends` は進行の端の局面、`all` は進行の局面すべてです。
+- 1 行に 1 局面で、初手からの手順を小文字で書きます（パスは書きません）。合流した局面は 1 回だけで、手順は `book deviate` では手数、`book deviate2`・`book deviate3` では失った石数の合計がいちばん少ないものです。
+- libedax：`edax_book_deviate_export` を足しました。
+- 解析の `stop id=N` に、止めるものがないときの答えを `@cancel id=N state=none export=1` にしました（書き出しを持つ印）。前の版は `export` 以降の語を読まずに book を広げるので、画面のソフトは、この印を確かめてから送ってください。
+- 手引き：7.3（書き出し）と 12.4（印）に書きました。`help book` にも足しました。
+
+**互換性**
+
+- `export` を付けないコマンドは nikque.25 と同じです。探索の結果・`eval.dat`・book のファイル形式は変わりません。
+- `@cancel id=N state=none` の答えの後ろに `export=1` が付きます。
+
+**確認**：Python で別に計算した集まり（広げる Leaf・端・進行の局面）と、書かれた行を比べました。試験用の book 3 つの 41 局面で、3 つのコマンド・5 つの範囲・3 種類の 4,545 通りが全部同じで、どの行も初手から打てて、その手順がたどりの条件に合い、手順の石損の合計がいちばん少ないことを確かめました。libedax の試験は 218 項目が全部通りました。
+
+**未確認**：実 book での時間とメモリ。
+
+---
 
 ## v4.5.5-nikque.25
 
@@ -974,6 +998,21 @@ Edax をほかのプログラムから使えるライブラリ libedax を追加
 # eval2 系列
 
 nikque 系列に新しい評価関数（着手可能数の重み）を足した系列です。ブランチ `eval2` から公開しています。各版は、上の「版の対応」の表のとおり、nikque の版の変更をすべて含みます。
+
+## v4.5.5-eval2.14
+
+**未公開**（次の版）。v4.5.5-nikque.26 の変更を取り込みます（[nikque.26](#v455-nikque26)）。
+
+**変更**
+
+- `book deviate`・`book deviate2`・`book deviate3` の `export`（book を広げずに、たどる手順を書き出す）と、libedax の `edax_book_deviate_export`、`@cancel id=N state=none export=1` の印を取り込みました（内容は nikque.26 と同じです）。
+
+**互換性**
+
+- 評価関数と `eval.dat` は eval2.1 のままです（同じファイル）。
+- 探索のコードは変えていません。`export` を付けないコマンドは eval2.13 と同じです。
+
+---
 
 ## v4.5.5-eval2.13
 

@@ -240,6 +240,30 @@ An example with `book deviate2 5 5`:
 - The workload grows very quickly with larger numbers. On the small book above (level 8, depth 12), `book deviate 1 2` gave 110 positions, and `book deviate2 2 4` after it gave 1,952. (**These figures come from a small book and do not predict those for a large one.**) Start with small numbers (`1 2`, `2 4`) and widen them while watching the time and the number of positions.
 - If the command is interrupted, everything saved up to then remains (7.5 below). Typing the same command again continues from there: leaves that were already expanded are now links and are not selected again.
 
+### Writing the lines they walk to a text file, without expanding (export)
+
+With `export <file> [leaf|ends|all]` after the numbers, each of the three commands **expands nothing** and writes the lines it walks from the current position to a text file (from v4.5.5-nikque.26).
+
+```
+book deviate2 2 4 export lines.txt ends
+```
+
+| Last word | Positions written |
+|---|---|
+| `leaf` (when left out) | the positions whose leaf the command would expand in its first round (a leaf not searched further yet) |
+| `ends` | the ends of the lines walked (no move within the limits leads further into the book) |
+| `all` | every position of the lines walked (the current position included) |
+
+- One line a position: the moves of the game up to the current position, then the moves from there to the position, as `f5d6c3...` (small letters). Passes are not written.
+- A position reached by several lines (a transposition) is written once, with the line of the fewest moves for `book deviate`, or of the smallest total loss for `book deviate2` and `book deviate3` (the first one found, among equal ones).
+- A position that must pass and the position after the pass have the same line; it is written once.
+- At the start of the game, the line of the start position itself is an empty line (`all`).
+- The ends are the positions where the game is over, those beyond the depth of the book (`book depth`), and those with no move within the limits in the book.
+- For `book deviate`, the lines of its two walks (above), both on the book before any expansion, are written together; `ends` are the positions from which neither walk goes further.
+- The total loss of `book deviate2` and `book deviate3` is at most 254 (as when they expand).
+- At the end, `Book deviate2 2 4 export ends...finished: 120 lines written (lines.txt)` is shown. When the current position is not in the book, an empty file is made.
+- The book does not change: nothing is saved, and no progress file is written.
+
 ## 7.4 Automatic expansion: the other commands
 
 | Command | Meaning | Intermediate file |

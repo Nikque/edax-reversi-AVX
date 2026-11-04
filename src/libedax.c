@@ -2052,6 +2052,45 @@ LIBEDAX_API void edax_book_deviate3(int move_loss, int total_loss)
 	lib_book_end(book);
 }
 
+/**
+ * @brief book deviate, deviate2, deviate3 <x> <y> export <file> [leaf|ends|all] command: write the lines of the walk
+ * of the command from the current position to a text file, without expanding the book (see book_deviate_export).
+ * @param base 1: book deviate, 2: deviate2, 3: deviate3.
+ * @param x relative error (deviate), or per-move loss limit (deviate2, deviate3).
+ * @param y absolute error (deviate), or cumulative loss limit (deviate2, deviate3; at most 254).
+ * @param file file to write.
+ * @param which 0: the positions whose leaf the command would expand, 1: the ends of the lines, 2: all the positions
+ * of the lines.
+ * @return the number of lines written, -1 on error.
+ */
+LIBEDAX_API long long edax_book_deviate_export(int base, int x, int y, const char *file, int which)
+{
+	Book *book;
+	const Play *play;
+	char line[2 * PLAY_GAME_SIZE + 1];
+	long long n;
+	int i, k = 0;
+
+	if (g_ui == NULL || file == NULL || base < 1 || base > 3 || which < BOOK_EXPORT_LEAF || which > BOOK_EXPORT_ALL) return -1;
+	play = g_ui->play;
+	if (base == 1) {
+		BOUND(x, -129, 129, "relative error");
+		BOUND(y, 0, 65, "absolute error");
+	} else {
+		BOUND(x, 0, 129, "per-move loss");
+		BOUND(y, 0, 254, "cumulative loss");
+	}
+	for (i = 0; i < play->i_game && i < PLAY_GAME_SIZE; ++i) { // (the moves of the game, without the passes)
+		const int m = play->game[i].x;
+		if (A1 <= m && m <= H8) { line[k++] = (char) ('a' + m % 8); line[k++] = (char) ('1' + m / 8); }
+	}
+	line[k] = '\0';
+	book = lib_book_begin();
+	n = book_deviate_export(book, &g_ui->play->board, line, base, x, y, file, which);
+	lib_book_end(book);
+	return n;
+}
+
 /** book leaf recalculate commands (the caller checked g_ui) */
 static void lib_book_leaf_recalculate(const int kind, int x, int y)
 {

@@ -346,6 +346,7 @@ Example (a test book):
 - A `stop id=N` that arrives after analysis N has ended, or before it has started, gets `@cancel id=N state=none`.
   - An analysis that has ended has already answered `@end id=N`.
   - One that has not started yet still runs to the end and answers `@end id=N`.
+  - From v4.5.5-nikque.26, this answer ends with `export=1` (`@cancel id=N state=none export=1`): the engine has the `export` of `book deviate`, `deviate2` and `deviate3` ([7.3](07-book-learning.md)). An earlier version does not read that word and expands the book, so a user interface should look for this mark in the answer to a `stop id=N` sent at the start before sending one.
 
 **What was checked for this manual**
 

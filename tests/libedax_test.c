@@ -550,6 +550,33 @@ int main(int argc, char **argv)
 		}
 	}
 	{
+		// book deviate, deviate2, deviate3 ... export (v4.5.5-nikque.26): the lines are written, no position is added
+		typedef long long (*Export)(int, int, int, const char*, int);
+		Export export_lines = (Export) optional(dll, "edax_book_deviate_export");
+		static const char *const file = "libedax-export.txt";
+		if (!original) CHECK(export_lines != NULL);
+		if (export_lines) {
+			edax_book_info(&info);
+			n = info.n_nodes;
+			for (i = 1; i <= 3; ++i) {
+				const long long all = export_lines(i, 2, 4, file, 2), ends = export_lines(i, 2, 4, file, 1), leaf = export_lines(i, 2, 4, file, 0);
+				FILE *f = fopen(file, "r");
+				int lines = 0, c;
+				CHECK(all >= 1 && ends >= 1 && ends <= all && leaf >= 0);
+				CHECK(f != NULL);
+				if (f) {
+					while ((c = fgetc(f)) != EOF) lines += c == '\n';
+					fclose(f);
+				}
+				CHECK_INT(lines, (int) leaf);
+				edax_book_info(&info);
+				CHECK_INT(info.n_nodes, n);
+			}
+			CHECK(export_lines(4, 2, 4, file, 0) == -1 && export_lines(2, 2, 4, file, 3) == -1);
+			remove(file);
+		}
+	}
+	{
 		// book fill2, book fill / fill2 with loss limits, book leaf expand: positions may be added, none is removed
 		void (*fill2)(int) = (void (*)(int)) optional(dll, "edax_book_fill2");
 		void (*fill_limited)(int, int, int) = (void (*)(int, int, int)) optional(dll, "edax_book_fill_limited");
