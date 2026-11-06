@@ -920,18 +920,27 @@ static void ba_map_free(BaMap *m)
 	memset(m, 0, sizeof *m);
 }
 
-static void ba_umi_free(BaWork *w)
+/** @brief Forget the expressions of an umigame number (the lines are kept). */
+static void ba_umi_clear(BaWork *w)
 {
 	unsigned int i;
 	if (w->rep) for (i = 0; i < w->n_node; ++i) free(w->rep[i].t);
 	if (w->def) for (i = 0; i < w->n_node; ++i) free(w->def[i].t);
-	free(w->rep); free(w->def); free(w->g); w->rep = w->def = NULL; w->g = NULL;
+	free(w->rep); free(w->def); free(w->g);
 	free(w->uses); free(w->remain); free(w->stamp); free(w->found);
 	w->uses = NULL; w->remain = w->stamp = w->found = NULL;
+	w->rep = w->def = NULL; w->g = NULL;
+	w->n_pool = 0;
+}
+
+/** @brief Forget the lines of an umigame number (and their expressions). */
+static void ba_umi_free(BaWork *w)
+{
+	ba_umi_clear(w);
 	free(w->node); free(w->edge); free(w->order); free(w->rank); free(w->pool); free(w->kept);
 	w->kept = NULL;
 	w->node = NULL; w->edge = NULL; w->order = w->rank = NULL; w->pool = NULL;
-	w->n_node = w->size_node = 0; w->n_edge = w->size_edge = 0; w->n_pool = w->size_pool = 0;
+	w->n_node = w->size_node = 0; w->n_edge = w->size_edge = 0; w->size_pool = 0;
 	ba_map_free(&w->map); ba_map_free(&w->end_map);
 }
 
@@ -2270,19 +2279,6 @@ static unsigned long long ba_umi_tree(BaWork *w, const int counter)
 }
 #endif
 
-/** @brief Forget the expressions of an umigame number (the lines are kept). */
-static void ba_umi_clear(BaWork *w)
-{
-	unsigned int i;
-	if (w->rep) for (i = 0; i < w->n_node; ++i) free(w->rep[i].t);
-	if (w->def) for (i = 0; i < w->n_node; ++i) free(w->def[i].t);
-	free(w->rep); free(w->def); free(w->g);
-	free(w->uses); free(w->remain); free(w->stamp); free(w->found);
-	w->uses = NULL; w->remain = w->stamp = w->found = NULL;
-	w->rep = w->def = NULL; w->g = NULL;
-	w->n_pool = 0;
-}
-
 /* ------------------------------------------------------------------ book moveinfo ----------------------------------------------------------- */
 
 /** A legal move of the current position. */
@@ -2454,6 +2450,25 @@ static int ba_move_stage(BaWork *w, const Position *current, const BaStageInfo *
 	return s.stage;
 }
 
+/** @return true if the umigame numbers of a position (and its side to move) are kept (BA_CACHE_UMI), read in m. */
+static bool ba_cache_get_umi(const unsigned int idx, const int color, const unsigned long long cond, BaMove *m)
+{
+	long long a, b;
+	int c;
+	if (!ba_cache_get(ba_cache_key(idx, BA_CACHE_UMI, color), cond, &a, &b, &c, NULL, NULL)) return false;
+	m->umi[BLACK] = a;
+	m->umi[WHITE] = b;
+	m->umi_state = c & 3;
+	m->umi_exact = (c & 4) != 0;
+	return true;
+}
+
+/** @brief Keep the umigame numbers of a position (state: as umi_state of BaMove). */
+static void ba_cache_put_umi(const unsigned int idx, const int color, const unsigned long long cond, const long long black, const long long white, const int state, const bool exact)
+{
+	ba_cache_put(ba_cache_key(idx, BA_CACHE_UMI, color), cond, black, white, state | (exact ? 4 : 0), NULL, 0);
+}
+
 static int ba_umi_keep_depth = 2;   /**< the numbers kept from the lines of the position after a move: 1 to this many moves after it (the tests change it) */
 
 /**
@@ -2472,16 +2487,15 @@ static void ba_umi_keep(BaWork *w, const int gui_color)
 	if (w->kept == NULL) return;
 	for (v = 0; v < w->n_node; ++v) {
 		const BaUNode *u = w->node + v;
-		const unsigned long long key = ba_cache_key(u->idx, BA_CACHE_UMI, u->color);
 		if (u->depth < 1 || u->depth > w->keep_depth || u->alias != v) continue;
 		if (prm->umi == BA_UMI_LOSS && u->loss != 0) continue;
 		if (prm->umi == BA_UMI_RANGE) {
 			const int s = -u->p->score.value;
-			if (s < prm->lo || s > prm->hi) { ba_cache_put(key, cond, 0, 0, 1 | 4, NULL, 0); continue; }
+			if (s < prm->lo || s > prm->hi) { ba_cache_put_umi(u->idx, u->color, cond, 0, 0, 1, true); continue; }
 			if (u->color == gui_color && prm->lo != -prm->hi) continue;
 		}
 		if (w->kept[2 * v + BLACK] < 0 || w->kept[2 * v + WHITE] < 0) continue;
-		ba_cache_put(key, cond, w->kept[2 * v + BLACK], w->kept[2 * v + WHITE], 4, NULL, 0);
+		ba_cache_put_umi(u->idx, u->color, cond, w->kept[2 * v + BLACK], w->kept[2 * v + WHITE], 0, true);
 	}
 }
 
@@ -2493,17 +2507,10 @@ static void ba_umi_keep(BaWork *w, const int gui_color)
  */
 static bool ba_move_umi(BaWork *w, const int player, BaMove *m)
 {
-	const unsigned long long key = ba_cache_key(m->idx, BA_CACHE_UMI, !player), cond = ba_cond_umi(w->prm);
-	long long a, b;
-	int c, r;
+	const unsigned long long cond = ba_cond_umi(w->prm);
+	int r;
 
-	if (ba_cache_get(key, cond, &a, &b, &c, NULL, NULL)) {
-		m->umi[BLACK] = a;
-		m->umi[WHITE] = b;
-		m->umi_state = c & 3;
-		m->umi_exact = (c & 4) != 0;
-		return true;
-	}
+	if (ba_cache_get_umi(m->idx, !player, cond, m)) return true;
 	w->keep_depth = ba_umi_keep_depth;
 	r = ba_umi_build(w, m->p, m->idx, !player, player);
 	m->umi_state = 0;
@@ -2528,7 +2535,7 @@ static bool ba_move_umi(BaWork *w, const int player, BaMove *m)
 		m->umi_exact = exact;
 	}
 	ba_umi_free(w);
-	ba_cache_put(key, cond, m->umi[BLACK], m->umi[WHITE], m->umi_state | (m->umi_exact ? 4 : 0), NULL, 0);
+	ba_cache_put_umi(m->idx, !player, cond, m->umi[BLACK], m->umi[WHITE], m->umi_state, m->umi_exact);
 	return true;
 }
 
