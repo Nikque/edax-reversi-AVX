@@ -2653,6 +2653,41 @@ static int book_bucket_count(const long long n)
 }
 
 /**
+ * @brief Release the pool of a book (the positions stored at load time: see book_load).
+ *
+ * @param book Opening book.
+ */
+static void book_pool_free(Book *book)
+{
+	free(book->pool);
+	book->pool = NULL;
+	book->pool_size = 0;
+	book->pool_unused = 0;
+}
+
+/**
+ * @brief Give a book new buckets, that hold all its positions (book_grow_buckets, book_shrink_buckets).
+ *
+ * The arrays of the former buckets and the pool are released (the links are not: they moved with the positions).
+ *
+ * @param book Opening book.
+ * @param array New buckets.
+ * @param n Number of new buckets.
+ */
+static void book_set_buckets(Book *book, PositionArray *array, const int n)
+{
+	PositionArray *a;
+
+	for (a = book->array; a < book->array + book->n; ++a) if (a->size >= 0) free(a->positions);
+	free(book->array);
+	book_pool_free(book);
+	book->array = array;
+	book->n = n;
+	book->todo_list.valid = false; // positions moved
+	book->todo_list.n = 0;
+}
+
+/**
  * @brief Increase the number of buckets of a book.
  *
  * Used before adding many positions to a book with too few buckets (e.g. a
@@ -2688,16 +2723,7 @@ static void book_grow_buckets(Book *book, const long long n_positions)
 		}
 		b->positions[b->n++] = *p; // the links move with the position
 	}
-	for (a = book->array; a < book->array + book->n; ++a) if (a->size >= 0) free(a->positions);
-	free(book->array);
-	free(book->pool);
-	book->pool = NULL;
-	book->pool_size = 0;
-	book->pool_unused = 0;
-	book->array = array;
-	book->n = n;
-	book->todo_list.valid = false; // positions moved
-	book->todo_list.n = 0;
+	book_set_buckets(book, array, n);
 }
 
 /**
@@ -2733,16 +2759,7 @@ static bool book_shrink_buckets(Book *book)
 		PositionArray *b = array + (board_get_hash_code(&p->board) & (n - 1));
 		b->positions[b->n++] = *p; // the links move with the position
 	}
-	for (a = book->array; a < book->array + book->n; ++a) if (a->size >= 0) free(a->positions);
-	free(book->array);
-	free(book->pool);
-	book->pool = NULL;
-	book->pool_size = 0;
-	book->pool_unused = 0;
-	book->array = array;
-	book->n = n;
-	book->todo_list.valid = false; // positions moved
-	book->todo_list.n = 0;
+	book_set_buckets(book, array, n);
 	return true;
 }
 
@@ -2758,10 +2775,7 @@ void book_free(Book *book)
 		position_array_free(book->array + i);
 	}
 	free(book->array);
-	free(book->pool);
-	book->pool = NULL;
-	book->pool_size = 0;
-	book->pool_unused = 0;
+	book_pool_free(book);
 	free(book->todo_list.item);
 	book->todo_list.item = NULL;
 	book->todo_list.n = book->todo_list.size = 0;
@@ -2992,10 +3006,7 @@ bool book_keep_unread_file(const char *file)
 static void book_pool_shrink(Book *book, const long long n)
 {
 	if (n == 0) {
-		free(book->pool);
-		book->pool = NULL;
-		book->pool_size = 0;
-		book->pool_unused = 0;
+		book_pool_free(book);
 	} else if (n < book->pool_size) {
 #if defined(_MSC_VER)
 		if (_expand(book->pool, (size_t) n * sizeof (Position)) != NULL) book->pool_size = n;
@@ -3433,17 +3444,13 @@ static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 	if (fclose(f) != 0) r = 0;
 	if (r != 7) {
 		error("\nCannot write complete book to %s; existing book was not replaced\n", file);
-		remove(tmp_file);
-		free(tmp_file);
-		return false;
+		goto book_save_failed;
 	}
 	// the file could not be loaded: its content is not in this book, so it is kept under another name
 	if (book_unread_file && strcmp(file, book_unread_file) == 0) {
 		if (!book_set_aside(file, ".damaged", "could not be loaded")) {
 			error("\nCannot keep the book that could not be loaded; %s was not replaced\n", file);
-			remove(tmp_file);
-			free(tmp_file);
-			return false;
+			goto book_save_failed;
 		}
 		book_unread_set(NULL);
 	}
@@ -3455,22 +3462,23 @@ static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 		snprintf(reason, sizeof reason, "holds the book in use before \"%s\"", book_replaced_by); // (book new, book load or book import)
 		if (n != 0 && n != 1 && !book_set_aside(file, ".old", reason)) {
 			error("\nCannot keep the book in use before \"%s\"; %s was not replaced\n", book_replaced_by, file);
-			remove(tmp_file);
-			free(tmp_file);
-			return false;
+			goto book_save_failed;
 		}
 	}
 	if (!file_replace(tmp_file, file)) {
 		error("\nCannot save book to %s; existing book was not replaced\n", file);
-		remove(tmp_file);
-		free(tmp_file);
-		return false;
+		goto book_save_failed;
 	}
 	free(tmp_file);
 	if (replaced) book_set_replaced_file(NULL); // (the file now holds the book in memory)
 	book->need_saving = false;
 	info("done\n");
 	return true;
+
+book_save_failed: // the book file is left as it was
+	remove(tmp_file);
+	free(tmp_file);
+	return false;
 }
 
 /**
@@ -4712,6 +4720,19 @@ static bool position_copy(Position *dest, const Position *src)
 }
 
 /**
+ * @brief Count a position of the todo list as done (expanded, or with nothing to expand), and show the progress (lock held).
+ *
+ * @param s Shared state.
+ */
+static void book_expand_count(ExpandShared *s)
+{
+	const Book *book = s->book;
+
+	++s->n_done;
+	bprint("%s...%d/%lld done: %lld positions, %lld links\r", s->action, s->n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+}
+
+/**
  * @brief Take a parent to expand: copy it, and link its new child as the book is now (lock held).
  *
  * @param s Shared state.
@@ -4779,7 +4800,7 @@ static void book_expand_apply(ExpandShared *s, Position *parent, Position *child
 	position_unique(child);
 	if (book_add(book, child) <= 0) position_free(child); // already in the book, or not added
 	if (book->failed) s->stop = true; // a position could not be added: stop learning
-	bprint("%s...%d/%lld done: %lld positions, %lld links\r", s->action, ++s->n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+	book_expand_count(s);
 	if (book_save_interval_elapsed((long long) s->t)) {
 		book_save_progress(book, s->tmp_file); // timed progress save (the other threads wait for the lock)
 		s->t = real_clock();
@@ -4815,7 +4836,7 @@ static void* book_expand_worker(void *v)
 			Position *p = book_position(book, book->todo_list.item[s->next++]);
 			if (!position_is_todo(p, book)) continue;
 			if (p->leaf.move != NOMOVE) { q = p; break; }
-			bprint("%s...%d/%lld done: %lld positions, %lld links\r", s->action, ++s->n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+			book_expand_count(s);
 		}
 		if (q == NULL) { unlock(s); break; }
 		if (!book_expand_take(s, q, &parent, &child)) { unlock(s); break; }
@@ -4935,7 +4956,7 @@ static void* book_expand_worker_ordered(void *v)
 			const Position *p = book_position(book, book->todo_list.item[e->index]);
 			e->skip = !position_is_todo(p, book) || p->leaf.move == NOMOVE;
 			if (e->skip) {
-				if (position_is_todo(p, book)) bprint("%s...%d/%lld done: %lld positions, %lld links\r", s->action, ++s->n_done, book->stats.n_todo, book->stats.n_nodes, book->stats.n_links);
+				if (position_is_todo(p, book)) book_expand_count(s);
 				e->ready = true;
 				book_expand_apply_ready(s);
 				e = NULL;
@@ -5213,6 +5234,21 @@ static int book_expand_pool_get(const Book *book, const long long n)
 }
 
 /**
+ * @brief Give a search of a pool the output settings of the search of the book.
+ *
+ * @param search Search.
+ * @param book Opening book.
+ * @return the search.
+ */
+static Search* book_search_output(Search *search, const Book *book)
+{
+	search->options.verbosity = book->search->options.verbosity;
+	search->options.header = book->search->options.header;
+	search->options.separator = book->search->options.separator;
+	return search;
+}
+
+/**
  * @brief A search of expand_pool, with the output settings of the search of the book.
  *
  * @param book Opening book.
@@ -5221,12 +5257,7 @@ static int book_expand_pool_get(const Book *book, const long long n)
  */
 static Search* book_expand_pool_search(const Book *book, const int i)
 {
-	Search *search = expand_pool.search[i];
-
-	search->options.verbosity = book->search->options.verbosity;
-	search->options.header = book->search->options.header;
-	search->options.separator = book->search->options.separator;
-	return search;
+	return book_search_output(expand_pool.search[i], book);
 }
 
 /**
@@ -5243,13 +5274,7 @@ static Search* book_expand_pool_search(const Book *book, const int i)
 static Search* book_search(Book *book)
 {
 	if (options.book_reproducible) {
-		if (search_pool_get(&single_pool, 1, 1, book_single_hash_bits()) == 1) {
-			Search *search = single_pool.search[0];
-			search->options.verbosity = book->search->options.verbosity;
-			search->options.header = book->search->options.header;
-			search->options.separator = book->search->options.separator;
-			return search;
-		}
+		if (search_pool_get(&single_pool, 1, 1, book_single_hash_bits()) == 1) return book_search_output(single_pool.search[0], book);
 		warn("book-reproducible: not enough memory for a one-thread search; the main search is used\n");
 	}
 	return book->search;
