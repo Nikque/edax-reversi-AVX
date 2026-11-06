@@ -83,6 +83,12 @@ static void book_run_workers(void* (*function)(void*), void *worker, const size_
 	thread_run_workers(function, worker, size, n, true, options.cpu_affinity);
 }
 
+/** @return the number of threads of a walk of the book (negamax, prune, deviate): n-tasks, from 1 to MAX_THREADS. */
+static int book_walk_threads(void)
+{
+	return MAX(1, MIN(options.n_task, MAX_THREADS));
+}
+
 /**
  * @brief Tell if the searches of the book functions must be done one at a time.
  *
@@ -1474,9 +1480,9 @@ static void* negamax_worker(void *v)
 static void book_negamax_position(Position *root, Book *book)
 {
 	NegamaxWorker w[MAX_THREADS];
-	int i, n = options.n_task;
+	const int n = book_walk_threads();
+	int i;
 
-	if (n > MAX_THREADS) n = MAX_THREADS;
 	if (n <= 1) {
 		position_negamax(root, book);
 		return;
@@ -1745,10 +1751,10 @@ static bool book_prune_mark(Book *book, Position *root, const int deviation_0, c
 {
 	PruneMarkShared shared;
 	PruneMarkWorker *w;
-	int i, n = options.n_task; // (as book_negamax_position)
+	const int n = book_walk_threads();
+	int i;
 	bool ok;
 
-	if (n > MAX_THREADS) n = MAX_THREADS;
 	if (n <= 1 || seen_0 == 0 || seen_1 == 0) return false;
 	w = (PruneMarkWorker*) calloc(n, sizeof *w);
 	if (w == NULL) return false;
@@ -1880,6 +1886,48 @@ static bool leaf_recalc_bottom(const Book *book, const Position *p)
 }
 
 /**
+ * @brief Tell if a walk of book deviate selects the leaf of a position (position_deviate, depth_worker_run).
+ *
+ * The leaf is expanded when its score is close enough to the best score and inside the bounds. With book leaf
+ * recalculate, the leaf is searched again: a leaf that a search can give again, selected so (LEAF_RECALC_SELECTED)
+ * or whatever its score (LEAF_RECALC_WALKED).
+ *
+ * @param p Position walked.
+ * @param player_deviation Player's error.
+ * @param lower Error lower bound.
+ * @param upper Error upper bound.
+ * @return true if the leaf is selected.
+ */
+static inline bool deviate_leaf_selected(const Position *p, const int player_deviation, const int lower, const int upper)
+{
+	const bool close = p->score.value - p->leaf.score <= player_deviation && lower <= p->leaf.score && p->leaf.score <= upper;
+
+	if (leaf_recalc_mode != LEAF_RECALC_OFF) return leaf_recalc_wanted(p) && (leaf_recalc_mode == LEAF_RECALC_WALKED || close);
+	return close;
+}
+
+/**
+ * @brief Tell if a walk of book deviate2 / deviate3 selects the leaf of a position (position_deviate_total, loss_worker_run).
+ *
+ * The leaf is expanded when its loss is within the limits, as a link that the walk follows. With book leaf
+ * recalculate, as deviate_leaf_selected().
+ *
+ * @param p Position walked.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ * @param loss Accumulated loss from the root to this position.
+ * @return true if the leaf is selected.
+ */
+static inline bool deviate_total_leaf_selected(const Position *p, const int move_loss, const int total_loss, const int loss)
+{
+	const int move_error = p->score.value - p->leaf.score;
+	const bool close = 0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss;
+
+	if (leaf_recalc_mode != LEAF_RECALC_OFF) return leaf_recalc_wanted(p) && (leaf_recalc_mode == LEAF_RECALC_WALKED || close);
+	return p->leaf.move != NOMOVE && close;
+}
+
+/**
  * @brief Deviate a position.
  *
  * This is the important part of the opening book code, where it finds the best moves to add to the book.
@@ -1915,16 +1963,10 @@ static void position_deviate(Position *position, Book *book, const int player_de
 			}
 		}
 
-		// expand the best remaining move
-		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
-			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
-			 || (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper))) {
-				book_mark_todo(book, position); book->stats.n_todo++;
-			}
-		} else
-		if (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper) {
+		// expand the best remaining move (book leaf recalculate: search it again)
+		if (deviate_leaf_selected(position, player_deviation, lower, upper)) {
 			book_mark_todo(book, position); book->stats.n_todo++;
-			if (book->stats.n_todo % 10 == 0) bprint("Book deviate %lld todo\r", book->stats.n_todo);
+			if (leaf_recalc_mode == LEAF_RECALC_OFF && book->stats.n_todo % 10 == 0) bprint("Book deviate %lld todo\r", book->stats.n_todo);
 		}
 	} else if (leaf_recalc_bottom(book, position) && !position_is_todo(position, book) && lower <= position->score.value && position->score.value <= upper) {
 		book_mark_todo(book, position); book->stats.n_todo++;
@@ -2002,18 +2044,11 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 	// since descendants may have been searched at a lower level.
 	if (skip_solved && position_is_solved(position)) return;
 
-	move_error = position->score.value - position->leaf.score;
-	if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
-		if (leaf_recalc_wanted(position) && !position_is_todo(position, book) && (leaf_recalc_mode == LEAF_RECALC_WALKED
-		 || (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss))) {
-			book_mark_todo(book, position);
-			book->stats.n_todo++;
-		}
-	} else
-	if (position->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss && !position_is_todo(position, book)) {
+	// expand the best remaining move (book leaf recalculate: search it again)
+	if (deviate_total_leaf_selected(position, move_loss, total_loss, loss) && !position_is_todo(position, book)) {
 		book_mark_todo(book, position);
 		book->stats.n_todo++;
-		if (book->stats.n_todo % 10 == 0) bprint("Book deviate%d %lld todo\r", skip_solved ? 2 : 3, book->stats.n_todo);
+		if (leaf_recalc_mode == LEAF_RECALC_OFF && book->stats.n_todo % 10 == 0) bprint("Book deviate%d %lld todo\r", skip_solved ? 2 : 3, book->stats.n_todo);
 	}
 }
 
@@ -5755,27 +5790,52 @@ static void* loss_worker_run(void *v)
 
 		if (w->mode == 2 && position_is_solved(position)) continue;
 
-		move_error = position->score.value - position->leaf.score;
-		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
-			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
-			 || (0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss))) deviate_worker_todo(w, position);
-		} else
-		if (position->leaf.move != NOMOVE && 0 <= move_error && move_error <= move_loss && loss + move_error <= total_loss) {
-			deviate_worker_todo(w, position);
-		}
+		if (deviate_total_leaf_selected(position, move_loss, total_loss, loss)) deviate_worker_todo(w, position);
 	}
 	return NULL;
+}
+
+/**
+ * @brief Walk a list of positions with the threads of a deviate walk (loss_worker_run, depth_worker_run), then
+ * gather the positions that they reached at the same level.
+ *
+ * @param lw Workers (the first ones walk).
+ * @param n Number of threads.
+ * @param run Walk of a thread.
+ * @param cur Positions to walk.
+ * @param level Level of these positions (deviate2/3: accumulated loss; deviate: ply).
+ * @param reached Positions reached (emptied after the walk: it may be cur).
+ * @return false if the memory is exhausted.
+ */
+static bool deviate_walk_level(LossWorker *lw, const int n, void* (*run)(void*), PositionList *cur, const int level, PositionList *reached)
+{
+	const int m = (cur->n < 4096) ? 1 : n; // small levels are not worth threads
+	bool ok = true;
+	long long j;
+	int i;
+
+	for (i = 0; i < m; ++i) {
+		lw[i].cur = cur->item; lw[i].level = level;
+		lw[i].first = cur->n * i / m; lw[i].last = cur->n * (i + 1) / m;
+		lw[i].same.n = 0;
+	}
+	book_run_workers(run, lw, sizeof *lw, m);
+	reached->n = 0;
+	for (i = 0; i < m && ok; ++i) {
+		if (lw[i].w.oom) ok = false;
+		for (j = 0; j < lw[i].same.n && ok; ++j) ok = position_list_push(reached, lw[i].same.item[j]);
+	}
+	return ok;
 }
 
 static bool book_deviate_total_by_loss(Book *book, Position *root, const int mode, const int move_loss, const int total_loss)
 {
 	LossWorker lw[MAX_THREADS];
 	PositionList *level, cur = {0};
-	int i, j, L, n = options.n_task;
+	const int n = book_walk_threads();
+	int i, j, L;
 	bool ok = true;
 
-	if (n > MAX_THREADS) n = MAX_THREADS;
-	if (n < 1) n = 1;
 	if (!book->todo_list.valid) return false;
 	level = (PositionList*) calloc(total_loss + 1, sizeof *level);
 	if (level == NULL) return false;
@@ -5795,20 +5855,7 @@ static bool book_deviate_total_by_loss(Book *book, Position *root, const int mod
 	for (L = 0; ok && L <= total_loss; ++L) {
 		// take the level list; positions reached with the same loss are processed in extra rounds
 		cur = level[L]; memset(level + L, 0, sizeof level[L]);
-		while (ok && cur.n > 0) {
-			const int m = (cur.n < 4096) ? 1 : n; // small levels are not worth threads
-			for (i = 0; i < m; ++i) {
-				lw[i].cur = cur.item; lw[i].level = L;
-				lw[i].first = cur.n * i / m; lw[i].last = cur.n * (i + 1) / m;
-				lw[i].same.n = 0;
-			}
-			book_run_workers(loss_worker_run, lw, sizeof *lw, m);
-			cur.n = 0;
-			for (i = 0; i < m && ok; ++i) {
-				if (lw[i].w.oom) ok = false;
-				for (j = 0; j < lw[i].same.n && ok; ++j) ok = position_list_push(&cur, lw[i].same.item[j]);
-			}
-		}
+		while (ok && cur.n > 0) ok = deviate_walk_level(lw, n, loss_worker_run, &cur, L, &cur);
 		free(cur.item); cur.item = NULL; cur.size = 0;
 		// move the positions reached with larger losses to the global levels
 		for (i = 0; i < n && ok; ++i) {
@@ -5871,13 +5918,7 @@ static void* depth_worker_run(void *v)
 				if (child && atomic_load_uchar(book_visit(book, child)) != child_mark && !position_list_push(&lw->same, child)) w->oom = true;
 			}
 		}
-		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
-			if (leaf_recalc_wanted(position) && (leaf_recalc_mode == LEAF_RECALC_WALKED
-			 || (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper))) deviate_worker_todo(w, position);
-		} else
-		if (position->score.value - position->leaf.score <= player_deviation && lower <= position->leaf.score && position->leaf.score <= upper) {
-			deviate_worker_todo(w, position);
-		}
+		if (deviate_leaf_selected(position, player_deviation, lower, upper)) deviate_worker_todo(w, position);
 	}
 	return NULL;
 }
@@ -5887,12 +5928,10 @@ static bool book_deviate_by_depth(Book *book, Position *root, const int player_d
 	LossWorker lw[MAX_THREADS];
 	PositionList cur = {0}, next = {0};
 	volatile bool conflict = false;
-	int i, depth, n = options.n_task;
-	long long j;
+	const int n = book_walk_threads();
+	int i, depth;
 	bool ok = true;
 
-	if (n > MAX_THREADS) n = MAX_THREADS;
-	if (n < 1) n = 1;
 	if (!book->todo_list.valid) return false;
 	for (i = 0; i < n; ++i) {
 		memset(lw + i, 0, sizeof lw[i]);
@@ -5901,18 +5940,7 @@ static bool book_deviate_by_depth(Book *book, Position *root, const int player_d
 	}
 	ok = position_list_push(&cur, root);
 	for (depth = 0; ok && !conflict && cur.n > 0; ++depth) {
-		const int m = (cur.n < 4096) ? 1 : n;
-		for (i = 0; i < m; ++i) {
-			lw[i].cur = cur.item; lw[i].level = depth;
-			lw[i].first = cur.n * i / m; lw[i].last = cur.n * (i + 1) / m;
-			lw[i].same.n = 0;
-		}
-		book_run_workers(depth_worker_run, lw, sizeof *lw, m);
-		next.n = 0;
-		for (i = 0; i < m && ok; ++i) {
-			if (lw[i].w.oom) ok = false;
-			for (j = 0; j < lw[i].same.n && ok; ++j) ok = position_list_push(&next, lw[i].same.item[j]);
-		}
+		ok = deviate_walk_level(lw, n, depth_worker_run, &cur, depth, &next);
 		{ PositionList t = cur; cur = next; next = t; }
 	}
 	if (conflict || !ok) {
