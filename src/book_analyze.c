@@ -1115,6 +1115,28 @@ static int ba_deviate_pass(BaWork *w, const int which, Position *root, const uns
 }
 
 /**
+ * @brief Start a walk by accumulated loss (deviate2, deviate3) from a root: the lists of the losses 0 to max_loss
+ * empty, and the root, if it is walked, in the list of loss 0.
+ * @return false if memory is exhausted.
+ */
+static bool ba_total_start(BaWork *w, BaQueue *q, Position *root, const unsigned int root_idx, const int max_loss)
+{
+	int i;
+
+	if (w->n_bucket < max_loss + 1) {
+		BaList *bucket = (BaList*) realloc(w->bucket, (size_t) (max_loss + 1) * sizeof *bucket);
+		if (bucket == NULL) return false;
+		for (i = w->n_bucket; i <= max_loss; ++i) memset(bucket + i, 0, sizeof bucket[i]);
+		w->bucket = bucket; w->n_bucket = max_loss + 1;
+	}
+	for (i = 0; i <= max_loss; ++i) w->bucket[i].n = 0;
+	ba_visit_clear(&w->visit);
+	q->n = 0;
+	if (!ba_walkable(w->book, root)) return true;
+	return ba_visit_set(&w->visit, root_idx, 1) && ba_push(q, root, root_idx, -1, NOMOVE, 0, 0) && ba_list_push(w->bucket, 0);
+}
+
+/**
  * @brief One walk of book deviate2 / deviate3 (as book_deviate_total_by_loss, without threads).
  * @return 0: done, -1: stopped.
  */
@@ -1122,20 +1144,9 @@ static int ba_walk_total(BaWork *w, const int which, Position *root, const unsig
 {
 	BaQueue *q = w->q + which;
 	const Book *book = w->book;
-	int L, i;
+	int L;
 
-	if (w->n_bucket < total_loss + 1) {
-		BaList *bucket = (BaList*) realloc(w->bucket, (size_t) (total_loss + 1) * sizeof *bucket);
-		if (bucket == NULL) return -1;
-		for (i = w->n_bucket; i <= total_loss; ++i) memset(bucket + i, 0, sizeof bucket[i]);
-		w->bucket = bucket; w->n_bucket = total_loss + 1;
-	}
-	for (i = 0; i <= total_loss; ++i) w->bucket[i].n = 0;
-	ba_visit_clear(&w->visit);
-	q->n = 0;
-	if (ba_walkable(book, root)) {
-		if (!ba_visit_set(&w->visit, root_idx, 1) || !ba_push(q, root, root_idx, -1, NOMOVE, 0, 0) || !ba_list_push(w->bucket, 0)) return -1;
-	}
+	if (!ba_total_start(w, q, root, root_idx, total_loss)) return -1;
 	for (L = 0; L <= total_loss; ++L) {
 		BaList *cur = w->bucket + L;
 		long long k;
@@ -1276,21 +1287,10 @@ static int ba_stage_total(BaWork *w, Position *root, const unsigned int root_idx
 	const Book *book = w->book;
 	BaQueue *q = w->q;
 	const int y_max = prm->stage_y[prm->n_stage - 1];
-	int limit = limit0, best = INT_MAX, L, i, k;
+	int limit = limit0, best = INT_MAX, L, k;
 	BaList found = {NULL, 0, 0}; // d + e of the leaves (one per position)
 
-	if (w->n_bucket < y_max + 1) {
-		BaList *bucket = (BaList*) realloc(w->bucket, (size_t) (y_max + 1) * sizeof *bucket);
-		if (bucket == NULL) return -1;
-		for (i = w->n_bucket; i <= y_max; ++i) memset(bucket + i, 0, sizeof bucket[i]);
-		w->bucket = bucket; w->n_bucket = y_max + 1;
-	}
-	for (i = 0; i <= y_max; ++i) w->bucket[i].n = 0;
-	ba_visit_clear(&w->visit);
-	q->n = 0;
-	if (ba_walkable(book, root)) {
-		if (!ba_visit_set(&w->visit, root_idx, 1) || !ba_push(q, root, root_idx, -1, NOMOVE, 0, 0) || !ba_list_push(w->bucket, 0)) goto stop;
-	}
+	if (!ba_total_start(w, q, root, root_idx, y_max)) goto stop;
 	for (L = 0; L <= limit; ++L) {
 		long long j;
 		for (j = 0; j < w->bucket[L].n; ++j) {
