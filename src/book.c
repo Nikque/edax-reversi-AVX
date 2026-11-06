@@ -3858,6 +3858,35 @@ static inline void child_probe_fetch(const ChildProbe *c)
 }
 
 /**
+ * @brief Look for the positions that the moves of a position lead to (the pass, if it has no move), together.
+ *
+ * @param c Positions looked for (out; read them with position_array_probe()).
+ * @param book Opening book.
+ * @param p Position.
+ * @param unlinked Only the moves that are not links yet.
+ */
+static inline void child_probe_moves(ChildProbe *c, const Book *book, const Position *p, const bool unlinked)
+{
+	unsigned long long moves = board_get_moves(&p->board);
+	Board next;
+	int x;
+
+	c->n = 0;
+	if (moves) {
+		foreach_bit(x, moves) {
+			if (unlinked && position_has_link(p, x)) continue;
+			board_next(&p->board, x, &next);
+			child_probe_add(c, book, &next, x);
+		}
+	} else if (can_move(p->board.opponent, p->board.player) && !(unlinked && position_has_link(p, PASS))) {
+		next.player = p->board.opponent;
+		next.opponent = p->board.player;
+		child_probe_add(c, book, &next, PASS);
+	}
+	child_probe_fetch(c);
+}
+
+/**
  * Phase 1 of book_link: find the missing links.
  * As position_link() does, it also gives to the existing links the score of their position
  * (only this thread writes to the links of a position, and no thread reads the links of
@@ -3867,30 +3896,17 @@ static void book_link_find(BookTask *task)
 {
 	Book *book = task->book;
 	int b, k, x, i;
-	Board next;
 	ChildProbe c;
 
 	for (b = task->first; b < task->last; ++b) {
 		const PositionArray *a = book->array + b;
 		for (k = 0; k < a->n; ++k) {
 			Position *p = a->positions + k;
-			unsigned long long moves = board_get_moves(&p->board);
 			bool found = false;
 			const Position *child;
 			Link *l;
 
-			c.n = 0;
-			if (moves) {
-				foreach_bit(x, moves) {
-					board_next(&p->board, x, &next);
-					child_probe_add(&c, book, &next, x);
-				}
-			} else if (can_move(p->board.opponent, p->board.player)) {
-				next.player = p->board.opponent;
-				next.opponent = p->board.player;
-				child_probe_add(&c, book, &next, PASS);
-			}
-			child_probe_fetch(&c);
+			child_probe_moves(&c, book, p, false);
 			for (i = 0; i < c.n; ++i) {
 				child = position_array_probe(c.array[i], c.unique + i);
 				if (child) {
@@ -3914,31 +3930,16 @@ static void book_link_find(BookTask *task)
 static void book_link_find_missing(BookTask *task)
 {
 	Book *book = task->book;
-	int b, k, x, i;
-	Board next;
+	int b, k, i;
 	ChildProbe c;
 
 	for (b = task->first; b < task->last; ++b) {
 		const PositionArray *a = book->array + b;
 		for (k = 0; k < a->n; ++k) {
 			const Position *p = a->positions + k;
-			unsigned long long moves = board_get_moves(&p->board);
 			bool found = false;
 
-			c.n = 0;
-			if (moves) {
-				foreach_bit(x, moves) {
-					if (!position_has_link(p, x)) {
-						board_next(&p->board, x, &next);
-						child_probe_add(&c, book, &next, x);
-					}
-				}
-			} else if (can_move(p->board.opponent, p->board.player) && !position_has_link(p, PASS)) {
-				next.player = p->board.opponent;
-				next.opponent = p->board.player;
-				child_probe_add(&c, book, &next, PASS);
-			}
-			child_probe_fetch(&c);
+			child_probe_moves(&c, book, p, true);
 			for (i = 0; i < c.n; ++i) {
 				if (position_array_probe(c.array[i], c.unique + i)) { book_task_push(task, TASK_ITEM(b, k, c.x[i])); found = true; }
 			}
@@ -4403,6 +4404,23 @@ void book_negamax_subtree(Book *book, const Board *board)
 #else
 	(void) book; (void) board;
 #endif
+}
+
+/**
+ * @brief Negamax a book from the position a learning command started from, found again (adding positions may
+ * move it to another place).
+ *
+ * @param book opening book.
+ * @param board Position the command started from (in the book).
+ * @return the position.
+ */
+static Position* book_negamax_from(Book *book, const Board *board)
+{
+	Position *root = book_probe(book, board);
+
+	book_clean(book);
+	book_negamax_position(root, book);
+	return root;
 }
 
 /**
@@ -6082,9 +6100,7 @@ static void book_deviate_total(Book *book, Board *board, const int move_loss, co
 			book_expand(book, name, file);
 			n_diffs = book->stats.n_nodes + book->stats.n_links;
 
-			root = book_probe(book, board);
-			book_clean(book);
-			book_negamax_position(root, book);
+			root = book_negamax_from(book, board);
 			book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
 		} while (n_diffs && !book->failed); // stop if a position cannot be added
 		bprint("%s %d %d...finished\n", name, move_loss, total_loss);
@@ -8619,11 +8635,7 @@ void book_fill_walk(Book *book, Board *board, const int depth, const bool leaf_o
 	do {
 		bprint("%s %d %d %d:\n", name, depth, move_loss, total_loss);
 		n_linked = book_link_moves(book, name, file, root, true, move_loss, total_loss, true); // (the moves that lead to a position of the book)
-		if (n_linked) { // (the scores that the walk follows)
-			root = book_probe(book, board);
-			book_clean(book);
-			book_negamax_position(root, book);
-		}
+		if (n_linked) root = book_negamax_from(book, board); // (the scores that the walk follows)
 		book_clean(book);
 		deviate_walk_all = !leaf_only;
 		book_select_deviate_total(book, root, move_loss, total_loss, false);
@@ -8642,9 +8654,7 @@ void book_fill_walk(Book *book, Board *board, const int depth, const bool leaf_o
 		if (owned) free(keys);
 		n_diffs = n_linked + book->stats.n_nodes + book->stats.n_links;
 
-		root = book_probe(book, board);
-		book_clean(book); // (the todo list is empty again)
-		book_negamax_position(root, book);
+		root = book_negamax_from(book, board); // (book_clean: the todo list is empty again)
 		book_deviate_save_progress(book, file, n_diffs, &rounds_since_save); // (as book deviate: book-deviate-save-rounds)
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	book_store_release(); // (the searches done at the same time)
@@ -8685,11 +8695,7 @@ void book_leaf_expand(Book *book, Board *board, const bool limited, const int mo
 		// the leaves that lead to a position of the book are linked first: their positions are searched again,
 		// and a new leaf better than every link is expanded below
 		n_linked = book_link_moves(book, name, file, root, limited, move_loss, total_loss, false);
-		if (n_linked && limited) { // (the scores that the walk follows)
-			root = book_probe(book, board);
-			book_clean(book);
-			book_negamax_position(root, book);
-		}
+		if (n_linked && limited) root = book_negamax_from(book, board); // (the scores that the walk follows)
 		book_clean(book);
 		if (limited) { // the walk marks every position with such a leaf (the loss of the leaf is 0): keep these marks only
 			book_select_deviate_total(book, root, move_loss, total_loss, false);
@@ -8715,13 +8721,8 @@ void book_leaf_expand(Book *book, Board *board, const bool limited, const int mo
 		book_expand(book, name, file);
 		n_diffs = n_linked + book->stats.n_nodes + book->stats.n_links;
 
-		if (limited) {
-			root = book_probe(book, board);
-			book_clean(book);
-			book_negamax_position(root, book);
-		} else if (n_diffs) {
-			book_negamax(book);
-		}
+		if (limited) root = book_negamax_from(book, board);
+		else if (n_diffs) book_negamax(book);
 		book_deviate_save_progress(book, file, n_diffs, &rounds_since_save);
 	} while (n_diffs && !book->failed); // stop if a position cannot be added
 	if (limited) bprint("%s %d %d...finished\n", name, move_loss, total_loss);
