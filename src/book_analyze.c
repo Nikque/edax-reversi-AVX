@@ -2704,36 +2704,41 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 
 /* ------------------------------------------------------------------ book missing ------------------------------------------------------------ */
 
+/** @return a move of a position of the book (on its board), on a board of the user interface that is a symmetry of it (the move itself if none is). */
+static int ba_ui_move(const Board *book_board, const Board *board, const int x)
+{
+	Board t;
+	int sym;
+	if (x != PASS) for (sym = 0; sym < 8; ++sym) {
+		board_symetry(book_board, sym, &t);
+		if (board_equal(&t, board)) return symetry(x, sym);
+	}
+	return x;
+}
+
 /**
  * @brief Moves of a line of a walk, on the board of the user interface.
  * @param q Queue of the walk.
  * @param item Last position of the line.
  * @param board Board of the root (out: board of the last position).
+ * @param passes true if the passes are written ("pa").
  * @param s Moves (out).
- * @return the last position.
  */
-static Position* ba_line(const BaQueue *q, long long item, Board *board, char *s)
+static void ba_line(const BaQueue *q, long long item, Board *board, const bool passes, char *s)
 {
 	long long chain[512];
-	int n = 0, k, sym;
-	Position *p = q->item[item].p;
+	int n = 0, k, m = 0;
 
 	while (item >= 0 && n < 512) { chain[n++] = item; item = q->item[item].parent; }
-	*s = '\0';
 	for (k = n - 2; k >= 0; --k) { // (chain[n - 1] is the root)
-		const BaItem *parent = q->item + q->item[chain[k]].parent;
-		const int x = q->item[chain[k]].move;
-		Board t, next;
-		int real = x;
-		if (x != PASS) for (sym = 0; sym < 8; ++sym) {
-			board_symetry(&parent->p->board, sym, &t);
-			if (board_equal(&t, board)) { real = symetry(x, sym); break; }
-		}
-		ba_square(real, s); s += 2;
-		board_next(board, real, &next);
+		const BaItem *it = q->item + chain[k];
+		const int x = ba_ui_move(&q->item[it->parent].p->board, board, it->move);
+		Board next;
+		if (x != PASS || passes) { ba_square(x, s + m); m += 2; }
+		board_next(board, x, &next);
 		*board = next;
 	}
-	return p;
+	s[m] = '\0';
 }
 
 /** @return the leaf move of a position, on a board of the user interface. */
@@ -2826,13 +2831,13 @@ static int ba_missing(BaJob *job, const BaParams *prm)
 		const int which = (int) (ref >> 40);
 		const long long item = ref & ((1LL << 40) - 1);
 		const BaItem *it = w.q[which].item + item;
+		const Position *p = it->p;
 		char line[2 * 512 + 3], leaf[3];
 		Board board = root_board;
-		Position *p;
 		int sign;
 
 		strcpy(line, prefix);
-		p = ba_line(w.q + which, item, &board, line + strlen(line));
+		ba_line(w.q + which, item, &board, true, line + strlen(line));
 		sign = ((ply0 + it->depth) & 1) ? -1 : 1; // (values seen by the side to move at the current position)
 		ba_square(ba_leaf_move(p, &board), leaf);
 		if (best) {
@@ -3040,17 +3045,10 @@ static int ba_bestlines(BaJob *job, const BaParams *prm)
 			if (!u->end || (prm->incomplete_only && !ba_end_incomplete(u->p))) continue;
 			for (r = v; r != 0 && n < 128; r = parent[r]) chain[n++] = r; // (node 0 is the root)
 			for (k = n - 1; k >= 0; --k) {
-				const Position *p = w.node[parent[chain[k]]].p;
-				const int x = move[chain[k]];
-				int real = x, sym;
+				const int x = ba_ui_move(&w.node[parent[chain[k]]].p->board, &board, move[chain[k]]);
 				Board next;
-				if (x != PASS) for (sym = 0; sym < 8; ++sym) {
-					Board b;
-					board_symetry(&p->board, sym, &b);
-					if (board_equal(&b, &board)) { real = symetry(x, sym); break; }
-				}
-				if (real != PASS) { ba_square(real, s + m); m += 2; }
-				board_next(&board, real, &next);
+				if (x != PASS) { ba_square(x, s + m); m += 2; }
+				board_next(&board, x, &next);
 				board = next;
 			}
 			s[m] = '\0';
@@ -3083,34 +3081,6 @@ end:
 
 #define BA_EXPORT_ON 2          /**< (marks of book deviate export) a walk goes on from the position to a position of the book */
 #define BA_EXPORT_WRITTEN 4     /**< its line is written */
-
-/**
- * @brief Moves of a line of a walk from the current position, on the board of the user interface, without the passes.
- * @return the number of letters written.
- */
-static int ba_export_moves(const BaQueue *q, long long item, const Board *root, char *s)
-{
-	long long chain[512];
-	int n = 0, k, sym, m = 0;
-	Board board = *root;
-
-	while (item >= 0 && n < 512) { chain[n++] = item; item = q->item[item].parent; }
-	for (k = n - 2; k >= 0; --k) { // (chain[n - 1] is the root)
-		const BaItem *parent = q->item + q->item[chain[k]].parent;
-		const int x = q->item[chain[k]].move;
-		Board t, next;
-		int real = x;
-		if (x != PASS) for (sym = 0; sym < 8; ++sym) {
-			board_symetry(&parent->p->board, sym, &t);
-			if (board_equal(&t, &board)) { real = symetry(x, sym); break; }
-		}
-		if (real != PASS) { ba_square(real, s + m); m += 2; }
-		board_next(&board, real, &next);
-		board = next;
-	}
-	s[m] = '\0';
-	return m;
-}
 
 /**
  * @brief Mark the positions from which the walks of ba_expansions (book deviate: two walks; deviate2, deviate3: one
@@ -3300,12 +3270,13 @@ long long book_deviate_export(Book *book, const Board *board, const char *line, 
 			const BaQueue *q = w.q + (ref >> 40);
 			const BaItem *it = q->item + item;
 			const unsigned char m = ba_visit_get(&mark, it->idx);
+			Board b = *board;
 			if (which == BOOK_EXPORT_ENDS && (m & BA_EXPORT_ON)) continue;
 			if (which == BOOK_EXPORT_LEAF && !ba_visit_get(&w.todo.seen, it->idx)) continue; // (a leaf to expand)
 			// (the passes are not written: after a pass, the line of the position before it, already written, is the same)
 			if (it->move == PASS && it->parent >= 0 && (ba_visit_get(&mark, q->item[it->parent].idx) & BA_EXPORT_WRITTEN)) continue;
 			if (!ba_visit_set(&mark, it->idx, m | BA_EXPORT_WRITTEN)) { ok = false; break; }
-			ba_export_moves(q, item, board, s);
+			ba_line(q, item, &b, false, s); // (from the current position, without the passes)
 			if (fprintf(f, "%s%s\n", line ? line : "", s) < 0) break;
 			++written;
 		}
