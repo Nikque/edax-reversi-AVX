@@ -13,6 +13,8 @@
  *   smallest sum of the changes of the book value (seen by black) along the line first.
  * - book reducecount: the positions that book reduce x y would keep and remove (book reduce itself, which changes the
  *   book, is a book command of the main thread: book_reduce below).
+ * - book deviate x y export (deviate2, deviate3), a book command of the main thread (book_deviate_export below): the
+ *   lines of the walk of book deviate x y written to a file, without expanding the book.
  *
  * The analyses run in a thread of their own, one after the other, and only read the book: the commands
  * that change the book first stop them (book_analysis_quiesce). They can be stopped at any time with
@@ -142,6 +144,12 @@ void book_analysis_init(void)
 	lock_init(&ba_output);
 	ba_output.init = true;
 	ba.init = true;
+}
+
+/** @return the threads of an analysis: n-tasks, 1 to MAX_THREADS. */
+static int ba_n_thread(void)
+{
+	return options.n_task < 1 ? 1 : (options.n_task > MAX_THREADS ? MAX_THREADS : options.n_task);
 }
 
 /* ------------------------------------------------------------------ parameters -------------------------------------------------------------- */
@@ -449,7 +457,12 @@ static bool ba_index_get(const Book *book)
 	return true;
 }
 
-static inline unsigned long long ba_hash(const unsigned long long);
+/** @return the hash of a number (the hash tables of the analyses). */
+static inline unsigned long long ba_hash(const unsigned long long i)
+{
+	unsigned long long h = (i + 1) * 0x9E3779B97F4A7C15ULL;
+	return h ^ (h >> 29);
+}
 
 /* results kept while the book does not change (going back to a position gives them at once) */
 enum { BA_CACHE_STAGE = 1, BA_CACHE_UMI = 2 };
@@ -491,7 +504,7 @@ static inline unsigned long long ba_cache_key(const unsigned int idx, const int 
 	return (((unsigned long long) idx + 1) << 8) | ((unsigned long long) kind << 1) | (unsigned long long) color;
 }
 
-/** @return true if a result is kept (lock held by the caller: no); lb and exact may be NULL. */
+/** @return true if a result is kept (the lock of the analyses is taken here); lb and exact may be NULL. */
 static bool ba_cache_get(const unsigned long long key, const unsigned long long cond, long long *a, long long *b, int *c, unsigned char *lb, unsigned char *exact)
 {
 	bool found = false;
@@ -642,9 +655,6 @@ static void ba_index_free(void)
 	ba.index.n_bucket = 0;
 }
 
-/* walk state of a thread */
-typedef struct BaWork BaWork;
-
 /** Marks of the positions of a walk: a small hash table, or one byte per position of the book when many are marked. */
 typedef struct BaVisit {
 	unsigned long long *slot;   /**< (number + 1) << 8 | mark; 0: empty */
@@ -694,12 +704,6 @@ static void ba_visit_clear(BaVisit *v)
 		else memset(v->slot, 0, (size_t) (v->mask + 1) * sizeof *v->slot);
 	}
 	v->n = 0;
-}
-
-static inline unsigned long long ba_hash(const unsigned long long i)
-{
-	unsigned long long h = (i + 1) * 0x9E3779B97F4A7C15ULL;
-	return h ^ (h >> 29);
 }
 
 /** @return the mark of a position (0: none). */
@@ -864,7 +868,8 @@ typedef struct BaMap {
 
 /* ------------------------------------------------------------------ walk state ------------------------------------------------------------ */
 
-struct BaWork {
+/** Walk state of a thread. */
+typedef struct BaWork {
 	BaJob *job;
 	Book *book;
 	const BaParams *prm;
@@ -898,7 +903,7 @@ struct BaWork {
 	bool too_large;
 	int keep_depth;         /**< the values of the nodes 1 to keep_depth moves from the root are kept (see ba_umi_keep_value) */
 	long long *kept;       /**< values of the nodes as counted from each alone, by node and side; -1: not known */
-};
+} BaWork;
 
 #define BA_TERM_MAX 128                     /**< terms kept in an expression (more: the value is an upper bound, that a choice of moves reaches) */
 #define BA_POOL_MAX (1ULL << 27)            /**< numbers in the sets of the terms */
@@ -1565,7 +1570,7 @@ static long long ba_reach(BaWork *w, Position *root, const unsigned int root_idx
 	BaReachThread t[MAX_THREADS];
 	BaList cur = {NULL, 0, 0};
 	volatile unsigned int *bits = (volatile unsigned int*) calloc((size_t) (ba.index.n / 32 + 1), sizeof (unsigned int));
-	int n_thread = options.n_task < 1 ? 1 : (options.n_task > MAX_THREADS ? MAX_THREADS : options.n_task);
+	const int n_thread = ba_n_thread();
 	long long n = 1;
 	int i;
 
@@ -2338,11 +2343,6 @@ static void ba_print_move(const BaJob *job, const BaMove *m, const bool with_sta
 	ba_print("@move id=%d sq=%s book=1 value=%d level=%d lines=%llu%s%s\n", job->id, m->sq, m->value, m->level, ba_lines(job->book, m->p), stage, link);
 }
 
-static void ba_print_stage(const BaJob *job, const BaMove *m)
-{
-	ba_print_move(job, m, true);
-}
-
 static void ba_print_umi(const BaJob *job, const BaMove *m)
 {
 	if (m->umi_state == 2) ba_print("@move id=%d sq=%s part=umi umi=none\n", job->id, m->sq);
@@ -2557,7 +2557,7 @@ static void* ba_team_run(void *v)
 		if (m->p == NULL || m->same >= 0) continue;
 		if (team->part == BA_PART_STAGE) {
 			if (ba_move_stage(&w, team->current, &team->current_info, team->current_known, m) < 0) { if (!job->cancel) m->stage = 0; break; }
-			ba_print_stage(job, m);
+			ba_print_move(job, m, true);
 		} else {
 			if (!ba_move_umi(&w, job->player, m)) break;
 			ba_print_umi(job, m);
@@ -2571,7 +2571,7 @@ static void* ba_team_run(void *v)
 static void ba_team(BaTeam *team)
 {
 	BaThread th[MAX_THREADS];
-	int i, n = options.n_task < 1 ? 1 : (options.n_task > MAX_THREADS ? MAX_THREADS : options.n_task), n_book = 0;
+	int i, n = ba_n_thread(), n_book = 0;
 
 	for (i = 0; i < team->n_move; ++i) if (team->move[i].p && team->move[i].same < 0) ++n_book;
 	if (n > n_book) n = n_book;
@@ -2663,8 +2663,7 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 	lock_init(&team);
 	// the moves out of the book first, then the precision of the others
 	for (i = 0; i < n; ++i) if (move[i].p == NULL || !(prm->parts & BA_PART_STAGE)) {
-		if (move[i].p == NULL) ba_print_stage(job, move + i);
-		else ba_print_move(job, move + i, false);
+		ba_print_move(job, move + i, move[i].p == NULL); // (a move out of the book is written with its stage 0)
 	}
 	if ((prm->parts & BA_PART_STAGE) && !job->cancel) {
 		team.part = BA_PART_STAGE;
@@ -2672,7 +2671,7 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 		for (i = 0; i < n && !job->cancel; ++i) if (move[i].p && move[i].same >= 0) {
 			move[i].stage = move[move[i].same].stage;
 			move[i].missing = move[move[i].same].missing;
-			ba_print_stage(job, move + i);
+			ba_print_move(job, move + i, true);
 		}
 	}
 	if ((prm->parts & BA_PART_UMI) && prm->umi != BA_UMI_OFF && !job->cancel) {
@@ -3232,7 +3231,7 @@ long long book_deviate_export(Book *book, const Board *board, const char *line, 
 	BaParams prm;
 	BaWork w;
 	BaVisit mark;
-	BaList order = {0};
+	BaList order = {NULL, 0, 0};
 	Position *root;
 	unsigned int root_idx;
 	long long k, written = 0;
@@ -4224,7 +4223,7 @@ static int ba_reducecount(BaJob *job, const BaParams *prm)
 {
 	const long long t = real_clock();
 	const unsigned long long n_book = ba.index.n;
-	const int n_thread = options.n_task < 1 ? 1 : (options.n_task > MAX_THREADS ? MAX_THREADS : options.n_task);
+	const int n_thread = ba_n_thread();
 	BaWork w;
 	BaVisit val, kept_marks;
 	unsigned int idx;
