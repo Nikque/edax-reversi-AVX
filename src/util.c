@@ -326,12 +326,12 @@ long long string_to_time(const char *string)
 			s = parse_int(s + 1, &n);
 			field[k++] = n;
 		}
-		for (i = 0; i < k; ++i) t = (i ? t * ratio[k - 1 - i] : 0) + field[i];
-		n = 0;
+		t = field[0];
+		for (i = 1; i < k; ++i) t = t * ratio[k - 1 - i] + field[i];
 		if (*s == '.' && isdigit((unsigned char) s[1])) {
 			s = parse_real(s, &x);
 		}
-		t = (t + n + x) * 1000;
+		t = (t + x) * 1000;
 	}
 
 	return t;
