@@ -1707,6 +1707,29 @@ static bool ba_edge_push(BaWork *w, const unsigned int child)
 }
 
 /**
+ * @brief An order of the nodes where the next positions come first (the greater keys first, see BaUNode), and, if
+ * with_rank, the place of each node in it.
+ * @param count Nodes of each key.
+ * @return false if memory is exhausted.
+ */
+static bool ba_node_order(BaWork *w, const unsigned int count[131], const bool with_rank)
+{
+	unsigned int start[131], i;
+
+	w->order = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->order);
+	if (with_rank) w->rank = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->rank);
+	if (w->order == NULL || (with_rank && w->rank == NULL)) return false;
+	start[130] = 0;
+	for (i = 130; i-- > 0;) start[i] = start[i + 1] + count[i + 1];
+	for (i = 0; i < w->n_node; ++i) {
+		const unsigned int r = start[w->node[i].key]++;
+		w->order[r] = i;
+		if (with_rank) w->rank[i] = r;
+	}
+	return true;
+}
+
+/**
  * @brief Positions of the lines of an umigame number (the root is the position after the move).
  * @param gui_color Side to move at the current position (the values of the range are seen by it).
  * @return 0: done, 1: the root is out of the range, -1: stopped (or memory, or too large).
@@ -1772,7 +1795,7 @@ static int ba_umi_build(BaWork *w, Position *root, const unsigned int root_idx, 
 
 	// lines leading to each node, and an order where the next positions come first
 	{
-		unsigned int count[131], start[131];
+		unsigned int count[131];
 		unsigned long long k;
 		memset(count, 0, sizeof count);
 		for (i = 0; i < w->n_node; ++i) {
@@ -1782,16 +1805,7 @@ static int ba_umi_build(BaWork *w, Position *root, const unsigned int root_idx, 
 			}
 			++count[w->node[i].key];
 		}
-		w->order = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->order);
-		w->rank = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->rank);
-		if (w->order == NULL || w->rank == NULL) return -1;
-		start[130] = 0;
-		for (i = 130; i-- > 0;) start[i] = start[i + 1] + count[i + 1];
-		for (i = 0; i < w->n_node; ++i) {
-			const unsigned int r = start[w->node[i].key]++;
-			w->order[r] = i;
-			w->rank[i] = r;
-		}
+		if (!ba_node_order(w, count, true)) return -1;
 	}
 	BA_TEST_COUNT(ba_test_umi_builds);
 	BA_TEST_ADD(ba_test_umi_nodes, w->n_node);
@@ -2954,16 +2968,12 @@ static int ba_bestlines_build(BaWork *w, Position *root, const unsigned int root
 		w->node[i].n_edge = (unsigned int) (w->n_edge - first);
 		w->node[i].end = (w->node[i].n_edge == 0);
 	}
-	// an order where the next positions come first (as ba_umi_build)
+	// an order where the next positions come first
 	{
-		unsigned int count[131], start[131];
+		unsigned int count[131];
 		memset(count, 0, sizeof count);
 		for (i = 0; i < w->n_node; ++i) ++count[w->node[i].key];
-		w->order = (unsigned int*) malloc((size_t) w->n_node * sizeof *w->order);
-		if (w->order == NULL) return -1;
-		start[130] = 0;
-		for (i = 130; i-- > 0;) start[i] = start[i + 1] + count[i + 1];
-		for (i = 0; i < w->n_node; ++i) w->order[start[w->node[i].key]++] = i;
+		if (!ba_node_order(w, count, false)) return -1;
 	}
 	return 0;
 }
