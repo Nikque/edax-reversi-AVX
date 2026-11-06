@@ -3657,8 +3657,16 @@ static bool ba_rlist_push(BaRList *l, const unsigned int idx)
 	return true;
 }
 
+/** @brief Give back the memory of a list (it is empty then). */
+static void ba_rlist_free(BaRList *l)
+{
+	free(l->v);
+	l->v = NULL;
+	l->n = l->size = 0;
+}
+
 /**
- * @brief The table of book-reduce-index table: the bucket of every number multiple of 64 (see ba_position).
+ * @brief The table of book-reduce-index: the bucket of every number multiple of 64 (see ba_position).
  * Made before the walks of book reducecount (the threads only read it), kept with the numbering.
  * @return false if out of memory (the binary search of all the buckets is used then).
  */
@@ -3828,7 +3836,7 @@ static long long ba_reduce_walk(BaWork *w, Position *root, const unsigned int ro
 				}
 			}
 		}
-		free(cur->v); cur->v = NULL; cur->n = cur->size = 0;
+		ba_rlist_free(cur);
 	}
 	if (ok) n = (long long) w->visit.n;
 	for (L = 0; L <= total_loss; ++L) free(level[L].v);
@@ -4031,7 +4039,7 @@ static bool ba_rlist_move(BaRList *to, BaRList *from)
 static void ba_rlist_trim(BaRList *l)
 {
 	if (l->n == 0) {
-		free(l->v); l->v = NULL; l->size = 0;
+		ba_rlist_free(l);
 	} else if (l->size > l->n + l->n / 8 + 1024) {
 		unsigned int *v = (unsigned int*) realloc(l->v, (size_t) l->n * sizeof *v);
 		if (v) { l->v = v; l->size = l->n; }
@@ -4137,8 +4145,8 @@ static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int
 	}
 	free(front.v);
 	for (i = 0; i < n_thread; ++i) { // (the lists of the threads hold no position now: their memory is given back)
-		if (t[i].out) for (g = 0; g < n_out; ++g) { free(t[i].out[g].v); t[i].out[g].v = NULL; t[i].out[g].size = 0; }
-		free(t[i].next.v); t[i].next.v = NULL; t[i].next.size = 0;
+		if (t[i].out) for (g = 0; g < n_out; ++g) ba_rlist_free(t[i].out + g);
+		ba_rlist_free(&t[i].next);
 	}
 	for (g = 0; g < BA_RED_GROUPS; ++g) ba_rlist_trim(group + g); // (the lists of the groups do not grow any more)
 
@@ -4147,7 +4155,7 @@ static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int
 		if (group[g].n) ba_red_run(t, n_thread, group + g, 0, ba_red_negamax_run);
 		for (i = 0; i < n_thread; ++i) if (t[i].broken) broken = true;
 		if (broken) ok = false;
-		if (!by_group) { free(group[g].v); group[g].v = NULL; group[g].n = group[g].size = 0; }
+		if (!by_group) ba_rlist_free(group + g);
 	}
 
 	// the walk
@@ -4159,7 +4167,7 @@ static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int
 	for (g = BA_RED_GROUPS - 1; by_group && ok && g >= 0 && !w->job->cancel; --g) { // in the order of the groups
 		if (group[g].n) ba_red_run(t, n_thread, group + g, 0, ba_red_gwalk_run);
 		for (i = 0; i < n_thread; ++i) { kept += t[i].n_new; t[i].n_new = 0; }
-		free(group[g].v); group[g].v = NULL; group[g].n = group[g].size = 0;
+		ba_rlist_free(group + g);
 	}
 	for (L = 0; !by_group && ok && L <= total_loss && !w->job->cancel; ++L) { // by increasing loss
 		long long done = 0;
@@ -4175,7 +4183,7 @@ static long long ba_reduce_threads(BaWork *w, Position *root, const unsigned int
 				for (l = L; ok && l <= total_loss; ++l) ok = ba_rlist_move(level + l, t[i].out + l);
 			}
 		}
-		free(level[L].v); level[L].v = NULL; level[L].n = level[L].size = 0;
+		ba_rlist_free(level + L);
 	}
 
 	if (w->job->cancel) result = -1;
@@ -4329,18 +4337,6 @@ static void book_reduce_edge_range(BookTask *task)
 }
 
 /**
- * @brief Keep only the positions that the walk of book deviate3 x y reaches from a position (book reduce).
- *
- * The walk is the one of book deviate3 (with n-tasks threads), after a negamax from the position (as book deviate3);
- * see the notes above ba_reduce_walk, which counts the same positions (book reducecount).
- *
- * @param book opening book.
- * @param board Position to start from.
- * @param move_loss Maximum loss for one move (0 to 129).
- * @param total_loss Maximum cumulative loss for both players (0 to VISIT_LOSS_MAX).
- * @return false if the book is not changed (the position is not in the book or deeper than the book depth, no memory).
- */
-/**
  * @brief book reduce with the positions that book reducecount found just before (book-reduce-reuse, see ba_counted).
  *
  * The positions it counted are marked "todo" (they are those that the walk below keeps). The negamax of book reduce
@@ -4392,6 +4388,18 @@ static bool book_reduce_counted(Book *book, const Position *root, const int move
 	return true;
 }
 
+/**
+ * @brief Keep only the positions that the walk of book deviate3 x y reaches from a position (book reduce).
+ *
+ * The walk is the one of book deviate3 (with n-tasks threads), after a negamax from the position (as book deviate3);
+ * see the notes above ba_reduce_walk, which counts the same positions (book reducecount).
+ *
+ * @param book opening book.
+ * @param board Position to start from.
+ * @param move_loss Maximum loss for one move (0 to 129).
+ * @param total_loss Maximum cumulative loss for both players (0 to VISIT_LOSS_MAX).
+ * @return false if the book is not changed (the position is not in the book or deeper than the book depth, no memory).
+ */
 bool book_reduce(Book *book, const Board *board, const int move_loss, const int total_loss)
 {
 	Position *root = book_probe(book, board);
