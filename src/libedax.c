@@ -1567,23 +1567,11 @@ LIBEDAX_API void edax_book_new(const int level, const int depth)
 LIBEDAX_API void edax_book_load(const char *book_file)
 {
 	Book *book;
-	Book next = {0};
-	FILE *exists;
 	if (g_ui == NULL) return;
 	book = lib_book_begin_change();
 
-	// load an opening book (binary format) from the disc
-	next.search = book->search;
-	if (book_file == NULL || (exists = fopen(book_file, "rb")) == NULL) { // (no "New book ..." line for a file that is not there)
-		warn("Book %s was not loaded; current book retained\n", book_file ? book_file : "(no name)");
-	} else if (fclose(exists), book_load(&next, book_file)) {
-		book_free(book);
-		*book = next;
-		book_set_loaded_file(book_file, false); // the book file may still hold the previous book: see book_save_to_book_file()
-	} else {
-		book_free(&next);
-		warn("Book %s was not loaded; current book retained\n", book_file);
-	}
+	// load an opening book (binary format) from the disc; the current book is kept when the file cannot be loaded
+	play_book_load(g_ui->play, book_file);
 
 	lib_book_end(book);
 }
@@ -1671,21 +1659,7 @@ LIBEDAX_API void edax_book_import(const char *import_file)
 	book = lib_book_begin_change();
 
 	// import an opening book (text format); as book load, the current book is kept when nothing is imported
-	{
-		Book next = {0};
-		next.search = book->search;
-		if (book_import(&next, import_file)) {
-			book_free(book);
-			*book = next;
-			book_set_loaded_file(import_file, true); // the book file still holds the previous book: see book_save_to_book_file()
-			book_link(book);
-			book_fix(book);
-			book_negamax(book);
-			book_sort(book);
-		} else {
-			warn("Book %s was not imported; current book retained\n", import_file);
-		}
-	}
+	play_book_import(g_ui->play, import_file);
 
 	lib_book_end(book);
 }
@@ -1713,28 +1687,11 @@ LIBEDAX_API void edax_book_export(const char *export_file)
 LIBEDAX_API void edax_book_merge(const char *book_file)
 {
 	Book *book;
-	char file[FILENAME_MAX];
 	if (g_ui == NULL || book_file == NULL) return;
 	book = lib_book_begin_change();
 
 	// merge an opening book to the current one
-	if (book_merge_file(book, book_file)) { // the source book is streamed, not loaded
-		book_link_parallel(book); // rebuild links before validating imported positions
-		book_fix(book);
-		book_negamax(book);
-		book_sort_parallel(book);
-		if (options.book_merge_auto_save) {
-			// keep need_saving: the exit save to the book file behaves as before
-			const bool need_saving = book->need_saving;
-			if (strlen(options.book_file) + sizeof ".mrg" > sizeof file) {
-				warn("Book file name too long; merged book was not saved\n");
-			} else {
-				file_add_ext(options.book_file, ".mrg", file);
-				if (book_save(book, file)) printf("Merged book saved to %s\n", file);
-				book->need_saving = need_saving;
-			}
-		}
-	} else warn("Book %s was not merged\n", book_file);
+	play_book_merge(g_ui->play, book_file);
 
 	lib_book_end(book);
 }
@@ -2097,20 +2054,13 @@ LIBEDAX_API void edax_book_deviate3(int move_loss, int total_loss)
 LIBEDAX_API long long edax_book_deviate_export(int base, int x, int y, const char *file, int which)
 {
 	Book *book;
-	const Play *play;
 	char line[2 * PLAY_GAME_SIZE + 1];
 	long long n;
-	int i, k = 0;
 
 	if (g_ui == NULL || file == NULL || base < 1 || base > 3 || which < BOOK_EXPORT_LEAF || which > BOOK_EXPORT_ALL) return -1;
-	play = g_ui->play;
 	if (base == 1) lib_bound_deviate_errors(&x, &y);
 	else lib_bound_loss_limits(&x, &y, 254);
-	for (i = 0; i < play->i_game && i < PLAY_GAME_SIZE; ++i) { // (the moves of the game, without the passes)
-		const int m = play->game[i].x;
-		if (A1 <= m && m <= H8) { line[k++] = (char) ('a' + m % 8); line[k++] = (char) ('1' + m / 8); }
-	}
-	line[k] = '\0';
+	play_get_moves(g_ui->play, line);
 	book = lib_book_begin();
 	n = book_deviate_export(book, &g_ui->play->board, line, base, x, y, file, which);
 	lib_book_end(book);
