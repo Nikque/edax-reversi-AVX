@@ -106,15 +106,9 @@
 #include "play.h"
 #include "search.h"
 #include "util.h"
+#include "ui.h"
 
 #include <ctype.h>
-
-/** @return true if a word starts with a number, signed or not (as parse_int reads it). */
-static bool starts_with_number(const char *s)
-{
-	return isdigit((unsigned char) s[0]) || ((s[0] == '+' || s[0] == '-') && isdigit((unsigned char) s[1]));
-}
-#include "ui.h"
 #ifdef __linux__
 	#include <sys/time.h>
 	#include <sys/resource.h>
@@ -330,24 +324,25 @@ static char* book_command_hint(const char *cmd, const char *param)
 	return s;
 }
 
-/**
- * @brief Moves of the game up to the current position, passes left out ("f5d6c3...").
- * @param play Play.
- * @param s Moves (out, 2 * PLAY_GAME_SIZE + 1 characters).
- * @return s.
- */
-static const char* game_moves(const Play *play, char *s)
+/** @return true if a word starts with a number, signed or not (as parse_int reads it). */
+static bool starts_with_number(const char *s)
 {
-	int i, n = 0;
-	for (i = 0; i < play->i_game && i < PLAY_GAME_SIZE; ++i) {
-		const int x = play->game[i].x;
-		if (A1 <= x && x <= H8) {
-			s[n++] = (char) ('a' + x % 8);
-			s[n++] = (char) ('1' + x / 8);
-		}
-	}
-	s[n] = '\0';
-	return s;
+	return isdigit((unsigned char) s[0]) || ((s[0] == '+' || s[0] == '-') && isdigit((unsigned char) s[1]));
+}
+
+/**
+ * @brief Read the loss limits of book deviate2, deviate3 (and of the commands that walk as they do): 2 and 4 when
+ * they are not given.
+ * @param param Parameters.
+ * @param move_loss Per-move loss limit (out).
+ * @param total_loss Cumulative loss limit for both players (out).
+ * @return the rest of the parameters.
+ */
+static char* parse_loss_limits(char *param, int *move_loss, int *total_loss)
+{
+	*move_loss = 2; param = parse_int(param, move_loss); BOUND(*move_loss, 0, 129, "per-move loss");
+	*total_loss = 4; param = parse_int(param, total_loss); BOUND(*total_loss, 0, 7740, "cumulative loss");
+	return param;
 }
 
 /**
@@ -380,7 +375,7 @@ static bool deviate_export(Play *play, const char *param, const int base, const 
 		warn("total loss %d reduced to %d\n", y, 254);
 		y = 254;
 	}
-	book_deviate_export(play->book, &play->board, game_moves(play, game_line), base, x, y, file, which);
+	book_deviate_export(play->book, &play->board, play_get_moves(play, game_line), base, x, y, file, which);
 	return true;
 }
 
@@ -730,7 +725,7 @@ void ui_loop_edax(UI *ui)
 				puts(name); 
 
 			// book analyses for a user interface (book moveinfo, missing, levels): done by a thread of their own
-			} else if ((strcmp(cmd, "book") == 0 || strcmp(cmd, "b") == 0) && book_analysis_command(play->book, param, &play->board, play->player, game_moves(play, game_line))) {
+			} else if ((strcmp(cmd, "book") == 0 || strcmp(cmd, "b") == 0) && book_analysis_command(play->book, param, &play->board, play->player, play_get_moves(play, game_line))) {
 
 			// opening book commands
 			} else if (strcmp(cmd, "book") == 0 || strcmp(cmd, "b") == 0) {
@@ -798,22 +793,8 @@ void ui_loop_edax(UI *ui)
 
 				// load an opening book (binary format) from the disc
 				} else if (strcmp(book_cmd, "load") == 0 || strcmp(book_cmd, "open") == 0) {
-					Book next = {0};
-					FILE *exists;
 					parse_word(book_param, book_file, FILENAME_MAX);
-					next.search = book->search;
-					// (book_load() makes a new book when the file cannot be opened, and says "New book ...":
-					// that line was printed here before the warning, about a book that is dropped at once)
-					if ((exists = fopen(book_file, "rb")) == NULL) {
-						warn("Book %s was not loaded; current book retained\n", book_file);
-					} else if (fclose(exists), book_load(&next, book_file)) {
-						book_free(book);
-						*book = next;
-						book_set_loaded_file(book_file, false); // the book file may still hold the previous book: see book_save_to_book_file()
-					} else {
-						book_free(&next);
-						warn("Book %s was not loaded; current book retained\n", book_file);
-					}
+					play_book_load(play, book_file); // (the current book is kept when the file cannot be loaded)
 
 				// save an opening book (binary format) to the disc
 				} else if (strcmp(book_cmd, "save") == 0) {
@@ -825,20 +806,8 @@ void ui_loop_edax(UI *ui)
 
 				// import an opening book (text format)
 				} else if (strcmp(book_cmd, "import") == 0) {
-					Book next = {0};
 					parse_word(book_param, book_file, FILENAME_MAX);
-					next.search = book->search;
-					if (book_import(&next, book_file)) { // as book load: the current book is kept when nothing is imported
-						book_free(book);
-						*book = next;
-						book_set_loaded_file(book_file, true); // the book file still holds the previous book: see book_save_to_book_file()
-						book_link(book);
-						book_fix(book);
-						book_negamax(book);
-						book_sort(book);
-					} else {
-						warn("Book %s was not imported; current book retained\n", book_file);
-					}
+					play_book_import(play, book_file); // (as book load: the current book is kept when nothing is imported)
 
 				// export an opening book (text format)
 				} else if (strcmp(book_cmd, "export") == 0) {
@@ -848,23 +817,7 @@ void ui_loop_edax(UI *ui)
 				// merge an opening book to the current one
 				} else if (strcmp(book_cmd, "merge") == 0) {
 					parse_word(book_param, book_file, FILENAME_MAX);
-					if (book_merge_file(book, book_file)) { // the source book is streamed, not loaded
-						book_link_parallel(book); // rebuild links before validating imported positions
-						book_fix(book);
-						book_negamax(book);
-						book_sort_parallel(book);
-						if (options.book_merge_auto_save) {
-							// keep need_saving: the exit save to the book file behaves as before
-							const bool need_saving = book->need_saving;
-							if (strlen(options.book_file) + sizeof ".mrg" > sizeof book_file) {
-								warn("Book file name too long; merged book was not saved\n");
-							} else {
-								file_add_ext(options.book_file, ".mrg", book_file);
-								if (book_save(book, book_file)) printf("Merged book saved to %s\n", book_file);
-								book->need_saving = need_saving;
-							}
-						}
-					} else warn("Book %s was not merged\n", book_file);
+					play_book_merge(play, book_file);
 
 				// fix an opening book
 				} else if (strcmp(book_cmd, "fix") == 0) {
@@ -995,13 +948,11 @@ void ui_loop_edax(UI *ui)
 
 				// add positions while limiting per-move and cumulative errors
 				} else if (strcmp(book_cmd, "deviate2") == 0) {
-					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
-					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+					book_param = parse_loss_limits(book_param, &val_1, &val_2);
 					if (!deviate_export(play, book_param, 2, val_1, val_2)) book_deviate2(book, &play->board, val_1, val_2);
 
 				} else if (strcmp(book_cmd, "deviate3") == 0) {
-					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
-					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+					book_param = parse_loss_limits(book_param, &val_1, &val_2);
 					if (!deviate_export(play, book_param, 3, val_1, val_2)) book_deviate3(book, &play->board, val_1, val_2);
 
 				// search again the leaves that book deviate (1, 3) or book deviate2 (2, 4) reaches:
@@ -1012,8 +963,7 @@ void ui_loop_edax(UI *ui)
 					book_leaf_recalculate(book, &play->board, book_cmd[16] == '3' ? 3 : 1, val_1, val_2);
 
 				} else if (strcmp(book_cmd, "leaf recalculate2") == 0 || strcmp(book_cmd, "leaf recalculate4") == 0) {
-					val_1 = 2; book_param = parse_int(book_param, &val_1); BOUND(val_1, 0, 129, "per-move loss");
-					val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+					book_param = parse_loss_limits(book_param, &val_1, &val_2);
 					book_leaf_recalculate(book, &play->board, book_cmd[16] == '4' ? 4 : 2, val_1, val_2);
 
 				// expand the leaves better than every link of their position: of the whole book, or with a per-move
@@ -1021,8 +971,7 @@ void ui_loop_edax(UI *ui)
 				} else if (strcmp(book_cmd, "leaf expand") == 0) {
 					char *limits = parse_skip_spaces(book_param);
 					if (starts_with_number(limits)) { // (the limits are numbers, signed or not: another word is ignored, as by the other commands)
-						val_1 = 2; book_param = parse_int(limits, &val_1); BOUND(val_1, 0, 129, "per-move loss");
-						val_2 = 4; book_param = parse_int(book_param, &val_2); BOUND(val_2, 0, 7740, "cumulative loss");
+						book_param = parse_loss_limits(limits, &val_1, &val_2);
 						book_leaf_expand(book, &play->board, true, val_1, val_2);
 					} else {
 						book_leaf_expand(book, &play->board, false, 0, 0);
@@ -1051,8 +1000,7 @@ void ui_loop_edax(UI *ui)
 					val_1 = leaf_only ? 2 : 1; book_param = parse_int(book_param, &val_1); BOUND(val_1, 1, 61, "fill depth"); // (fill2 1 adds no position)
 					limits = parse_skip_spaces(book_param);
 					if (starts_with_number(limits)) { // (the limits are numbers, signed or not: another word is ignored, as by the other commands)
-						val_2 = 2; book_param = parse_int(limits, &val_2); BOUND(val_2, 0, 129, "per-move loss");
-						total_loss = 4; book_param = parse_int(book_param, &total_loss); BOUND(total_loss, 0, 7740, "cumulative loss");
+						book_param = parse_loss_limits(limits, &val_2, &total_loss);
 						book_fill_walk(book, &play->board, val_1, leaf_only, val_2, total_loss);
 					} else if (leaf_only) {
 						book_fill2(book, val_1);

@@ -565,6 +565,9 @@ int main(int argc, char **argv)
 				CHECK(all >= 1 && ends >= 1 && ends <= all && leaf >= 0);
 				CHECK(f != NULL);
 				if (f) {
+					char first[256];
+					if (fgets(first, sizeof first, f)) printf("export %d 2 4 leaf, first line: %s", i, first); // (the moves of the game first)
+					rewind(f);
 					while ((c = fgetc(f)) != EOF) lines += c == '\n';
 					fclose(f);
 				}

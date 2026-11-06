@@ -1048,6 +1048,109 @@ void play_book_analyze(Play *play, int n)
 	}
 }
 
+/**
+ * @brief Moves of the game up to the current position, passes left out ("f5d6c3...").
+ * @param play Play.
+ * @param moves Moves (out, 2 * PLAY_GAME_SIZE + 1 characters).
+ * @return moves.
+ */
+const char* play_get_moves(const Play *play, char *moves)
+{
+	int i, n = 0;
+	for (i = 0; i < play->i_game && i < PLAY_GAME_SIZE; ++i) {
+		const int x = play->game[i].x;
+		if (A1 <= x && x <= H8) {
+			moves[n++] = (char) ('a' + x % 8);
+			moves[n++] = (char) ('1' + x / 8);
+		}
+	}
+	moves[n] = '\0';
+	return moves;
+}
+
+/**
+ * @brief Load an opening book (book load command): the current book is kept when the file cannot be loaded.
+ *
+ * @param play Play.
+ * @param file Book file name (NULL: no file).
+ */
+void play_book_load(Play *play, const char *file)
+{
+	Book *book = play->book;
+	Book next = {0};
+	FILE *exists;
+
+	next.search = book->search;
+	// (book_load() makes a new book when the file cannot be opened, and says "New book ...": the file is
+	// opened first, for no such line about a book that would be dropped at once)
+	if (file == NULL || (exists = fopen(file, "rb")) == NULL) {
+		warn("Book %s was not loaded; current book retained\n", file ? file : "(no name)");
+	} else if (fclose(exists), book_load(&next, file)) {
+		book_free(book);
+		*book = next;
+		book_set_loaded_file(file, false); // the book file may still hold the previous book: see book_save_to_book_file()
+	} else {
+		book_free(&next);
+		warn("Book %s was not loaded; current book retained\n", file);
+	}
+}
+
+/**
+ * @brief Import an opening book (text format; book import command): as book load, the current book is kept
+ * when nothing is imported.
+ *
+ * @param play Play.
+ * @param file File name.
+ */
+void play_book_import(Play *play, const char *file)
+{
+	Book *book = play->book;
+	Book next = {0};
+
+	next.search = book->search;
+	if (book_import(&next, file)) {
+		book_free(book);
+		*book = next;
+		book_set_loaded_file(file, true); // the book file still holds the previous book: see book_save_to_book_file()
+		book_link(book);
+		book_fix(book);
+		book_negamax(book);
+		book_sort(book);
+	} else {
+		warn("Book %s was not imported; current book retained\n", file);
+	}
+}
+
+/**
+ * @brief Merge an opening book to the current one (book merge command).
+ *
+ * @param play Play.
+ * @param file File name of the book to merge.
+ */
+void play_book_merge(Play *play, const char *file)
+{
+	Book *book = play->book;
+	char merged_file[FILENAME_MAX];
+
+	if (book_merge_file(book, file)) { // the source book is streamed, not loaded
+		book_link_parallel(book); // rebuild links before validating imported positions
+		book_fix(book);
+		book_negamax(book);
+		book_sort_parallel(book);
+		if (options.book_merge_auto_save) {
+			// keep need_saving: the exit save to the book file behaves as before
+			const bool need_saving = book->need_saving;
+			if (strlen(options.book_file) + sizeof ".mrg" > sizeof merged_file) {
+				warn("Book file name too long; merged book was not saved\n");
+			} else {
+				file_add_ext(options.book_file, ".mrg", merged_file);
+				if (book_save(book, merged_file)) printf("Merged book saved to %s\n", merged_file);
+				book->need_saving = need_saving;
+			}
+		}
+	} else warn("Book %s was not merged\n", file);
+}
+
 static void play_store_boards(Book*, const Board*, Move*, const int, const bool);
 
 /**
