@@ -887,6 +887,23 @@ static int position_add_link(Position *position, const Link *link)
 }
 
 /**
+ * @brief Add a link to a position of the book (position_add_link) and count it.
+ *
+ * A link that cannot be added (no memory) sets book->failed, which stops the learning loops.
+ *
+ * @param book Opening book.
+ * @param position Position.
+ * @param link Link to add.
+ */
+static inline void book_add_link(Book *book, Position *position, const Link *link)
+{
+	const int added = position_add_link(position, link);
+
+	if (added == LINK_ADDED) ++book->stats.n_links;
+	else if (added == LINK_FAILED) book->failed = true;
+}
+
+/**
  * @brief Sort the link moves.
  *
  * @param position Position to sort.
@@ -1084,9 +1101,7 @@ static void position_link(Position *position, Book *book)
 			if (child) {
 				link.score = -child->score.value;
 				link.move = x;
-				const int added = position_add_link(position, &link);
-				if (added == LINK_ADDED) ++book->stats.n_links;
-				else if (added == LINK_FAILED) book->failed = true;
+				book_add_link(book, position, &link);
 			}
 		}
 	} else if (can_move(position->board.opponent, position->board.player)) {// pass ?
@@ -1096,9 +1111,7 @@ static void position_link(Position *position, Book *book)
 		if (child) {
 			link.score = -child->score.value;
 			link.move = PASS;
-			const int added = position_add_link(position, &link);
-			if (added == LINK_ADDED) ++book->stats.n_links;
-			else if (added == LINK_FAILED) book->failed = true;
+			book_add_link(book, position, &link);
 		}
 	}
 }
@@ -4168,9 +4181,7 @@ static void book_link_tasks(Book *book, const bool exact)
 				child = book_probe(book, &target);
 				link.score = -child->score.value;
 				link.move = x;
-				const int added = position_add_link(p, &link);
-				if (added == LINK_ADDED) ++book->stats.n_links;
-				else if (added == LINK_FAILED) book->failed = true;
+				book_add_link(book, p, &link);
 			}
 			if (last && p->leaf.move == NOMOVE) {
 				const MergeHint *hint = merge_hint_find(TASK_KEY(item));
@@ -6443,6 +6454,47 @@ static bool book_remove_missing_links(Book *book)
 #endif
 
 /**
+ * @brief Negamax a book from the position it is cut from (book prune, book subtree), then start the marks
+ * of the positions to keep.
+ *
+ * @param book Opening book.
+ * @param root Position the book is cut from.
+ */
+static void book_cut_negamax(Book *book, Position *root)
+{
+#ifdef BOOK_TEST_SUBTREE_STAT
+	subtree_stat_new = 0; subtree_stat_t0 = real_clock();
+#endif
+	book_clean(book);
+#ifdef BOOK_TEST_SUBTREE_NEGAMAX_OLD
+	position_negamax(root, book);
+#else
+	book_negamax_position(root, book); // with n-tasks threads (the same values)
+#endif
+	SUBTREE_STAT("negamax");
+
+	book_clean(book);
+}
+
+/**
+ * @brief End the cut of a book (book prune, book subtree), once the positions not kept are removed: remove the
+ * links to them, and give back the memory of the pool.
+ *
+ * @param book Opening book.
+ * @param n_nodes Number of positions before the cut.
+ */
+static void book_cut_end(Book *book, const unsigned int n_nodes)
+{
+	SUBTREE_STAT("remove");
+	// the book that was cut is saved when Edax ends (up to v4.5.5-nikque.12 only if the negamax changed a score)
+	if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;
+	SUBTREE_STAT("remove_links");
+	book_pool_compact(book);
+	SUBTREE_STAT("compact");
+	bprint("done\n");
+}
+
+/**
  * @brief Prune a book.
  *
  * Remove positions Edax cannot reach.
@@ -6457,18 +6509,7 @@ void book_prune(Book *book)
 
 	if (root) {
 		const unsigned int n_nodes = book->n_nodes;
-#ifdef BOOK_TEST_SUBTREE_STAT
-		subtree_stat_new = 0; subtree_stat_t0 = real_clock();
-#endif
-		book_clean(book);
-#ifdef BOOK_TEST_SUBTREE_NEGAMAX_OLD
-		position_negamax(root, book);
-#else
-		book_negamax_position(root, book); // with n-tasks threads (the same values)
-#endif
-		SUBTREE_STAT("negamax");
-
-		book_clean(book);
+		book_cut_negamax(book, root);
 		// the walks only have two sets of deviations (all the moves of a side, the best moves of the other):
 		// a state flag for each tells that a position was already walked with it (cleared below)
 #ifdef BOOK_TEST_PRUNE_MARK_OLD
@@ -6502,13 +6543,7 @@ void book_prune(Book *book)
 			if (!position_is_done(a->positions + i, book)) {book_remove_at(book, a, i); --i;}
 			else a->positions[i].state &= (unsigned char) ~(PRUNE_SEEN_A | PRUNE_SEEN_B);
 		}
-		SUBTREE_STAT("remove");
-		// the book that was cut is saved when Edax ends (up to v4.5.5-nikque.12 only if the negamax changed a score)
-		if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;
-		SUBTREE_STAT("remove_links");
-		book_pool_compact(book);
-		SUBTREE_STAT("compact");
-		bprint("done\n");
+		book_cut_end(book, n_nodes);
 	}
 }
 
@@ -6532,18 +6567,7 @@ void book_subtree(Book *book, const Board *board)
 	}
 	if (root) {
 		const unsigned int n_nodes = book->n_nodes;
-#ifdef BOOK_TEST_SUBTREE_STAT
-		subtree_stat_new = 0; subtree_stat_t0 = real_clock();
-#endif
-		book_clean(book);
-#ifdef BOOK_TEST_SUBTREE_NEGAMAX_OLD
-		position_negamax(root, book);
-#else
-		book_negamax_position(root, book); // with n-tasks threads (the same values)
-#endif
-		SUBTREE_STAT("negamax");
-
-		book_clean(book);
+		book_cut_negamax(book, root);
 #ifdef BOOK_TEST_SUBTREE_OLD
 		position_prune(root, book, 2*SCORE_INF, 2*SCORE_INF, -SCORE_INF, SCORE_INF, 0, 0);
 #else
@@ -6561,13 +6585,7 @@ void book_subtree(Book *book, const Board *board)
 		SUBTREE_STAT("mark");
 		for (a = book->array; a < book->array + book->n; ++a)
 		for (i = 0; i < a->n; ++i) if (!position_is_done(a->positions + i, book)) {book_remove_at(book, a, i); --i;}
-		SUBTREE_STAT("remove");
-		// the book that was cut is saved when Edax ends (up to v4.5.5-nikque.12 only if the negamax changed a score)
-		if (book_remove_missing_links(book) || book->n_nodes != n_nodes) book->need_saving = true;
-		SUBTREE_STAT("remove_links");
-		book_pool_compact(book);
-		SUBTREE_STAT("compact");
-		bprint("done\n");
+		book_cut_end(book, n_nodes);
 	}
 }
 
