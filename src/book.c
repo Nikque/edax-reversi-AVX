@@ -905,14 +905,6 @@ static void position_sort(Position *position)
 	}
 }
 
-/**
- * @brief Evaluate a position.
- *
- * If needed, find the best remaining move, after link moves are excluded.
- *
- * @param position Position to search.
- * @param book Opening book.
- */
 #ifdef BOOK_TEST_NODES
 /* test builds: count the searches of the book functions and their nodes (printed after each negamax) */
 static long long book_test_nodes = 0, book_test_searches = 0, book_test_play_nodes = 0;
@@ -976,6 +968,14 @@ static void position_forget_leaf(Position *position)
 	}
 }
 
+/**
+ * @brief Evaluate a position.
+ *
+ * If needed, find the best remaining move, after link moves are excluded.
+ *
+ * @param position Position to search.
+ * @param book Opening book.
+ */
 static void position_search(Position *position, Book *book)
 {
 	const int r = book_plan ? position_search_planned(position, book) : position_search_with(position, book_search(book));
@@ -1480,6 +1480,12 @@ static void book_negamax_position(Position *root, Book *book)
 	book_run_workers(negamax_worker, w, sizeof *w, n);
 }
 
+#ifdef BOOK_TEST_SUBTREE_STAT
+static long long subtree_stat_new, subtree_stat_t0;
+#define SUBTREE_STAT(s) (fprintf(stderr, "<subtree-stat %s: %lld ms, nodes %u>\n", s, real_clock() - subtree_stat_t0, book->n_nodes), subtree_stat_t0 = real_clock())
+#else
+#define SUBTREE_STAT(s)
+#endif
 
 /**
  * @brief Prune a position.
@@ -1495,12 +1501,6 @@ static void book_negamax_position(Position *root, Book *book)
  *        only use infinite bounds, so the deviations alone tell the walks apart.
  * @param seen_next State flag of the walks with the deviations swapped.
  */
-#ifdef BOOK_TEST_SUBTREE_STAT
-static long long subtree_stat_new, subtree_stat_t0;
-#define SUBTREE_STAT(s) (fprintf(stderr, "<subtree-stat %s: %lld ms, nodes %u>\n", s, real_clock() - subtree_stat_t0, book->n_nodes), subtree_stat_t0 = real_clock())
-#else
-#define SUBTREE_STAT(s)
-#endif
 static void position_prune(Position *position, Book *book, const int player_deviation, const int opponent_deviation, const int lower, const int upper, const unsigned char seen, const unsigned char seen_next)
 {
 	Link *l;
@@ -1924,19 +1924,6 @@ static void position_deviate(Position *position, Book *book, const int player_de
 	}
 }
 
-/**
- * @brief Deviate a position with a cumulative move-loss limit.
- *
- * Each move loss is the difference between the best score at the position
- * and the score of the selected move. The path is followed only while every
- * move loss is within move_loss and their sum is within total_loss.
- *
- * @param position Position to expand.
- * @param book Opening book.
- * @param move_loss Maximum loss for one move.
- * @param total_loss Maximum cumulative loss for both players.
- * @param loss Accumulated loss from the root to this position.
- */
 /*
  * Visit marks of the deviate/deviate2/deviate3 selection walks: one byte per position, allocated
  * for a walk only (up to v4.5.5-nikque.4, a 4-byte field of every position kept them):
@@ -1949,6 +1936,20 @@ static void position_deviate(Position *position, Book *book, const int player_de
 
 static inline unsigned char* book_visit(const Book*, const Position*);
 
+/**
+ * @brief Deviate a position with a cumulative move-loss limit.
+ *
+ * Each move loss is the difference between the best score at the position
+ * and the score of the selected move. The path is followed only while every
+ * move loss is within move_loss and their sum is within total_loss.
+ *
+ * @param position Position to expand.
+ * @param book Opening book.
+ * @param move_loss Maximum loss for one move.
+ * @param total_loss Maximum cumulative loss for both players.
+ * @param loss Accumulated loss from the root to this position.
+ * @param skip_solved deviate2: the leaf of a solved position is not expanded. deviate3: it is.
+ */
 static void position_deviate_total(Position *position, Book *book, const int move_loss, const int total_loss, const int loss, const bool skip_solved)
 {
 	Link *l;
@@ -2625,6 +2626,10 @@ void book_init(Book *book)
 	book->need_saving = false;
 }
 
+#ifndef BOOK_BUCKETS_MIN
+#define BOOK_BUCKETS_MIN 65536  /**< the fewest buckets (the tests of book-reduce-shrink build with fewer, for small books) */
+#endif
+
 /**
  * @brief Number of buckets for a book of n positions.
  *
@@ -2635,10 +2640,6 @@ void book_init(Book *book)
  * @param n Number of positions.
  * @return Number of buckets (a power of 2).
  */
-#ifndef BOOK_BUCKETS_MIN
-#define BOOK_BUCKETS_MIN 65536  /**< the fewest buckets (the tests of book-reduce-shrink build with fewer, for small books) */
-#endif
-
 static int book_bucket_count(const long long n)
 {
 	int b = BOOK_BUCKETS_MIN;
@@ -3015,6 +3016,8 @@ static void book_pool_shrink(Book *book, const long long n)
  *
  * @param book Opening book.
  * @param file File name.
+ * @return true if the book of the file was loaded; false if the file does not exist (a new book is made)
+ *         or cannot be loaded (the book is left without any position).
  */
 bool book_load(Book *book, const char *file)
 {
@@ -3367,6 +3370,7 @@ static void book_remove_stale_tmp(const char *file)
  * @param book Opening book.
  * @param file File name.
  * @param keep_replaced Keep, under another name, a file that still holds the book in use before "book new" (see book_replaced_file).
+ * @return true if the book was saved.
  */
 static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 {
@@ -3766,12 +3770,6 @@ static void book_link_refresh(BookTask *task)
 	}
 }
 
-/**
- * Phase 1 of book_link: find the missing links.
- * As position_link() does, it also gives to the existing links the score of their position
- * (only this thread writes to the links of a position, and no thread reads the links of
- * another position).
- */
 #ifndef BOOK_TEST_LINK_NO_PREFETCH
 /**
  * The positions that the moves of a position lead to, looked for together: their places in the book
@@ -3799,6 +3797,12 @@ static inline void child_probe_fetch(const ChildProbe *c)
 	for (i = 0; i < c->n; ++i) position_array_prefetch(c->array[i]);
 }
 
+/**
+ * Phase 1 of book_link: find the missing links.
+ * As position_link() does, it also gives to the existing links the score of their position
+ * (only this thread writes to the links of a position, and no thread reads the links of
+ * another position).
+ */
 static void book_link_find(BookTask *task)
 {
 	Book *book = task->book;
@@ -3842,6 +3846,11 @@ static void book_link_find(BookTask *task)
 	}
 }
 
+/**
+ * Phase 1 of the link of book merge (as from v4.5.5-nikque.3): find the missing links (read only).
+ * The moves that are already links are not probed and keep their score: book merge negamaxes the
+ * book afterwards, which sets again the scores of the links of every position reachable from the root.
+ */
 static void book_link_find_missing(BookTask *task)
 {
 	Book *book = task->book;
@@ -3919,11 +3928,6 @@ static void book_link_find(BookTask *task)
 	}
 }
 
-/**
- * Phase 1 of the link of book merge (as from v4.5.5-nikque.3): find the missing links (read only).
- * The moves that are already links are not probed and keep their score: book merge negamaxes the
- * book afterwards, which sets again the scores of the links of every position reachable from the root.
- */
 static void book_link_find_missing(BookTask *task)
 {
 	Book *book = task->book;
@@ -6289,13 +6293,6 @@ void book_leaf_recalculate(Book *book, Board *board, const int kind, const int x
 }
 
 /**
- * @brief Prune a book.
- *
- * Remove positions Edax cannot reach.
- *
- * @param book opening book.
- */
-/**
  * @brief Give back the memory of the positions removed from the book pool.
  *
  * A loaded book keeps its positions in one block (the pool), bucket after bucket. After many
@@ -6392,6 +6389,14 @@ static bool book_remove_missing_links(Book *book)
 #define PRUNE_SEEN_A POSITION_TODO
 #define PRUNE_SEEN_B POSITION_BUSY
 #endif
+
+/**
+ * @brief Prune a book.
+ *
+ * Remove positions Edax cannot reach.
+ *
+ * @param book opening book.
+ */
 void book_prune(Book *book)
 {
 	PositionArray *a;
