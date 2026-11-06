@@ -142,20 +142,24 @@ static void lib_line_set(LibedaxLine *dst, const Line *src)
 }
 
 /**
- * @brief Set a hint from a book move.
+ * @brief Set a hint from a book move of the current position.
  * @param hint Hint of the api.
+ * @param play Play.
  * @param move Book move.
- * @param pv Book line.
  */
-static void lib_hint_set_book(LibedaxHint *hint, const Move *move, const Line *pv)
+static void lib_hint_set_book(LibedaxHint *hint, Play *play, const Move *move)
 {
+	Line pv;
+
+	line_init(&pv, play->player);
+	book_get_line(play->book, &play->board, move, &pv);
 	hint->depth = 0;
 	hint->selectivity = 0;
 	hint->move = move->x;
 	hint->score = move->score;
 	hint->upper = 0;
 	hint->lower = 0;
-	lib_line_set(hint->pv, pv);
+	lib_line_set(hint->pv, &pv);
 	hint->time = 0;
 	hint->n_nodes = 0;
 	hint->book_move = true;
@@ -936,6 +940,39 @@ LIBEDAX_API void edax_bench_get_result(LibedaxBenchResult *result)
 }
 
 /**
+ * @brief Prepare the search of the hints of the current position (edax_hint, edax_hint_prepare).
+ * @param play Play.
+ */
+static void lib_hint_search_init(Play *play)
+{
+	Search *search = &play->search;
+
+	play_stop_pondering(play);
+
+	play->state = IS_THINKING;
+
+	search->options.verbosity = options.verbosity;
+	search_set_board(search, &play->board, play->player);
+	search_set_level(search, options.level, search->eval.n_empties);
+}
+
+/**
+ * @brief Search the best move among the moves not given yet, in the time of the current player.
+ * @param play Play.
+ * @param multipv_depth_max search all the moves as principal variations.
+ */
+static void lib_hint_search_run(Play *play, const bool multipv_depth_max)
+{
+	Search *search = &play->search;
+
+	if (options.play_type == EDAX_TIME_PER_MOVE) search_set_move_time(search, options.time);
+	else search_set_game_time(search, play->time[play->player].left);
+	if (multipv_depth_max) search->options.multipv_depth = 60;
+	search_run(search);
+	if (multipv_depth_max) search->options.multipv_depth = MULTIPV_DEPTH;
+}
+
+/**
  * @brief go command.
  */
 LIBEDAX_API void edax_go(void)
@@ -961,7 +998,6 @@ LIBEDAX_API void edax_hint(const int n_hints, LibedaxHintList *hintlist)
 	Search *search;
 	MoveList book_moves;
 	Move *m;
-	Line pv;
 	LibedaxHint *hint;
 	int n = MAX(n_hints, 0); // a negative number asked for all the book moves
 
@@ -974,22 +1010,14 @@ LIBEDAX_API void edax_hint(const int n_hints, LibedaxHintList *hintlist)
 
 	if (play_is_game_over(play)) return;
 
-	play_stop_pondering(play);
-
-	play->state = IS_THINKING;
-
-	search->options.verbosity = options.verbosity;
-	search_set_board(search, &play->board, play->player);
-	search_set_level(search, options.level, search->eval.n_empties);
+	lib_hint_search_init(play);
 	if (n > search->movelist.n_moves) n = search->movelist.n_moves;
 	if (n > LIBEDAX_MOVELIST_SIZE - 1) n = LIBEDAX_MOVELIST_SIZE - 1;
 
 	if (options.book_allowed && book_get_moves(play->book, &play->board, &book_moves)) {
 		foreach_move (m, book_moves) if (n) {
 			--n;
-			line_init(&pv, play->player);
-			book_get_line(play->book, &play->board, m, &pv);
-			lib_hint_set_book(hint, m, &pv);
+			lib_hint_set_book(hint, play, m);
 			++hint;
 			++(hintlist->n_hints);
 
@@ -998,11 +1026,7 @@ LIBEDAX_API void edax_hint(const int n_hints, LibedaxHintList *hintlist)
 	}
 
 	while (n-- > 0) {
-		if (options.play_type == EDAX_TIME_PER_MOVE) search_set_move_time(search, options.time);
-		else search_set_game_time(search, play->time[play->player].left);
-		if (n) search->options.multipv_depth = 60;
-		search_run(search);
-		search->options.multipv_depth = MULTIPV_DEPTH;
+		lib_hint_search_run(play, n > 0);
 		lib_hint_set_result(hint, search->result);
 		++hint;
 		++(hintlist->n_hints);
@@ -1119,13 +1143,7 @@ LIBEDAX_API void edax_hint_prepare(LibedaxMoveList *exclude_list)
 
 	if (play_is_game_over(play)) return;
 
-	play_stop_pondering(play);
-
-	play->state = IS_THINKING;
-
-	search->options.verbosity = options.verbosity;
-	search_set_board(search, &play->board, play->player);
-	search_set_level(search, options.level, search->eval.n_empties);
+	lib_hint_search_init(play);
 	if (options.depth >= 0) search->options.depth = MIN(options.depth, search->eval.n_empties);
 	if (options.selectivity >= 0) search->options.selectivity = options.selectivity;
 
@@ -1150,7 +1168,6 @@ static void lib_hint_next(LibedaxHint *hint, const bool multipv_depth_max)
 	Search *search;
 	MoveList book_moves;
 	Move *m;
-	Line pv;
 
 	if (hint == NULL) return;
 	lib_hint_set_nomove(hint);
@@ -1165,19 +1182,13 @@ static void lib_hint_next(LibedaxHint *hint, const bool multipv_depth_max)
 	if (options.book_allowed && book_get_moves(play->book, &play->board, &book_moves)) {
 		foreach_move (m, book_moves) {
 			if (movelist_exclude(&search->movelist, m->x) != NULL) {
-				line_init(&pv, play->player);
-				book_get_line(play->book, &play->board, m, &pv);
-				lib_hint_set_book(hint, m, &pv);
+				lib_hint_set_book(hint, play, m);
 				return;
 			}
 		}
 	}
 
-	if (options.play_type == EDAX_TIME_PER_MOVE) search_set_move_time(search, options.time);
-	else search_set_game_time(search, play->time[play->player].left);
-	if (multipv_depth_max) search->options.multipv_depth = 60;
-	search_run(search);
-	if (multipv_depth_max) search->options.multipv_depth = MULTIPV_DEPTH;
+	lib_hint_search_run(play, multipv_depth_max);
 
 	lib_hint_set_result(hint, search->result);
 
@@ -1341,6 +1352,29 @@ static void lib_book_fix(Book *book)
 	book_link(book); // links nodes
 	book_negamax(book); // negamax nodes
 	book_sort(book); // sort moves
+}
+
+/**
+ * @brief Keep the errors of book deviate (and of book leaf recalculate, recalculate3) in their range.
+ * @param relative_error relative error.
+ * @param absolute_error absolute error.
+ */
+static void lib_bound_deviate_errors(int *relative_error, int *absolute_error)
+{
+	BOUND(*relative_error, -129, 129, "relative error");
+	BOUND(*absolute_error, 0, 65, "absolute error");
+}
+
+/**
+ * @brief Keep the loss limits of book deviate2, deviate3 (and of the commands that walk as they do) in their range.
+ * @param move_loss per-move loss limit.
+ * @param total_loss cumulative loss limit for both players.
+ * @param total_max largest cumulative loss limit.
+ */
+static void lib_bound_loss_limits(int *move_loss, int *total_loss, const int total_max)
+{
+	BOUND(*move_loss, 0, 129, "per-move loss");
+	BOUND(*total_loss, 0, total_max, "cumulative loss");
 }
 
 /**
@@ -2008,8 +2042,7 @@ LIBEDAX_API void edax_book_deviate(int relative_error, int absolute_error)
 	book = lib_book_begin_change();
 
 	// add position using the "deviate algorithm"
-	BOUND(relative_error, -129, 129, "relative error");
-	BOUND(absolute_error, 0, 65, "absolute error");
+	lib_bound_deviate_errors(&relative_error, &absolute_error);
 	book_deviate(book, &g_ui->play->board, relative_error, absolute_error);
 
 	lib_book_end(book);
@@ -2027,8 +2060,7 @@ LIBEDAX_API void edax_book_deviate2(int move_loss, int total_loss)
 	book = lib_book_begin_change();
 
 	// add positions while limiting per-move and cumulative errors
-	BOUND(move_loss, 0, 129, "per-move loss");
-	BOUND(total_loss, 0, 7740, "cumulative loss");
+	lib_bound_loss_limits(&move_loss, &total_loss, 7740);
 	book_deviate2(book, &g_ui->play->board, move_loss, total_loss);
 
 	lib_book_end(book);
@@ -2045,8 +2077,7 @@ LIBEDAX_API void edax_book_deviate3(int move_loss, int total_loss)
 	if (g_ui == NULL) return;
 	book = lib_book_begin_change();
 
-	BOUND(move_loss, 0, 129, "per-move loss");
-	BOUND(total_loss, 0, 7740, "cumulative loss");
+	lib_bound_loss_limits(&move_loss, &total_loss, 7740);
 	book_deviate3(book, &g_ui->play->board, move_loss, total_loss);
 
 	lib_book_end(book);
@@ -2073,13 +2104,8 @@ LIBEDAX_API long long edax_book_deviate_export(int base, int x, int y, const cha
 
 	if (g_ui == NULL || file == NULL || base < 1 || base > 3 || which < BOOK_EXPORT_LEAF || which > BOOK_EXPORT_ALL) return -1;
 	play = g_ui->play;
-	if (base == 1) {
-		BOUND(x, -129, 129, "relative error");
-		BOUND(y, 0, 65, "absolute error");
-	} else {
-		BOUND(x, 0, 129, "per-move loss");
-		BOUND(y, 0, 254, "cumulative loss");
-	}
+	if (base == 1) lib_bound_deviate_errors(&x, &y);
+	else lib_bound_loss_limits(&x, &y, 254);
 	for (i = 0; i < play->i_game && i < PLAY_GAME_SIZE; ++i) { // (the moves of the game, without the passes)
 		const int m = play->game[i].x;
 		if (A1 <= m && m <= H8) { line[k++] = (char) ('a' + m % 8); line[k++] = (char) ('1' + m / 8); }
@@ -2096,13 +2122,8 @@ static void lib_book_leaf_recalculate(const int kind, int x, int y)
 {
 	Book *book = lib_book_begin_change();
 
-	if (kind == 1 || kind == 3) {
-		BOUND(x, -129, 129, "relative error");
-		BOUND(y, 0, 65, "absolute error");
-	} else {
-		BOUND(x, 0, 129, "per-move loss");
-		BOUND(y, 0, 7740, "cumulative loss");
-	}
+	if (kind == 1 || kind == 3) lib_bound_deviate_errors(&x, &y);
+	else lib_bound_loss_limits(&x, &y, 7740);
 	book_leaf_recalculate(book, &g_ui->play->board, kind, x, y);
 
 	lib_book_end(book);
@@ -2178,8 +2199,7 @@ static void lib_book_fill(int fill_depth, const bool leaf_only, const bool limit
 
 	BOUND(fill_depth, 1, 61, "fill depth");
 	if (limited) {
-		BOUND(move_loss, 0, 129, "per-move loss");
-		BOUND(total_loss, 0, 7740, "cumulative loss");
+		lib_bound_loss_limits(&move_loss, &total_loss, 7740);
 		book_fill_walk(book, &g_ui->play->board, fill_depth, leaf_only, move_loss, total_loss);
 	} else if (leaf_only) {
 		book_fill2(book, fill_depth);
@@ -2239,10 +2259,7 @@ static void lib_book_leaf_expand(const bool limited, int move_loss, int total_lo
 {
 	Book *book = lib_book_begin_change();
 
-	if (limited) {
-		BOUND(move_loss, 0, 129, "per-move loss");
-		BOUND(total_loss, 0, 7740, "cumulative loss");
-	}
+	if (limited) lib_bound_loss_limits(&move_loss, &total_loss, 7740);
 	book_leaf_expand(book, &g_ui->play->board, limited, move_loss, total_loss);
 
 	lib_book_end(book);
