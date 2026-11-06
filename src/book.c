@@ -1993,9 +1993,7 @@ static void position_deviate_total(Position *position, Book *book, const int mov
 
 	// A solved leaf already has an exact score. Keep following existing links,
 	// since descendants may have been searched at a lower level.
-	const int n_empties = board_count_empties(&position->board);
-	if (skip_solved && LEVEL[position->level][n_empties].depth == n_empties
-		&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) return;
+	if (skip_solved && position_is_solved(position)) return;
 
 	move_error = position->score.value - position->leaf.score;
 	if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
@@ -3753,10 +3751,9 @@ static void book_link_refresh(BookTask *task)
 						}
 					}
 				} else { // no hash table: look for the position in the book, then in the list
-					const unsigned long long i = board_get_hash_code(&unique) & (book->n - 1);
-					const Position *child = position_array_probe(book->array + i, &unique);
+					const Position *child = position_array_probe(book_array(book, &unique), &unique);
 					if (child) {
-						const unsigned long long child_key = (i << 32) | (unsigned long long) (child - book->array[i].positions);
+						const unsigned long long child_key = position_key(book, child);
 						long long lo = 0, hi = set->n - 1;
 						while (child_key < key && lo <= hi) {
 							const long long mid = (lo + hi) / 2;
@@ -4262,16 +4259,13 @@ bool book_merge_file(Book *dest, const char *file)
 			if (pass) {
 				Position *q = book_probe(dest, &p.board);
 				if (q == NULL) {
-					const unsigned long long b = board_get_hash_code(&p.board) & (dest->n - 1);
-					PositionArray *a = dest->array + b;
 					position_merge(&merged, &p);
-					if (dest->n_nodes == UINT_MAX || position_array_add(a, &merged, dest) <= 0) { position_free(&p); error("cannot add a position to the book\n"); goto merge_end; }
+					if (dest->n_nodes == UINT_MAX || position_array_add(book_array(dest, &p.board), &merged, dest) <= 0) { position_free(&p); error("cannot add a position to the book\n"); goto merge_end; }
 					++dest->n_nodes; ++dest->stats.n_nodes; ++n_added;
 				} else if (!position_is_done(q, dest)) { // a position of the destination: remember the source leaf (see book_link_parallel)
 					// (a board of the file that is not the unique one has its leaf in another orientation: no hint)
 					if (use_hints && p.leaf.move != NOMOVE && board_equal(&p.board, &q->board) && (p.leaf.move != q->leaf.move || p.n_link != q->n_link)) {
-						const unsigned long long b = board_get_hash_code(&q->board) & (dest->n - 1);
-						if (!merge_hint_add((b << 32) | (unsigned long long) (q - dest->array[b].positions), &p.leaf, p.level)) { merge_hint_free(); use_hints = false; }
+						if (!merge_hint_add(position_key(dest, q), &p.leaf, p.level)) { merge_hint_free(); use_hints = false; }
 					}
 				} else {
 					position_free(&p);
@@ -5703,7 +5697,6 @@ static void* loss_worker_run(void *v)
 
 	for (k = lw->first; k < lw->last; ++k) {
 		Position *position = lw->cur[k];
-		const int n_empties = board_count_empties(&position->board);
 		const Link *l;
 		int move_error;
 
@@ -5728,8 +5721,7 @@ static void* loss_worker_run(void *v)
 			continue;
 		}
 
-		if (w->mode == 2 && LEVEL[position->level][n_empties].depth == n_empties
-			&& LEVEL[position->level][n_empties].selectivity == NO_SELECTIVITY) continue;
+		if (w->mode == 2 && position_is_solved(position)) continue;
 
 		move_error = position->score.value - position->leaf.score;
 		if (leaf_recalc_mode != LEAF_RECALC_OFF) { // (book leaf recalculate: the leaf is searched again)
@@ -7099,8 +7091,7 @@ static bool plan_has_board(const BookPlan *plan, const Book *book, const Board *
 	Board unique;
 
 	board_unique(board, &unique);
-	return plan_node_find(plan, &unique) != NULL
-	    || position_array_probe(book->array + (board_get_hash_code(&unique) & (book->n - 1)), &unique) != NULL;
+	return plan_node_find(plan, &unique) != NULL || position_array_probe(book_array(book, &unique), &unique) != NULL;
 }
 
 /**
@@ -7167,7 +7158,7 @@ void book_plan_board(Book *book, const Board *board)
 	board_unique(board, &unique);
 	node = plan_node_find(plan, &unique);
 	if (node == NULL) {
-		const Position *p = position_array_probe(book->array + (board_get_hash_code(&unique) & (book->n - 1)), &unique);
+		const Position *p = position_array_probe(book_array(book, &unique), &unique);
 
 		new_node.board = unique;
 		if (p == NULL) { // a new position: linked and searched as it is given, then added
@@ -8003,7 +7994,7 @@ static bool position_leaf_better(const Position *p, const Book *book)
 
 	if (p->n_link == 0 || p->leaf.move == NOMOVE) return false;
 	if (board_count_empties(&p->board) < book->options.n_empties || board_is_game_over(&p->board)) return false;
-	for (l = position_links(p); l < position_links(p) + p->n_link; ++l) if (l->score > best) best = l->score;
+	foreach_link(l, p) if (l->score > best) best = l->score;
 	return p->leaf.score > best;
 }
 
