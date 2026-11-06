@@ -4600,6 +4600,21 @@ static bool book_save_interval_elapsed(const long long start)
 		&& real_clock() - start >= (long long)options.book_save_interval * 60000LL;
 }
 
+/**
+ * @brief Save the book being learned to its side file when the interval of the timed saves is over.
+ *
+ * @param book Opening book.
+ * @param file Side file (.dev, .fill, ...).
+ * @param t Time of the last timed save, in milliseconds (updated).
+ */
+static void book_save_timed(Book *book, const char *file, unsigned long long *t)
+{
+	if (book_save_interval_elapsed((long long) *t)) {
+		book_save_progress(book, file); // timed progress save
+		*t = real_clock();
+	}
+}
+
 /** Save completed deviate rounds at the configured cadence and at convergence.
  * Timed saves inside book_expand are independent: they can capture a partial
  * round, so they do not reset this completed-round counter.
@@ -4847,10 +4862,7 @@ static void book_expand_apply(ExpandShared *s, Position *parent, Position *child
 	if (book_add(book, child) <= 0) position_free(child); // already in the book, or not added
 	if (book->failed) s->stop = true; // a position could not be added: stop learning
 	book_expand_count(s);
-	if (book_save_interval_elapsed((long long) s->t)) {
-		book_save_progress(book, s->tmp_file); // timed progress save (the other threads wait for the lock)
-		s->t = real_clock();
-	}
+	book_save_timed(book, s->tmp_file, &s->t); // (the other threads wait for the lock)
 }
 
 /**
@@ -5448,10 +5460,7 @@ static void* book_correct_worker(void *v)
 		if (s->n_done % 10 == 0 || p->leaf.score != old_leaf.score) {
 			bprint("Correcting solved positions...%d (%d error found)\r", s->n_done, s->n_error);
 		}
-		if (book_save_interval_elapsed((long long) s->t)) {
-			book_save_progress(book, s->tmp_file); // timed progress save (the other threads wait for the lock)
-			s->t = real_clock();
-		}
+		book_save_timed(book, s->tmp_file, &s->t); // (the other threads wait for the lock)
 		unlock(s);
 	}
 	return NULL;
@@ -6148,10 +6157,7 @@ static void leaf_recalc_count(LeafRecalcShared *s, const Link *old_leaf, const L
 	if (d < 0) { ++stats->n_down; if (-d > stats->max_down) stats->max_down = -d; }
 	if (leaf->move != old_leaf->move) ++stats->n_move;
 	bprint("%s...%lld/%lld done: %lld scores changed, %lld moves changed\r", s->name, s->n_round, s->book->stats.n_todo, stats->n_score, stats->n_move);
-	if (book_save_interval_elapsed((long long) s->t)) {
-		book_save_progress(s->book, s->tmp_file); // timed progress save (the other threads wait for the lock)
-		s->t = real_clock();
-	}
+	book_save_timed(s->book, s->tmp_file, &s->t); // (the other threads wait for the lock)
 }
 
 /**
@@ -8277,7 +8283,7 @@ static void book_fill_keys(Book *book, const char *name, const char *file, const
 	const int max_jobs = BOOK_FILL_PLAN_SEARCHES * book_store_thread_count();
 	const long long max_positions = 16LL * max_jobs; // (the step that links: most positions need no search, but each one is planned)
 	long long i = 0, j, end;
-	long long t = real_clock();
+	unsigned long long t = real_clock();
 
 	while (i < n && !book->failed) {
 		end = n;
@@ -8294,19 +8300,13 @@ static void book_fill_keys(Book *book, const char *name, const char *file, const
 			position_fill(book, keys[j], depth, leaf_only);
 			if ((j & 1023) == 1023) {
 				bprint("%s...%lld/%lld: %lld positions, %lld links\r", name, j + 1, n, book->stats.n_nodes, book->stats.n_links);
-				if (book_save_interval_elapsed(t)) { // timed progress save
-					book_save_progress(book, file);
-					t = real_clock();
-				}
+				book_save_timed(book, file, &t);
 			}
 		}
 		book_plan_end(book);
 		i = end;
 		bprint("%s...%lld/%lld: %lld positions, %lld links\r", name, i, n, book->stats.n_nodes, book->stats.n_links);
-		if (book_save_interval_elapsed(t)) { // timed progress save
-			book_save_progress(book, file);
-			t = real_clock();
-		}
+		book_save_timed(book, file, &t);
 	}
 	bprint("%s...%lld/%lld: %lld positions, %lld links\n", name, i, n, book->stats.n_nodes, book->stats.n_links);
 }
