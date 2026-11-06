@@ -1001,6 +1001,26 @@ bool base_replace(const Base *base, const char *file)
 }
 
 /**
+ * @brief Open the file of the problems of a game database (base_to_problem, base_to_FEN).
+ *
+ * @param n_empties Number of empties of the problems.
+ * @param problem Problems filename.
+ * @return the file; NULL (with a warning) if the number of empties is out of range or if the file cannot be opened.
+ */
+static FILE* base_problem_open(const int n_empties, const char *problem)
+{
+	FILE *f;
+
+	if (n_empties < 0 || n_empties > 60) { // (a game holds 60 moves)
+		warn("%s: %d empties is out of range\n", problem, n_empties);
+		return NULL;
+	}
+	f = fopen(problem, "w");
+	if (f == NULL) warn("Cannot open file %s\n", problem); // (up to v4.5.5-nikque.15 a file that could not be opened stopped Edax)
+	return f;
+}
+
+/**
  * @brief Convert a game database to a set of problems.
  *
  * @param base Game base.
@@ -1014,15 +1034,8 @@ void base_to_problem(Base *base, const int n_empties, const char *problem)
 	char s[80];
 	FILE *f;
 
-	if (n_empties < 0 || n_empties > 60) { // (a game holds 60 moves)
-		warn("%s: %d empties is out of range\n", problem, n_empties);
-		return;
-	}
-	f = fopen(problem, "w");
-	if (f == NULL) { // (up to v4.5.5-nikque.15 a file that could not be opened stopped Edax)
-		warn("Cannot open file %s\n", problem);
-		return;
-	}
+	f = base_problem_open(n_empties, problem);
+	if (f == NULL) return;
 
 	for (i = 0; i < base->n_games; ++i) {
 		if (game_get_board(base->game + i, 60 - n_empties, &board)) {
@@ -1047,15 +1060,8 @@ void base_to_FEN(Base *base, const int n_empties, const char *problem)
 	Board board;
 	FILE *f;
 
-	if (n_empties < 0 || n_empties > 60) { // (a game holds 60 moves)
-		warn("%s: %d empties is out of range\n", problem, n_empties);
-		return;
-	}
-	f = fopen(problem, "w");
-	if (f == NULL) { // (up to v4.5.5-nikque.15 a file that could not be opened stopped Edax)
-		warn("Cannot open file %s\n", problem);
-		return;
-	}
+	f = base_problem_open(n_empties, problem);
+	if (f == NULL) return;
 
 	for (i = 0; i < base->n_games; ++i) {
 		if (game_get_board(base->game + i, 60 - n_empties, &board)) {
