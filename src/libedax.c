@@ -1547,16 +1547,19 @@ LIBEDAX_API void edax_book_depth(const int depth)
 LIBEDAX_API void edax_book_new(const int level, const int depth)
 {
 	Book *book;
+	int d = depth;
 	if (g_ui == NULL) return;
 	if (level < 0 || level > 60) { // such a level would read outside the table of the levels
 		warn("book new: level %d is out of range; current book retained\n", level);
 		return;
 	}
+	// as edax_book_depth (up to v4.5.5-nikque.26 any depth: -1 made a book without any position, 100 a book of -39 empties)
+	BOUND(d, 1, 61, "book depth");
 	book = lib_book_begin_change();
 
 	// create a new empty book
 	book_free(book);
-	book_new(book, level, 61 - depth);
+	book_new(book, level, 61 - d);
 	book_set_replaced_file(options.book_file); // the book file still holds the previous book: see book_save_to_book_file()
 
 	lib_book_end(book);

@@ -786,6 +786,7 @@ void ui_loop_edax(UI *ui)
 					if (val_1 < 0 || val_1 > 60) { // such a level would read outside the table of the levels
 						warn("book new: level %d is out of range; current book retained\n", val_1);
 					} else {
+						BOUND(val_2, 1, 61, "book depth"); // as book depth (up to v4.5.5-nikque.26 any depth)
 						book_free(book) ;
 						book_new(book, val_1, 61 - val_2);
 						book_set_replaced_file(options.book_file); // the book file still holds the previous book: see book_save_to_book_file()

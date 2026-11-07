@@ -1059,6 +1059,15 @@ int main(int argc, char **argv)
 		edax_book_info(&info);
 		CHECK_INT(info.options.level, 2);
 		CHECK_INT(info.n_nodes, i);
+		// a depth out of range: the nearest limit, as edax_book_depth (1 to 61)
+		edax_book_new(4, -1);
+		edax_book_info(&info);
+		CHECK_INT(info.options.n_empties, 60);
+		CHECK_INT(info.n_nodes, 1);
+		edax_book_new(4, 100);
+		edax_book_info(&info);
+		CHECK_INT(info.options.n_empties, 0);
+		CHECK_INT(info.n_nodes, 1);
 		// a file which cannot be imported does not replace the book
 		edax_book_load("libtest-book2.dat");
 		edax_book_info(&info);
