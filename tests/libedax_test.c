@@ -394,6 +394,40 @@ static void test_store_games(const char *dll)
 	}
 }
 
+/**
+ * book files that exist but could not be loaded (not books): each one is kept as <file>.damaged before a save replaces it,
+ * also when another file could not be loaded since
+ */
+static void test_damaged_books(const char *dll)
+{
+	static const char *const damaged = "libtest-damaged.dat", *const other = "libtest-other.dat";
+	char *damaged_args[] = {"", "-book-file", "libtest-damaged.dat", "-level", "6", "-n-tasks", "1"};
+	int (*save_to)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_save_checked");
+	LibedaxBook info;
+
+	section("book files that could not be loaded");
+	CHECK(save_to != NULL);
+	write_file(damaged, "not a book: the book file of the settings\n");
+	write_file("libtest-damaged.txt", "not a book: the book file of the settings\n");
+	write_file(other, "not a book either\n");
+	write_file("libtest-other.txt", "not a book either\n");
+	libedax_initialize(7, damaged_args);
+	edax_book_info(&info);
+	CHECK_INT(info.n_nodes, 1); // (a new book)
+	edax_book_load(other); // not loaded: the book is kept
+	edax_book_info(&info);
+	CHECK_INT(info.n_nodes, 1);
+	if (save_to) {
+		CHECK_INT(save_to(damaged), 1);
+		CHECK(same_files("libtest-damaged.dat.damaged", "libtest-damaged.txt")); // the book file of the settings is kept
+		CHECK(file_size(damaged) > 0 && !same_files(damaged, "libtest-damaged.txt")); // (and replaced by the new book)
+		CHECK_INT(save_to(other), 1);
+		CHECK(same_files("libtest-other.dat.damaged", "libtest-other.txt"));
+	}
+	libedax_terminate();
+	remove(damaged); remove(other); remove("libtest-damaged.dat.damaged"); remove("libtest-other.dat.damaged");
+}
+
 #ifdef _WIN32
 /**
  * a book file that exists but cannot be opened (here: opened without sharing), in a folder whose name is not ASCII
@@ -1020,6 +1054,7 @@ int main(int argc, char **argv)
 	}
 	libedax_terminate();
 
+	if (!original) test_damaged_books(dll);
 #ifdef _WIN32
 	if (!original) test_locked_book(dll);
 #endif
