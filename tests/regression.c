@@ -300,6 +300,23 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   ok=e&&strstr(e,"WARNING: total loss 300 reduced to 254")!=NULL;
   printf("DEVIATE export with the cumulative loss 300: %lld lines, the warning \"total loss 300 reduced to 254\"=%d\n",n,ok);
   free(e);remove("audit-dev254.txt");book_free(&k);search_free(&s);if(!ok)return 2;}
+ else if(!strcmp(t,"deviateexport")){ /* the words after the numbers of book deviate, deviate2, deviate3: a file name between quotes may hold spaces; a name too long,
+   a quote not closed and a word other than export are errors, and the book is not expanded (up to v4.5.5-nikque.26 the name was cut, and another word skipped) */
+  if(!have_fixture())return 2;options.book_file=FIXTURE;init_engine(1);UI *ui=ui_new();ui->type=UI_EDAX;ui_init_edax(ui);Play *play=ui->play;
+  static char long_name[FILENAME_MAX+64];strcpy(long_name,"export ");memset(long_name+7,'a',FILENAME_MAX+5);long_name[7+FILENAME_MAX+5]=0;
+  static const struct{const char *param;bool handled;const char *file,*said;}c[]={
+   {"",false,NULL,NULL},{"   ",false,NULL,NULL},{"export audit-dev-a.txt ends",true,"audit-dev-a.txt","lines written"},
+   {"export \"audit dev b.txt\" all",true,"audit dev b.txt","lines written"},{"EXPORT \"audit dev c.txt\"",true,"audit dev c.txt","lines written"},
+   {"exprot audit-dev-d.txt",true,NULL,"unknown word exprot"},{"7",true,NULL,"unknown word 7"},{"export \"audit dev e.txt",true,NULL,"quote"},
+   {"export",true,NULL,"no file"},{"export \"\" all",true,NULL,"no file"},{long_name,true,NULL,"too long"}};
+  int ok=1;
+  for(int i=0;i<(int)(sizeof c/sizeof *c);++i){char *said;bool handled;if(c[i].file)remove(c[i].file);
+   if(!capture_begin(1))return 2;handled=deviate_export(play,c[i].param,3,2,4);said=capture_end();
+   const bool written=c[i].file?file_exists(c[i].file):true,told=!c[i].said||(said&&strstr(said,c[i].said));
+   printf("DEVIATE \"%.40s\": handled=%d (%d expected), file written=%d, told \"%s\"=%d\n",c[i].param,handled,c[i].handled,written,c[i].said?c[i].said:"",told);
+   ok=ok&&handled==c[i].handled&&written&&told;free(said);if(c[i].file)remove(c[i].file);}
+  ok=ok&&!file_exists("audit-dev-d.txt")&&!file_exists("audit dev e.txt")&&!file_exists("\"audit");
+  ui_free_edax(ui);ui_delete(ui);if(!ok)return 2;}
  else return 1;
  return 0;
 }

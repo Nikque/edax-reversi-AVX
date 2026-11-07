@@ -232,7 +232,7 @@ f5f4e3
 | `book deviate2 X Y` | 1 手で失ってよい石数（どちらの側も） | 始めた局面からそこまでに、**両方の側が失った石数の合計**の上限 | **広げない** |
 | `book deviate3 X Y` | `book deviate2` と同じ | `book deviate2` と同じ | 広げる |
 
-数を省くと、どれも `2 4` です。
+数を省くと、どれも `2 4` です。数の後ろに `export`（下の書き出し）のほかの語があると、`ERROR: book deviate2: unknown word … after the numbers` と出て、book を広げません（v4.5.5-nikque.26 までは、`exprot` のような打ち間違いを読み飛ばして広げていました）。
 
 **book deviate X Y**（元の Edax からある方法）：1 周の中で、選択と展開を 2 回行います。
 
@@ -296,7 +296,8 @@ book deviate2 2 4 export lines.txt ends
 - `book deviate2`・`book deviate3` の合計の上限は 254 までです（広げるときと同じ）。254 を超える数は、広げるときと同じ警告（`WARNING: total loss 300 reduced to 254`）を出して 254 にします。libedax の `edax_book_deviate_export` も同じです（v4.5.5-nikque.26 までは、libedax だけ `cumulative loss = 300 is out of range. Set to 254` と出していました）。
 - 終わると `Book deviate2 2 4 export ends...finished: 120 lines written (lines.txt)` と出ます。今の局面が book にないときは、空のファイルを作ります。
 - book は変わらないので、保存も途中経過のファイルもありません。
-- 書き出せないときは `ERROR:` で始まる行が出て、book は広げません。ファイル名がないとき（`ERROR: book deviate export: no file`）、最後の語が `leaf`・`ends`・`all` のどれでもないとき（`unknown word`）、ファイルに書けないとき（`ERROR: book deviate2 2 4 export: cannot write the file lines.txt`）です。
+- 空白を含むファイル名は、`"…"` で囲みます（例：`book deviate2 2 4 export "C:\My Books\lines.txt" ends`）。引用符は名前に入りません。
+- 書き出せないときは `ERROR:` で始まる行が出て、book は広げません。ファイル名がないとき（`ERROR: book deviate export: no file`）、ファイル名が長すぎるとき（`the file name is too long`。Windows では 259 字まで。v4.5.5-nikque.26 までは黙って切っていました）、引用符が閉じていないとき（`the quote of the file name is not closed`）、最後の語が `leaf`・`ends`・`all` のどれでもないとき（`unknown word`）、ファイルに書けないとき（`ERROR: book deviate2 2 4 export: cannot write the file lines.txt`）です。
 
 ## 7.4 自動で広げる：そのほかのコマンド
 
