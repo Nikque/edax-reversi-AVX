@@ -2891,12 +2891,16 @@ static struct {
 	int n;        /**< number of files */
 } book_unread = {NULL, 0};
 
-/** @return the index of the mark of a file, or -1 if it has none. */
+/**
+ * @return the index of the mark of a file, or -1 if it has none. A name written another way is of the
+ * same file (see file_same: up to v4.5.5-nikque.26 the names were compared, and the file was replaced
+ * without being kept when it was named another way).
+ */
 static int book_unread_find(const char *file)
 {
 	int i;
 
-	if (file) for (i = 0; i < book_unread.n; ++i) if (strcmp(file, book_unread.file[i]) == 0) return i;
+	if (file) for (i = 0; i < book_unread.n; ++i) if (file_same(file, book_unread.file[i])) return i;
 	return -1;
 }
 

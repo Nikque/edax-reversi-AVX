@@ -106,10 +106,29 @@ static BOOL lib_move_file(const char *from, const char *to, const DWORD flags)
 	return r;
 }
 
+/** @brief CreateFile with a file name in UTF-8 (or ANSI). */
+static HANDLE lib_create_file(const char *path, const DWORD access, const DWORD share, LPSECURITY_ATTRIBUTES security, const DWORD disposition, const DWORD flags, HANDLE template_file)
+{
+	HANDLE h = INVALID_HANDLE_VALUE;
+	int i, missing = 1;
+
+	for (i = 0; i < 2 && missing; ++i) {
+		wchar_t *wpath = lib_to_wide(path, lib_code_page[i]);
+		if (wpath) {
+			const DWORD e = (h = CreateFileW(wpath, access, share, security, disposition, flags, template_file)) != INVALID_HANDLE_VALUE ? ERROR_SUCCESS : GetLastError();
+			missing = (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND);
+			free(wpath);
+		}
+	}
+	return h;
+}
+
 #define fopen(path, mode) lib_fopen(path, mode)
 #define remove(path) lib_remove(path)
 #undef MoveFileExA
 #define MoveFileExA(from, to, flags) lib_move_file(from, to, flags)
+#undef CreateFileA
+#define CreateFileA(path, access, share, security, disposition, flags, template_file) lib_create_file(path, access, share, security, disposition, flags, template_file)
 
 #endif
 

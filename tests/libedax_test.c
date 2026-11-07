@@ -426,6 +426,29 @@ static void test_damaged_books(const char *dll)
 	}
 	libedax_terminate();
 	remove(damaged); remove(other); remove("libtest-damaged.dat.damaged"); remove("libtest-other.dat.damaged");
+
+	// the same file under a name written another way
+	write_file(damaged, "not a book: the book file of the settings\n");
+	libedax_initialize(7, damaged_args);
+	if (save_to) {
+		CHECK_INT(save_to("./libtest-damaged.dat"), 1);
+		CHECK(same_files("libtest-damaged.dat.damaged", "libtest-damaged.txt"));
+	}
+	libedax_terminate();
+	remove(damaged); remove("libtest-damaged.dat.damaged");
+#ifdef _WIN32
+	{	// (names of files in other case are of the same file on Windows)
+		int (*keep_unread)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_keep_unread_file");
+		write_file(damaged, "not a book: the book file of the settings\n");
+		libedax_initialize(7, damaged_args);
+		if (keep_unread) {
+			CHECK_INT(keep_unread(".\\LIBTEST-DAMAGED.DAT"), 1);
+			CHECK(same_files("libtest-damaged.dat.damaged", "libtest-damaged.txt"));
+		}
+		libedax_terminate();
+		remove(damaged); remove("libtest-damaged.dat.damaged");
+	}
+#endif
 }
 
 #ifdef _WIN32

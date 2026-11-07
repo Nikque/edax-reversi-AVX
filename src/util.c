@@ -280,6 +280,45 @@ bool file_replace(const char *from, const char *to)
 #endif
 }
 
+/**
+ * @brief Tell whether two file names are of the same file.
+ *
+ * A name written another way (relative or full, with '/' or '\\', in another case on Windows, through a
+ * link) is of the same file: the files are compared (their volume and index on Windows, their device and
+ * inode elsewhere). A name of no file is only the same as itself.
+ *
+ * @param a File name.
+ * @param b File name.
+ * @return true if the two names are of the same file.
+ */
+bool file_same(const char *a, const char *b)
+{
+	if (a == NULL || b == NULL) return false;
+	if (strcmp(a, b) == 0) return true;
+#ifdef _WIN32
+	{
+		// (the attributes only: a file opened by another program without sharing is compared too)
+		const DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+		HANDLE ha = CreateFileA(a, FILE_READ_ATTRIBUTES, share, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+		HANDLE hb = CreateFileA(b, FILE_READ_ATTRIBUTES, share, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+		BY_HANDLE_FILE_INFORMATION ia, ib;
+		bool same = false;
+
+		if (ha != INVALID_HANDLE_VALUE && hb != INVALID_HANDLE_VALUE && GetFileInformationByHandle(ha, &ia) && GetFileInformationByHandle(hb, &ib)) {
+			same = (ia.dwVolumeSerialNumber == ib.dwVolumeSerialNumber && ia.nFileIndexHigh == ib.nFileIndexHigh && ia.nFileIndexLow == ib.nFileIndexLow);
+		}
+		if (ha != INVALID_HANDLE_VALUE) CloseHandle(ha);
+		if (hb != INVALID_HANDLE_VALUE) CloseHandle(hb);
+		return same;
+	}
+#else
+	{
+		struct stat sa, sb;
+		return stat(a, &sa) == 0 && stat(b, &sb) == 0 && sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
+	}
+#endif
+}
+
 
 /**
  * @brief Duplicate a string.
