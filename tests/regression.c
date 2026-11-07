@@ -249,6 +249,13 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   c=g;c.initial_board.player^=1ULL<<A1;base_append(&b,&c);base_unique(&b);
   ok=b.n_games==101&&!strcmp(b.game[0].name[0],"p0")&&b.game[0].move[1]==F6&&!strcmp(b.game[1].name[0],"p1")&&b.game[1].move[1]==D6&&!board_equal(&b.game[100].initial_board,&b.game[99].initial_board);
   printf("BASE unique: %d games kept (101 expected) ok=%d\n",b.n_games,ok);base_free(&b);if(!ok)return 2;}
+ else if(!strcmp(t,"importscore")){ /* a line of a text book whose leaf score is out of -64..64 holds no position (up to v4.5.5-nikque.26 300 was read as 44) */
+  Board b[3];char s[80],m[4];FILE *f;Book k={0};const int score[3]={6,300,-65};int ok;board_init(b);board_next(b,F5,b+1);board_next(b+1,(int)first_bit(board_get_moves(b+1)),b+2);
+  OPEN(f,"audit-import.txt","w");for(int i=0;i<3;++i){move_to_string((int)first_bit(board_get_moves(b+i)),BLACK,m);fprintf(f,"%s,10,%s,%d\n",board_to_string(b+i,BLACK,s),m,score[i]);}fclose(f);
+  ok=book_import(&k,"audit-import.txt");Position *p=ok?book_probe(&k,b):NULL;
+  printf("IMPORT leaf scores 6, 300, -65: imported=%d positions=%u (1 expected), leaf score of the first %d\n",ok,ok?k.n_nodes:0,p?p->leaf.score:-999);
+  for(int i=1;ok&&i<3;++i){Position *q=book_probe(&k,b+i);if(q)printf("IMPORT line %d imported with the leaf score %d\n",i+1,q->leaf.score);}
+  ok=ok&&k.n_nodes==1&&p&&p->leaf.score==6;if(k.array)book_free(&k);remove("audit-import.txt");if(!ok)return 2;}
  else return 1;
  return 0;
 }
