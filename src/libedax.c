@@ -558,6 +558,7 @@ LIBEDAX_API void libedax_terminate(void)
 
 	if (g_ui->free) g_ui->free(g_ui);
 	lib_bestpath_free();
+	book_analysis_quiesce(); // (the numbering of the positions of the book freed)
 
 	// the evaluation function stays loaded: it is reused by the next initialization
 	options_free();
@@ -2062,6 +2063,7 @@ LIBEDAX_API long long edax_book_deviate_export(int base, int x, int y, const cha
 	else lib_bound_loss_limits(&x, &y, 254);
 	play_get_moves(g_ui->play, line);
 	book = lib_book_begin();
+	book_analysis_quiesce(); // the numbering of the positions of the last export goes (as before the edax command): they are numbered for this book
 	n = book_deviate_export(book, &g_ui->play->board, line, base, x, y, file, which);
 	lib_book_end(book);
 	return n;
