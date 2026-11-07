@@ -276,7 +276,7 @@ void ui_loop_gtp(UI *ui)
 			double t = 0.0;
 			int n = 0;
 			s = gtp_parse_color(param, &color);
-			if (color != BLACK && color != WHITE) {
+			if (color == EMPTY) {
 				gtp_fail("syntax error (wrong or missing color)", id, has_id);
 				continue;
 			}
