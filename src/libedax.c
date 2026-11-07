@@ -2379,6 +2379,7 @@ LIBEDAX_API void edax_book_add_board(const LibedaxBoard *board)
 	play_stop_pondering(g_ui->play);
 	running = lib_book_change_set(true); // also when edax_book_add_board_pre_process was not called
 	lib_bestpath_free();
+	g_ui->play->book->failed = false; // as every book function does when it starts (see edax_book_failed)
 	b.player = board->player;
 	b.opponent = board->opponent;
 	book_add_board(g_ui->play->book, &b);
