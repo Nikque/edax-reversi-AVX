@@ -362,6 +362,7 @@ long long string_to_time(const char *string)
 		s = parse_int(s, &n);
 		field[k++] = n;
 		while (*s == ':' && k < 4) {
+			n = 0; // (an empty field is 0: up to v4.5.5-nikque.26 parse_int left the field before, "5:" was 5 minutes 5 seconds)
 			s = parse_int(s + 1, &n);
 			field[k++] = n;
 		}
