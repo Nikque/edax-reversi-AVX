@@ -317,6 +317,12 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
    ok=ok&&handled==c[i].handled&&written&&told;free(said);if(c[i].file)remove(c[i].file);}
   ok=ok&&!file_exists("audit-dev-d.txt")&&!file_exists("audit dev e.txt")&&!file_exists("\"audit");
   ui_free_edax(ui);ui_delete(ui);if(!ok)return 2;}
+ else if(!strcmp(t,"configpath")){ /* config.ini next to the program; with a name of its folder too long, none (up to v4.5.5-nikque.26 the one of the current folder, with the warning of a program started without its folder) */
+  static char exe[FILENAME_MAX+64];char c[FILENAME_MAX+1];int ok;
+  get_config_file_path("C:\\x\\edax.exe",c);ok=!strcmp(c,"C:\\x\\config.ini");get_config_file_path("bin/edax",c);ok=ok&&!strcmp(c,"bin/config.ini");get_config_file_path("edax",c);ok=ok&&!strcmp(c,"config.ini");
+  printf("CONFIG next to the program ok=%d\n",ok);
+  memset(exe,'a',FILENAME_MAX);exe[FILENAME_MAX-6]='\\';strcpy(exe+FILENAME_MAX-5,"edax");strcpy(c,"x");get_config_file_path(exe,c);
+  printf("CONFIG of a program in a folder of %d characters: \"%s\" (none expected)\n",FILENAME_MAX-6,c);ok=ok&&c[0]==0;if(!ok)return 2;}
  else return 1;
  return 0;
 }

@@ -27,6 +27,7 @@ Notes:
   ```
   WARNING: config.ini was not found in the current folder (Edax was started without its folder name): default settings are used
   ```
+- If the name of the folder of the executable is too long for the path of its `config.ini` (more than 249 characters on Windows), Edax prints `WARNING: the name of the folder of Edax is too long: its config.ini is not read, default settings are used` and uses the built-in values (up to v4.5.5-nikque.26, it read the `config.ini` of the current folder and printed the wrong warning above).
 - Typing `options` after `>` shows all current values.
 
 ## 4.2 How to write config.ini
