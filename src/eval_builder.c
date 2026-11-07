@@ -2721,9 +2721,12 @@ void print_usage(void) {
 		"    edax           edax evaluation function (default)\n"
 		"    ajax           ajax evaluation function\n"
 		"    logistello     logistello/zebra evaluation function\n"
-		"  -feature <string>   a single feature\n"
+		"    <feature>      a single feature:\n"
 		"    corner3x3 corner5x2 edge edgeX edgeC edgeCX edgeFG\n"
 		"    ABFG CC BB AA D8 D7 D6 D5 D4 D3 angle+X corner+block\n"
+		"  -feature <string>   the feature of the edax evaluation function that show prints:\n"
+		"    corner3x3 angle+X edgeX corner+block CC AA BB D8 D7 D6 D5 D4\n"
+		"    (another name of a feature: the last weights)\n"
 		"  -unbias <int>    unbias the evaluation function\n"
 		"  -equalize <int>  equalize the evaluation function weight\n"
 		"  -zero <int>      zero out rare features frequency\n"
@@ -2741,7 +2744,10 @@ void print_usage(void) {
 		"stat <option> game_file eval_file\n"
 		"diff <option> game_file eval_file\n"
 		"plot <option> game_file eval_file plot_file\n"
-		"show eval_file feature_type feature\n");
+		"evalgame <option> game_file eval_file\n"
+		"show -feature <string> eval_file <squares>|sum|bias\n"
+		"    (the weights of a configuration of the squares of the feature, one letter a square:\n"
+		"     x, o or another letter for an empty square; sum: their mean; bias: the last weights)\n");
 
 	exit(EXIT_FAILURE);
 }
