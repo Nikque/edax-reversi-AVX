@@ -14,6 +14,7 @@
 | `Cannot open data/eval.dat` と出て終わる | 評価データが見つからない。Edax は、今いるフォルダーの `data/eval.dat` を探す | `bin` フォルダーの中から起動する。または `-eval-file フォルダー/eval.dat` で場所を教える |
 | 何も出ずに、すぐ終わる（`v3`・`v4` の実行ファイル） | CPU が、その命令セット（AVX2・AVX-512）に対応していない可能性 | 名前に `v3`・`v4` の付かない実行ファイルを使う（この場合の表示は、確かめていません） |
 | `WARNING: config.ini was not found in the current folder (Edax was started without its folder name): default settings are used` | 実行ファイルをフォルダー名なしで起動したので、`config.ini` の場所が分からなかった | フォルダーを付けて起動する（`.\wEdax-x86-64.exe`）。または、今いるフォルダーに `config.ini` を置く |
+| `WARNING: the name of the folder of Edax is too long: its config.ini is not read, default settings are used` | 実行ファイルのフォルダーの名前が長すぎて、`config.ini` の場所を組み立てられない | 名前の短いフォルダーに置く（[4.1](04-settings.md)） |
 | `WARNING: config.ini:7: unknown or incomplete setting "levle" ignored` | `config.ini` の 7 行目の名前が間違っている | その行を直す（[4.2](04-settings.md)） |
 | `WARNING: level: "abc" is not a number; ignored` | 数を書くところに、数でないものが書いてある | 値を直す |
 | `WARNING: n-tasks = 99 is out of range. Set to 32` のような表示 | 値が範囲の外。範囲の端の値に直された | そのままでも動く。気になるなら値を直す |

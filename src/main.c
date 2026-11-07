@@ -27,9 +27,11 @@
  * @brief Build the path of config.ini next to the executable.
  *
  * @param executable Executable path from argv[0].
- * @param config_file Output path.
+ * @param config_file Output path (empty when the name of the folder is too long).
+ * @return false if the name of the folder of the executable is too long for the path (up to v4.5.5-nikque.26 the
+ * config.ini of the current folder was then read, with the warning of a program started without its folder name).
  */
-static void get_config_file_path(const char *executable, char *config_file)
+static bool get_config_file_path(const char *executable, char *config_file)
 {
 	const char *slash = strrchr(executable, '/');
 	const char *backslash = strrchr(executable, '\\');
@@ -38,9 +40,13 @@ static void get_config_file_path(const char *executable, char *config_file)
 
 	if (backslash && (!separator || backslash > separator)) separator = backslash;
 	directory_length = separator ? (size_t)(separator - executable + 1) : 0;
-	if (directory_length + sizeof("config.ini") > FILENAME_MAX + 1) directory_length = 0;
+	if (directory_length + sizeof("config.ini") > FILENAME_MAX + 1) {
+		*config_file = '\0';
+		return false;
+	}
 	memcpy(config_file, executable, directory_length);
 	strcpy(config_file + directory_length, "config.ini");
+	return true;
 }
 
 /**
@@ -103,14 +109,17 @@ int main(int argc, char **argv)
 
 	// options from edax.ini
 	options_parse_defaults("edax.ini");
-	get_config_file_path(argv[0], config_file);
-	options_parse_defaults(config_file);
-	if (strcmp(config_file, "config.ini") == 0) {
-		// started by its name alone (found through the PATH): the folder of the executable is not known,
-		// and config.ini is only looked for in the current folder
-		FILE *f = fopen(config_file, "r");
-		if (f) fclose(f);
-		else warn("config.ini was not found in the current folder (Edax was started without its folder name): default settings are used\n");
+	if (!get_config_file_path(argv[0], config_file)) {
+		warn("the name of the folder of Edax is too long: its config.ini is not read, default settings are used\n");
+	} else {
+		options_parse_defaults(config_file);
+		if (strcmp(config_file, "config.ini") == 0) {
+			// started by its name alone (found through the PATH): the folder of the executable is not known,
+			// and config.ini is only looked for in the current folder
+			FILE *f = fopen(config_file, "r");
+			if (f) fclose(f);
+			else warn("config.ini was not found in the current folder (Edax was started without its folder name): default settings are used\n");
+		}
 	}
 
 	// allocate ui
