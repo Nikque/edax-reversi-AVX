@@ -664,12 +664,18 @@ typedef struct BaVisit {
 	unsigned long long n_index; /**< positions of the book */
 } BaVisit;
 
-/** @return true if memory for dense marks may be used (at most 6 bytes per position of the book for all the walks). */
+static bool ba_counted_give_locked(void);
+
+/**
+ * @return true if memory for dense marks may be used (at most 6 bytes per position of the book for all the walks; when
+ * it is not enough, the marks of the positions counted by book reducecount give theirs, see ba_counted).
+ */
 static bool ba_dense_reserve(const unsigned long long n)
 {
 	bool ok;
 	lock(&ba);
 	ok = (unsigned long long) ba.dense_bytes + n <= 6 * ba.index.n + (1u << 20);
+	if (!ok && ba_counted_give_locked()) ok = (unsigned long long) ba.dense_bytes + n <= 6 * ba.index.n + (1u << 20);
 	if (ok) ba.dense_bytes += (long long) n;
 	unlock(&ba);
 	return ok;
@@ -4237,8 +4243,11 @@ static inline bool ba_reduce_deep(const Book *book, const Position *root)
  * The positions found by the last book reducecount (book-reduce-reuse): book reduce from the same root with the same
  * loss limits uses them (book_reduce_counted) while the book does not change: any command that may change the book
  * stops the analyses first (book_analysis_quiesce), which forgets them; book reduce itself keeps them for its use
- * (book_analysis_quiesce_reduce). They are also forgotten by the next book reducecount and after book reduce.
- * Only the analysis thread (while counting) or the main thread (the analyses stopped) uses them.
+ * (book_analysis_quiesce_reduce). They are also forgotten by the next book reducecount and after book reduce, and when
+ * a walk of another analysis needs the memory reserved for their marks (ba_counted_give_locked; book reduce then
+ * walks again, with the same result: up to v4.5.5-nikque.26 they kept it until the book changed, and the walks of
+ * the other analyses had their marks in hash tables, of about 16 bytes a mark).
+ * Only the analysis thread (while counting, or giving their memory) or the main thread (the analyses stopped) uses them.
  */
 static struct {
 	bool valid;
@@ -4256,6 +4265,29 @@ static void ba_counted_free(void)
 	ba_visit_free(&ba_counted.kept);
 	ba_visit_free(&ba_counted.val);
 	ba_counted.valid = false;
+}
+
+/**
+ * @brief Forget the positions counted by book reducecount if their marks hold memory reserved for dense marks, which
+ * a walk of another analysis needs (see ba_dense_reserve, which holds the lock of the analyses: the threads of that
+ * analysis, not the count, ask for it; the main thread does not use the count while an analysis runs).
+ * @return true if memory was given back.
+ */
+static bool ba_counted_give_locked(void)
+{
+	long long n = 0;
+
+	if (!ba_counted.valid) return false;
+	if (ba_counted.kept.dense) n += (long long) ba_counted.kept.n_index;
+	if (ba_counted.val.dense) n += (long long) ba_counted.val.n_index;
+	if (n == 0) return false; // (marks in hash tables: no memory reserved)
+	free(ba_counted.kept.slot); free(ba_counted.kept.dense);
+	free(ba_counted.val.slot); free(ba_counted.val.dense);
+	memset(&ba_counted.kept, 0, sizeof ba_counted.kept);
+	memset(&ba_counted.val, 0, sizeof ba_counted.val);
+	ba_counted.valid = false;
+	ba.dense_bytes -= n;
+	return true;
 }
 
 static int ba_reducecount(BaJob *job, const BaParams *prm)
