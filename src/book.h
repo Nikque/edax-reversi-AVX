@@ -72,6 +72,13 @@ typedef struct GameStats {
 	unsigned long long n_lines;      /**< unterminated line count */
 } GameStats;
 
+/** What became of a book file that was to be loaded (book_file_status) */
+enum {
+	BOOK_FILE_REPLACEABLE = 0, /**< it was loaded, or no load of it failed */
+	BOOK_FILE_DAMAGED = 1,     /**< it could not be read as a book: a save to it keeps it as <file>.damaged first */
+	BOOK_FILE_UNOPENED = 2     /**< it could not be opened (held by another program...): no save replaces it */
+};
+
 void book_init(Book*);
 void book_free(Book*);
 
@@ -83,6 +90,8 @@ bool book_save_to_book_file(Book*);
 void book_set_replaced_file(const char*);
 void book_set_loaded_file(const char*, const bool);
 bool book_keep_unread_file(const char*);
+int book_file_status(const char*);
+void book_unread_forget(void);
 bool book_save_progress(Book*, const char*);
 bool book_import(Book*, const char*);
 void book_export(Book*, const char*);

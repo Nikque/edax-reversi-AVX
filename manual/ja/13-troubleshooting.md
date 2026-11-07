@@ -18,7 +18,9 @@
 | `WARNING: level: "abc" is not a number; ignored` | 数を書くところに、数でないものが書いてある | 値を直す |
 | `WARNING: n-tasks = 99 is out of range. Set to 32` のような表示 | 値が範囲の外。範囲の端の値に直された | そのままでも動く。気になるなら値を直す |
 | `New book 18 21...` | `book-file` のファイルがないので、新しい book を作った | 初めての起動なら正常。book があるはずなら、`book-file` の名前と、起動したフォルダーを確かめる |
-| `data/book.dat could not be loaded: it is kept as data/book.dat.damaged` | book のファイルが読めなかった（壊れている、途中で切れている、ほかのプログラムが使っている）。後で保存するときに、元のファイルを別の名前で残した | `.damaged` のファイルが、元の book。ほかのプログラムが開いていただけなら、名前を戻せば読める。本当に壊れているなら、写しや途中経過のファイル（`.dev2` など）から戻す |
+| `data/book.dat could not be loaded: it is kept as data/book.dat.damaged` | book のファイルが読めなかった（壊れている、途中で切れている）。後で保存するときに、元のファイルを別の名前で残した | `.damaged` のファイルが、元の book。本当に壊れているなら、写しや途中経過のファイル（`.dev2` など）から戻す。v4.5.5-nikque.26 までの版では、ほかのプログラムが開いていただけのときも、こうなる。そのときは名前を戻せば読める |
+| `Cannot open opening book data/book.dat; it is not loaded, and no save replaces it (it may be used by another program)` | book のファイルを開けなかった（ほかのプログラムが共有なしで開いている、読む権限がない、など）。2 秒ほど待っても開けなかった。新しい book で始めたが、このファイルには保存しない（`.damaged` も作らない） | ほかのプログラムが閉じてから `book load data/book.dat` で読むか、起動し直す（[6.6](06-book-basics.md)） |
+| `Cannot save book to data/book.dat: the file could not be opened when the book was loaded …` | 上の場合に、そのファイルへ保存しようとした（`book save`、終了のとき）。元のファイルは、そのまま | 育てた book を残すなら、`book save data/other.dat` のように別の名前で保存する |
 
 ## 13.2 対局のとき
 

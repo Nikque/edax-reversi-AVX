@@ -2879,16 +2879,26 @@ static long long book_file_remaining(FILE *f)
 }
 
 /**
- * Book files that exist but could not be loaded (damaged, truncated, another version, or not
- * readable). Edax then works with a new book: when this book is saved to one of these files, the
- * file that could not be loaded is kept under another name instead of being replaced. A file keeps
- * its mark until it is loaded or kept aside: up to v4.5.5-nikque.26 only the last file was marked, and
- * the book file that could not be loaded at the start was replaced (without being kept) once another
- * file could not be loaded either ("book load").
+ * Book files that exist but could not be loaded. Edax then works with a new book, which does not hold
+ * their positions:
+ * - a file that could not be read as a book (damaged, truncated, another version): when the book is saved
+ *   to it, the file is kept under another name (<file>.damaged) instead of being replaced;
+ * - a file that could not be opened (held by another program without sharing, no permission...), even after
+ *   waiting a little (see book_open): it is not damaged, and no save replaces it (up to v4.5.5-nikque.26 it
+ *   was taken for a damaged file: a good book held by an antivirus at the start went to <file>.damaged, and
+ *   the new book replaced it).
+ * A file keeps its mark until it is loaded or kept aside: up to v4.5.5-nikque.26 only the last file was
+ * marked, and the book file that could not be loaded at the start was replaced (without being kept) once
+ * another file could not be loaded either ("book load").
  */
+typedef struct BookUnreadMark {
+	char *file;     /**< name of the file */
+	bool unopened;  /**< the file could not be opened (else: it could not be read as a book) */
+} BookUnreadMark;
+
 static struct {
-	char **file;  /**< names of the files */
-	int n;        /**< number of files */
+	BookUnreadMark *mark;  /**< the files */
+	int n;                 /**< number of files */
 } book_unread = {NULL, 0};
 
 /**
@@ -2900,21 +2910,29 @@ static int book_unread_find(const char *file)
 {
 	int i;
 
-	if (file) for (i = 0; i < book_unread.n; ++i) if (file_same(file, book_unread.file[i])) return i;
+	if (file) for (i = 0; i < book_unread.n; ++i) if (file_same(file, book_unread.mark[i].file)) return i;
 	return -1;
 }
 
-/** @brief Mark a file that could not be loaded. */
-static void book_unread_add(const char *file)
+/**
+ * @brief Mark a file that could not be loaded.
+ * @param file File name.
+ * @param unopened The file could not be opened (else: it could not be read as a book).
+ */
+static void book_unread_add(const char *file, const bool unopened)
 {
-	char **names, *name;
+	BookUnreadMark *marks;
+	char *name;
+	int i;
 
-	if (file == NULL || book_unread_find(file) >= 0) return;
-	names = (char**) realloc(book_unread.file, (book_unread.n + 1) * sizeof *names);
-	if (names) book_unread.file = names;
-	name = names ? string_duplicate(file) : NULL;
+	if (file == NULL) return;
+	if ((i = book_unread_find(file)) >= 0) { book_unread.mark[i].unopened = unopened; return; }
+	marks = (BookUnreadMark*) realloc(book_unread.mark, (book_unread.n + 1) * sizeof *marks);
+	if (marks) book_unread.mark = marks;
+	name = marks ? string_duplicate(file) : NULL;
 	if (name == NULL) { error("cannot allocate the mark of %s, which could not be loaded\n", file); return; }
-	book_unread.file[book_unread.n++] = name;
+	book_unread.mark[book_unread.n].file = name;
+	book_unread.mark[book_unread.n++].unopened = unopened;
 }
 
 /** @brief Remove the mark of a file: it was loaded, or it is kept under another name. */
@@ -2923,9 +2941,33 @@ static void book_unread_remove(const char *file)
 	const int i = book_unread_find(file);
 
 	if (i >= 0) {
-		free(book_unread.file[i]);
-		book_unread.file[i] = book_unread.file[--book_unread.n];
+		free(book_unread.mark[i].file);
+		book_unread.mark[i] = book_unread.mark[--book_unread.n];
 	}
+}
+
+/**
+ * @brief Forget the marks of the files that could not be loaded (the book is freed: libedax_terminate).
+ */
+void book_unread_forget(void)
+{
+	while (book_unread.n > 0) free(book_unread.mark[--book_unread.n].file);
+}
+
+/**
+ * @brief What became of a book file that was to be loaded.
+ *
+ * @param file File name.
+ * @return BOOK_FILE_REPLACEABLE (it was loaded, or no load of it failed), BOOK_FILE_DAMAGED (it could not
+ *         be read as a book: a save to it keeps it as <file>.damaged first) or BOOK_FILE_UNOPENED (it could
+ *         not be opened: no save replaces it).
+ */
+int book_file_status(const char *file)
+{
+	const int i = book_unread_find(file);
+
+	if (i < 0) return BOOK_FILE_REPLACEABLE;
+	return book_unread.mark[i].unopened ? BOOK_FILE_UNOPENED : BOOK_FILE_DAMAGED;
 }
 
 /** @brief Leave a book without any position after a load that failed (book_free() can be called on it). */
@@ -3066,11 +3108,19 @@ static bool book_set_aside(const char *file, const char *ext, const char *reason
  *
  * @param file Book file to be replaced.
  * @return true if the file can be replaced (it was loaded, or it is now kept as <file>.damaged);
- *         false if it could not be loaded and could not be kept: it must not be replaced.
+ *         false if it could not be opened, or if it could not be loaded and could not be kept: it must
+ *         not be replaced.
  */
 bool book_keep_unread_file(const char *file)
 {
-	if (book_unread_find(file) < 0) return true;
+	const int i = book_unread_find(file);
+
+	if (i < 0) return true;
+	if (book_unread.mark[i].unopened) {
+		errno = 0;
+		error("\n%s could not be opened when the book was loaded (it may be used by another program); it must not be replaced\n", file);
+		return false;
+	}
 	if (!book_set_aside(file, ".damaged", "could not be loaded")) {
 		error("\nCannot keep the book that could not be loaded; %s must not be replaced\n", file);
 		return false;
@@ -3112,6 +3162,30 @@ static void book_pool_shrink(Book *book, const long long n)
 	}
 }
 
+/** Number of times a book file that exists but cannot be opened is tried again, every 100 ms (for 2 seconds). */
+#define BOOK_OPEN_RETRIES 20
+
+/**
+ * @brief Open a book file to load it, waiting a little when it exists but cannot be opened.
+ *
+ * Another program (an antivirus, a backup, a copy...) may hold the file for a while without sharing it.
+ *
+ * @param file File name.
+ * @return the file, or NULL (errno: the error of the last try; ENOENT: no such file).
+ */
+static FILE* book_open(const char *file)
+{
+	FILE *f;
+	int i;
+
+	for (i = 0; ; ++i) {
+		errno = 0;
+		f = fopen(file, "rb");
+		if (f != NULL || errno == ENOENT || i == BOOK_OPEN_RETRIES) return f;
+		relax(100);
+	}
+}
+
 /**
  * @brief Load the opening book.
  *
@@ -3124,11 +3198,10 @@ bool book_load(Book *book, const char *file)
 {
 	FILE *f;
 
-	errno = 0;
-	f = fopen(file, "rb");
-	if (f == NULL && errno != ENOENT) { // the file exists (or may exist) but cannot be opened: not a new book
-		error("Cannot open opening book %s\n", file);
-		book_unread_add(file);
+	f = book_open(file);
+	if (f == NULL && errno != ENOENT) { // the file exists (or may exist) but cannot be opened: not a new book, nor a damaged one
+		error("Cannot open opening book %s; it is not loaded, and no save replaces it (it may be used by another program)\n", file);
+		book_unread_add(file, true);
 		book_set_unloaded(book);
 		return false;
 	}
@@ -3270,7 +3343,7 @@ bool book_load(Book *book, const char *file)
 book_load_failed:
 		book_stream_close(&stream);
 		fclose(f);
-		book_unread_add(file); // a save to this file keeps it under another name (see book_save)
+		book_unread_add(file, false); // a save to this file keeps it under another name (see book_save)
 		if (loaded.array) book_free(&loaded);
 		book_set_unloaded(book);
 		return false;
@@ -3286,6 +3359,8 @@ book_load_failed:
  * - no such file: a new book, saved when Edax ends;
  * - a file that cannot be loaded: a new book too, but it is only saved if it changes (and the
  *   file is then kept under another name: see book_save);
+ * - a file that cannot be opened, even after waiting a little (held by another program...): a new
+ *   book too, which is never saved to that file (see book_unread, book_file_status);
  * - book-depth = n: the book depth is set as with the "book depth" command (and saved with the
  *   book); auto (0) keeps the depth saved in the file.
  *
@@ -3484,6 +3559,12 @@ static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 	PositionArray *a;
 	Position *p;
 
+	// the file could not be opened when the book was to be loaded from it: this book does not hold its positions
+	if (book_file_status(file) == BOOK_FILE_UNOPENED) {
+		errno = 0;
+		error("\nCannot save book to %s: the file could not be opened when the book was loaded (it may be used by another program), and this book does not hold its positions; existing book was not replaced\n", file);
+		return false;
+	}
 	book_remove_stale_tmp(file);
 	tmp_file = (char*) malloc(strlen(file) + 32);
 	if (tmp_file == NULL) { error("Cannot allocate save path for %s\n", file); return false; }
@@ -3532,7 +3613,7 @@ static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 		goto book_save_failed;
 	}
 	// the file could not be loaded: its content is not in this book, so it is kept under another name
-	if (book_unread_find(file) >= 0) {
+	if (book_file_status(file) == BOOK_FILE_DAMAGED) {
 		if (!book_set_aside(file, ".damaged", "could not be loaded")) {
 			error("\nCannot keep the book that could not be loaded; %s was not replaced\n", file);
 			goto book_save_failed;

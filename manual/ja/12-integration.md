@@ -167,6 +167,8 @@ int main(void)
   - `edax_book_save_checked`：book を保存し、保存できたかどうかを返します。
   - `edax_book_failed`：直前の book の処理が、局面を追加できなかったかどうかを返します。
 - v4.5.5-nikque.12 で追加：`edax_book_leaf_recalculate`・`edax_book_leaf_recalculate2`・`3`・`4`（`book leaf recalculate` 系列のコマンド。v4.5.5-nikque.13 までの名前は `book leaf-recalculate`）。
+- `edax_book_keep_unread_file(file)`（v4.5.5-nikque.16 で追加）：読めなかった book のファイルを、別のファイルに保存した book で置き換える前に、`<file>.damaged` として残します。置き換えてよければ 1、置き換えてはいけなければ 0 を返します。
+- v4.5.5-nikque.26 の後で追加：`edax_book_file_status(file)`。読み込むはずだった book のファイルがどうなったかを返します。0 は置き換えてよい（読めた、または読み込みに失敗していない）、1 は book として読めなかった（壊れている。保存の前に `.damaged` として残す）、2 は開けなかった（ほかのプログラムが共有なしで開いていた、など。2 秒ほど待っても開けなかった。どの保存も置き換えず、`edax_book_keep_unread_file` は 0 を返す）。初期化の後に呼べば、開けなかった book のファイルに気づいて、空の book に学習を始めずに止められます。初期化の前は −1 です。
 - v4.5.5-nikque.26 で追加：`edax_book_deviate_export(base, x, y, file, which)`。`book deviate`（`base` が 1）・`book deviate2`（2）・`book deviate3`（3）の `export` です（[7.3](07-book-learning.md)）。book を広げずに、今の局面からたどる手順をファイル `file` に書き出します。`which` は 0 が `leaf`、1 が `ends`、2 が `all` です。書いた行の数を返します（今の局面が book にないときは 0 で、空のファイルを作ります）。引数が正しくないとき、ファイルに書けないとき、メモリが足りないときは −1 を返します。`x`・`y` の範囲はコマンドと同じです（`book deviate2`・`book deviate3` の `y` は 254 まで）。
 
 **元の libedax（Edax 4.4）との違い**
