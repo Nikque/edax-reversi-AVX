@@ -350,7 +350,7 @@ static char* parse_loss_limits(char *param, int *move_loss, int *total_loss)
  * are written to the file, nothing is expanded (see book_deviate_export).
  * @return false if the words are not there (the command expands the book).
  */
-static bool deviate_export(Play *play, const char *param, const int base, const int x, int y)
+static bool deviate_export(Play *play, const char *param, const int base, const int x, const int y)
 {
 	char word[16], file[FILENAME_MAX + 1], game_line[2 * PLAY_GAME_SIZE + 1];
 	int which = BOOK_EXPORT_LEAF;
@@ -370,10 +370,6 @@ static bool deviate_export(Play *play, const char *param, const int base, const 
 	if (!*file) {
 		printf("ERROR: book deviate export: no file\n");
 		return true;
-	}
-	if (base != 1 && y > 254) { // (as book deviate2, deviate3: a mark of one byte a position)
-		warn("total loss %d reduced to %d\n", y, 254);
-		y = 254;
 	}
 	book_deviate_export(play->book, &play->board, play_get_moves(play, game_line), base, x, y, file, which);
 	return true;

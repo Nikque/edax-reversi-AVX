@@ -260,7 +260,7 @@ book deviate2 2 4 export lines.txt ends
 - At the start of the game, the line of the start position itself is an empty line (`all`).
 - The ends are the positions where the game is over, those beyond the depth of the book (`book depth`), and those with no move within the limits in the book.
 - For `book deviate`, the lines of its two walks (above), both on the book before any expansion, are written together; `ends` are the positions from which neither walk goes further.
-- The total loss of `book deviate2` and `book deviate3` is at most 254 (as when they expand).
+- The total loss of `book deviate2` and `book deviate3` is at most 254 (as when they expand). A larger number is reduced to 254 with the warning of the commands that expand (`WARNING: total loss 300 reduced to 254`), by `edax_book_deviate_export` of libedax too (up to v4.5.5-nikque.26, libedax alone said `cumulative loss = 300 is out of range. Set to 254`).
 - At the end, `Book deviate2 2 4 export ends...finished: 120 lines written (lines.txt)` is shown. When the current position is not in the book, an empty file is made.
 - The book does not change: nothing is saved, and no progress file is written.
 - When it cannot write the lines, it prints a line beginning with `ERROR:` and does not expand the book: with no file name (`ERROR: book deviate export: no file`), with a last word other than `leaf`, `ends` and `all` (`unknown word`), or when the file cannot be written (`ERROR: book deviate2 2 4 export: cannot write the file lines.txt`).

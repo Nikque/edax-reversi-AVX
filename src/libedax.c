@@ -2110,7 +2110,8 @@ LIBEDAX_API void edax_book_deviate3(int move_loss, int total_loss)
  * of the command from the current position to a text file, without expanding the book (see book_deviate_export).
  * @param base 1: book deviate, 2: deviate2, 3: deviate3.
  * @param x relative error (deviate), or per-move loss limit (deviate2, deviate3).
- * @param y absolute error (deviate), or cumulative loss limit (deviate2, deviate3; at most 254).
+ * @param y absolute error (deviate), or cumulative loss limit (deviate2, deviate3; above 254, reduced to 254 with the
+ * warning of book deviate2, deviate3).
  * @param file file to write.
  * @param which 0: the positions whose leaf the command would expand, 1: the ends of the lines, 2: all the positions
  * of the lines.
@@ -2124,7 +2125,7 @@ LIBEDAX_API long long edax_book_deviate_export(int base, int x, int y, const cha
 
 	if (g_ui == NULL || file == NULL || base < 1 || base > 3 || which < BOOK_EXPORT_LEAF || which > BOOK_EXPORT_ALL) return -1;
 	if (base == 1) lib_bound_deviate_errors(&x, &y);
-	else lib_bound_loss_limits(&x, &y, 254);
+	else lib_bound_loss_limits(&x, &y, 7740); // (as edax_book_deviate2, 3: book_deviate_export reduces it to 254 as they do)
 	play_get_moves(g_ui->play, line);
 	book = lib_book_begin();
 	book_analysis_quiesce(); // the numbering of the positions of the last export goes (as before the edax command): they are numbered for this book
