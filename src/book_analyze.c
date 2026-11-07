@@ -2530,7 +2530,7 @@ static bool ba_move_umi(BaWork *w, const int player, BaMove *m)
 	m->umi_state = 0;
 	if (r == 1) { // the position after the move is out of the range
 		m->umi_state = 1;
-		m->umi[0] = m->umi[1] = 0;
+		m->umi[BLACK] = m->umi[WHITE] = 0;
 		m->umi_exact = true;
 	} else if (r < 0) {
 		if (w->job->cancel) return false;
@@ -2693,8 +2693,8 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 		ba_team(&team);
 		for (i = 0; i < n && !job->cancel; ++i) if (move[i].p && move[i].same >= 0) {
 			const BaMove *s = move + move[i].same;
-			move[i].umi[0] = s->umi[0];
-			move[i].umi[1] = s->umi[1];
+			move[i].umi[BLACK] = s->umi[BLACK];
+			move[i].umi[WHITE] = s->umi[WHITE];
 			move[i].umi_state = s->umi_state;
 			move[i].umi_exact = s->umi_exact;
 			ba_print_umi(job, move + i);
