@@ -20,10 +20,11 @@
  * bookhint: the warning of a book command typed without book tells to type it after book.
  *
  * moveinfo-memory: book moveinfo when an allocation of a walk fails ends with an error, not with lines left out.
+ * push-parent: an item of a walk whose number, or the number of its parent, does not fit in an int is refused.
  *
  * Build: tests\build-book-analyze.cmd (Visual Studio 2022 x64 Developer Command Prompt), run: tests\book-analyze.exe umigame
  * (or umigame-large, umigame-order, precision, precision-book <book file> [stages], reach, reach-book <book file> <games file>, missing,
- * missing-book <book file> <games file>, umi-inherit, umi-book <book file> <games file> [umi=...], bookhint, moveinfo-memory)
+ * missing-book <book file> <games file>, umi-inherit, umi-book <book file> <games file> [umi=...], bookhint, moveinfo-memory, push-parent)
  */
 #define BOOK_ANALYZE_TEST
 #define main edax_original_main
@@ -1224,6 +1225,34 @@ static int moveinfo_memory(void)
 	return n_bad ? 2 : 0;
 }
 
+/**
+ * @brief ba_push refuses an item whose parent does not fit in BaItem.parent (an int), and the item 2^31 of a queue, the
+ * parent of the next ones (up to v4.5.5-nikque.26 checked only when the queue grew: a parent above INT_MAX became
+ * negative). The queue of 2^31 items is not made: its count is set, and nothing is written before the check.
+ */
+static int push_parent(void)
+{
+	BaQueue q = {NULL, 0, 0}, big;
+	bool r;
+	int n_bad = 0;
+
+	if (!ba_push(&q, NULL, 0, -1, NOMOVE, 0, 0) || q.size < 3) { printf("FAIL push-parent: the first item\n"); return 2; }
+	r = ba_push(&q, NULL, 1, INT_MAX, NOMOVE, 1, 0);
+	printf("push-parent: an item of the parent INT_MAX %s\n", r ? "pushed" : "refused");
+	if (!r || q.item[1].parent != INT_MAX) ++n_bad;
+	r = ba_push(&q, NULL, 2, (long long) INT_MAX + 1, NOMOVE, 1, 0); // (the queue does not grow)
+	printf("push-parent: an item of the parent INT_MAX + 1 %s%s\n", r ? "pushed, parent " : "refused", r ? (q.item[2].parent < 0 ? "negative" : "kept") : "");
+	if (r) ++n_bad;
+	free(q.item);
+	if (n_bad) return 2; // (before the next check: without it, the item would be written out of the queue)
+	big.item = NULL;
+	big.n = (long long) INT_MAX + 1;
+	big.size = big.n + 1;
+	r = ba_push(&big, NULL, 0, 0, NOMOVE, 1, 0);
+	printf("push-parent: the item INT_MAX + 1 of a queue %s\n", r ? "pushed" : "refused");
+	return r ? 2 : 0;
+}
+
 /** @brief The tables of the search, and one thread (the tests on books). */
 static void test_search_init(void)
 {
@@ -1248,5 +1277,6 @@ int main(int argc, char **argv)
 	if (strcmp(argv[1], "missing") == 0) { test_search_init(); return missing(); }
 	if (strcmp(argv[1], "missing-book") == 0 && argc >= 4) { test_search_init(); return missing_book(argv[2], argv[3]); }
 	if (strcmp(argv[1], "moveinfo-memory") == 0) { test_search_init(); return moveinfo_memory(); }
+	if (strcmp(argv[1], "push-parent") == 0) return push_parent();
 	return 1;
 }
