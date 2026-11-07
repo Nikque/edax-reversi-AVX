@@ -99,6 +99,36 @@ static void* stop_often(void *unused)
 }
 #endif
 
+/** one of the threads above: started, then waited for */
+#ifdef _WIN32
+typedef HANDLE TestThread;
+
+static TestThread thread_start(LPTHREAD_START_ROUTINE f)
+{
+	return CreateThread(NULL, 0, f, NULL, 0, NULL);
+}
+
+static void thread_wait(TestThread t)
+{
+	WaitForSingleObject(t, INFINITE);
+	CloseHandle(t);
+}
+#else
+typedef pthread_t TestThread;
+
+static TestThread thread_start(void* (*f)(void*))
+{
+	pthread_t t;
+	pthread_create(&t, NULL, f, NULL);
+	return t;
+}
+
+static void thread_wait(TestThread t)
+{
+	pthread_join(t, NULL);
+}
+#endif
+
 /** square name */
 static const char* square(const int x)
 {
@@ -163,6 +193,15 @@ static void print_hint(const char *name, const LibedaxHint *h)
 	printf("\n");
 }
 
+/** the best paths of a board counted again (edax_book_stats_clean first: the original libedax needs it before counting another way) */
+static void count_board_bestpath(LibedaxBoard *b, LibedaxPosition *p, const int player, const int opponent, const char *name)
+{
+	edax_book_stats_clean();
+	memset(p, 0, sizeof *p);
+	edax_book_count_board_bestpath(b, p, player, opponent, 0);
+	print_position(name, p);
+}
+
 static long long file_size(const char *file)
 {
 	FILE *f = fopen(file, "rb");
@@ -215,6 +254,186 @@ static void* optional(const char *dll, const char *name)
 #endif
 }
 
+/** the layout of the structures of libedax.h */
+static void test_layout(void)
+{
+	section("layout of the structures");
+	CHECK_INT(sizeof (LibedaxBoard), 16);
+	CHECK_INT(sizeof (LibedaxMove), 32);
+	CHECK_INT(offsetof(LibedaxMove, next), 24);
+	CHECK_INT(sizeof (LibedaxMoveList), 34 * 32 + 8);
+	CHECK_INT(offsetof(LibedaxMoveList, n_moves), 34 * 32);
+	CHECK_INT(sizeof (LibedaxLine), 88);
+	CHECK_INT(sizeof (LibedaxHint), 136);
+	CHECK_INT(offsetof(LibedaxHint, pv), 24);
+	CHECK_INT(offsetof(LibedaxHint, time), 112);
+	CHECK_INT(offsetof(LibedaxHint, book_move), 128);
+	CHECK_INT(sizeof (LibedaxHintList), 34 * 136 + 8);
+	CHECK_INT(sizeof (LibedaxLink), 2);
+	CHECK_INT(sizeof (LibedaxPosition), 56);
+	CHECK_INT(offsetof(LibedaxPosition, flag), 18);
+	CHECK_INT(offsetof(LibedaxPosition, n_player_bestpaths), 20);
+	CHECK_INT(offsetof(LibedaxPosition, link), 24);
+	CHECK_INT(offsetof(LibedaxPosition, n_wins), 32);
+	CHECK_INT(offsetof(LibedaxPosition, score), 48);
+	CHECK_INT(offsetof(LibedaxPosition, n_link), 54);
+	CHECK_INT(sizeof (LibedaxBook), 96);
+	CHECK_INT(offsetof(LibedaxBook, options), 8);
+	CHECK_INT(offsetof(LibedaxBook, stats), 28);
+	CHECK_INT(offsetof(LibedaxBook, n), 56);
+	CHECK_INT(offsetof(LibedaxBook, n_nodes), 60);
+}
+
+/**
+ * book deviate3 129 254 export all writes every position of these negamaxed books once (no loss is out of the
+ * limits), as in a new process: also after the book was changed, loaded or merged since the last export
+ */
+static void test_export_after_changes(Export export_lines)
+{
+	static const char *const file = "libedax-export.txt";
+	LibedaxBook info;
+	int n_a, n_b;
+
+	section("export after the book changes");
+	CHECK(export_lines != NULL);
+	if (export_lines) {
+		edax_init();
+		edax_book_fix(); // (book add does not negamax the book)
+		edax_book_save("libtest-export-a.dat"); // the book of the games of libtest-base.txt
+		edax_book_info(&info);
+		n_a = info.n_nodes;
+		CHECK_INT(export_lines(3, 129, 254, file, 2), n_a);
+		write_file("libtest-base2.txt", "F5F4E3F6D3E2F3F2E6D2\nF5D6C4D3C3F4F6F3E6E7\n");
+		edax_book_new(2, 8);
+		edax_book_add("libtest-base2.txt");
+		edax_book_fix();
+		edax_book_save("libtest-export-b.dat");
+		edax_book_info(&info);
+		n_b = info.n_nodes;
+		printf("books: %d and %d positions\n", n_a, n_b);
+		CHECK(n_b >= 12);
+		CHECK_INT(export_lines(3, 129, 254, file, 2), n_b);
+		edax_book_load("libtest-export-a.dat");
+		edax_book_info(&info);
+		CHECK_INT(info.n_nodes, n_a);
+		CHECK_INT(export_lines(3, 129, 254, file, 2), n_a);
+		edax_book_merge("libtest-export-b.dat");
+		edax_book_info(&info);
+		printf("after merge: %d positions\n", info.n_nodes);
+		CHECK(info.n_nodes > n_a);
+		CHECK_INT(export_lines(3, 129, 254, file, 2), info.n_nodes);
+		remove(file);
+	}
+}
+
+/** games learned together (edax_book_store_tasks, edax_book_store_games) */
+static void test_store_games(const char *dll)
+{
+	int (*store_tasks)(void) = (int (*)(void)) optional(dll, "edax_book_store_tasks");
+	int (*store_games)(const char*, char*) = (int (*)(const char*, char*)) optional(dll, "edax_book_store_games");
+	LibedaxBook info;
+	char status[16];
+	int n_before;
+
+	section("games learned together");
+	CHECK(store_tasks != NULL && store_games != NULL);
+	if (store_tasks && store_games) {
+		// one game after the other (book-store-tasks = 1): as init, play, go & book store
+		CHECK_INT(store_tasks(), 1);
+		edax_book_new(4, 12);
+		memset(status, 'x', sizeof status);
+		CHECK_INT(store_games("f5d6c3\n2,F5F6E6\n// a comment\nf5f5\nf5 d6 c4\nfix\n", status), 3);
+		CHECK_STR(status, "110010");
+		CHECK_INT(edax_is_game_over(), 1); // the last game
+		edax_book_info(&info);
+		printf("after 3 games: %d positions\n", info.n_nodes);
+		CHECK(info.n_nodes >= 14);
+		CHECK_INT(store_games("", status), 0);
+		CHECK_STR(status, "");
+		CHECK_INT(store_games("a1", NULL), 0);
+		CHECK_INT(store_games(NULL, status), 0);
+		CHECK_STR(status, "");
+		CHECK_INT(store_games("\n\r\nf5d6\r\n", status), 1); // empty lines, CR LF
+		CHECK_STR(status, "001");
+		{	// a line longer than 255 characters because of its spaces is a game; one with too many moves is not
+			char games[1024];
+			int j;
+			strcpy(games, "f5d6c3");
+			memset(games + 6, ' ', 300);
+			strcpy(games + 306, "d3\n");
+			for (j = 0; j < 150; ++j) memcpy(games + 309 + 2 * j, "f5", 2);
+			strcpy(games + 609, "\nf5d6c3d3");
+			CHECK_INT(store_games(games, status), 2);
+			CHECK_STR(status, "101");
+		}
+		// the randomness of a line is any number, as the book-randomness setting
+		CHECK_INT(store_games("200,f5d6\n99999999999999999999,f5f6\n-1,f5f4\n", status), 2);
+		CHECK_STR(status, "110");
+
+		// several games at the same time
+		edax_set_option("n-tasks", "4");
+		edax_set_option("book-store-tasks", "auto");
+		CHECK(store_tasks() >= 2 && store_tasks() <= 4); // auto: n-tasks, which is 4 or the number of CPUs
+		edax_set_option("book-store-tasks", "2");
+		CHECK_INT(store_tasks(), 2);
+		edax_init();
+		play("f5f4");
+		n_before = info.n_nodes;
+		memset(status, 'x', sizeof status);
+		CHECK_INT(store_games("f5f4e3\nf5d6c4d3\n1,f5d6c5f4e3\nf5d6c5f4e3\nh8\nf5f6e6f4e3", status), 5);
+		CHECK_STR(status, "111101");
+		CHECK_STR(moves(), "F5f4"); // the current game is not changed
+		edax_book_info(&info);
+		printf("after 5 more games: %d positions\n", info.n_nodes);
+		CHECK(info.n_nodes > n_before);
+		edax_book_store(); // a game: its positions are searched at the same time
+		edax_book_fix();
+		edax_set_option("book-store-tasks", "1");
+		edax_set_option("n-tasks", "1");
+		CHECK_INT(store_tasks(), 1);
+	}
+}
+
+#ifdef _WIN32
+/**
+ * a book file that exists but cannot be opened (here: opened without sharing), in a folder whose name is not ASCII
+ * (UTF-8 for the library): the book is not loaded, it is not replaced when the library ends, and it is loaded later
+ */
+static void test_locked_book(const char *dll)
+{
+	static const wchar_t folder[] = L"libtest-\u5b9a\u77f3", locked[] = L"libtest-\u5b9a\u77f3\\book.dat";
+	char *locked_args[] = {"", "-book-file", "libtest-\xe5\xae\x9a\xe7\x9f\xb3/book.dat", "-level", "6", "-n-tasks", "1"};
+	int (*keep_unread)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_keep_unread_file");
+	LibedaxBook info;
+	HANDLE h;
+	int n;
+
+	section("a locked book in a folder of non-ASCII name");
+	CHECK(keep_unread != NULL);
+	CreateDirectoryW(folder, NULL);
+	CHECK(CopyFileW(L"libtest-book2.dat", locked, FALSE));
+	h = CreateFileW(locked, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	CHECK(h != INVALID_HANDLE_VALUE);
+	libedax_initialize(7, locked_args);
+	edax_book_info(&info);
+	CHECK_INT(info.n_nodes, 1); // (a new book, not saved)
+	if (keep_unread) CHECK_INT(keep_unread(locked_args[2]), 0); // the file could not be loaded, and cannot be kept under another name
+	if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+	libedax_terminate();
+	CHECK(CopyFileW(locked, L"libtest-locked.dat", FALSE) && same_files("libtest-locked.dat", "libtest-book2.dat"));
+	libedax_initialize(7, locked_args);
+	edax_book_info(&info);
+	n = info.n_nodes;
+	edax_book_load("libtest-book2.dat");
+	edax_book_info(&info);
+	CHECK(n > 1);
+	CHECK_INT(n, info.n_nodes);
+	libedax_terminate();
+	DeleteFileW(locked);
+	RemoveDirectoryW(folder);
+}
+#endif
+
 int main(int argc, char **argv)
 {
 	const char *dll = (argc > 1 ? argv[1] : "libedax-x64.dll");
@@ -259,31 +478,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	section("layout of the structures");
-	CHECK_INT(sizeof (LibedaxBoard), 16);
-	CHECK_INT(sizeof (LibedaxMove), 32);
-	CHECK_INT(offsetof(LibedaxMove, next), 24);
-	CHECK_INT(sizeof (LibedaxMoveList), 34 * 32 + 8);
-	CHECK_INT(offsetof(LibedaxMoveList, n_moves), 34 * 32);
-	CHECK_INT(sizeof (LibedaxLine), 88);
-	CHECK_INT(sizeof (LibedaxHint), 136);
-	CHECK_INT(offsetof(LibedaxHint, pv), 24);
-	CHECK_INT(offsetof(LibedaxHint, time), 112);
-	CHECK_INT(offsetof(LibedaxHint, book_move), 128);
-	CHECK_INT(sizeof (LibedaxHintList), 34 * 136 + 8);
-	CHECK_INT(sizeof (LibedaxLink), 2);
-	CHECK_INT(sizeof (LibedaxPosition), 56);
-	CHECK_INT(offsetof(LibedaxPosition, flag), 18);
-	CHECK_INT(offsetof(LibedaxPosition, n_player_bestpaths), 20);
-	CHECK_INT(offsetof(LibedaxPosition, link), 24);
-	CHECK_INT(offsetof(LibedaxPosition, n_wins), 32);
-	CHECK_INT(offsetof(LibedaxPosition, score), 48);
-	CHECK_INT(offsetof(LibedaxPosition, n_link), 54);
-	CHECK_INT(sizeof (LibedaxBook), 96);
-	CHECK_INT(offsetof(LibedaxBook, options), 8);
-	CHECK_INT(offsetof(LibedaxBook, stats), 28);
-	CHECK_INT(offsetof(LibedaxBook, n), 56);
-	CHECK_INT(offsetof(LibedaxBook, n_nodes), 60);
+	test_layout();
 
 	section("bit & board utilities");
 	CHECK_INT(bit_count(0x0000001818000000ULL), 4);
@@ -499,20 +694,11 @@ int main(int argc, char **argv)
 	print_position("count bestpath", &position);
 	CHECK(position.n_player_bestpaths >= 1 && position.n_opponent_bestpaths >= 1);
 	CHECK(b.player == start.player && b.opponent == start.opponent);
-	edax_book_stats_clean(); // the original libedax needs it before counting another way
-	memset(&position, 0, sizeof position);
-	edax_book_count_board_bestpath(&b, &position, LIBEDAX_BESTPATH_BEST, LIBEDAX_BESTPATH_BEST, 0);
-	print_position("count board bestpath (best, best)", &position);
+	count_board_bestpath(&b, &position, LIBEDAX_BESTPATH_BEST, LIBEDAX_BESTPATH_BEST, "count board bestpath (best, best)");
 	CHECK(position.n_player_bestpaths >= 1 && position.n_opponent_bestpaths >= 1);
 	CHECK(position.flag & LIBEDAX_FLAG_BESTPATH_BLACK);
-	edax_book_stats_clean();
-	memset(&position, 0, sizeof position);
-	edax_book_count_board_bestpath(&b, &position, -64, LIBEDAX_BESTPATH_BEST, 0);
-	print_position("count board bestpath (-64, best)", &position);
-	edax_book_stats_clean();
-	memset(&position, 0, sizeof position);
-	edax_book_count_board_bestpath(&b, &position, LIBEDAX_BESTPATH_BEST, -64, 0);
-	print_position("count board bestpath (best, -64)", &position);
+	count_board_bestpath(&b, &position, -64, LIBEDAX_BESTPATH_BEST, "count board bestpath (-64, best)");
+	count_board_bestpath(&b, &position, LIBEDAX_BESTPATH_BEST, -64, "count board bestpath (best, -64)");
 	edax_book_stop_count_bestpath();
 	edax_book_stats_clean();
 	memset(&position, 0, sizeof position);
@@ -773,133 +959,21 @@ int main(int argc, char **argv)
 			"F5F6E6F4E3C5G6F3G5G3D3E2F1H5C4C6D6D7E7C7H6C2G4H4D2F8E8D8B5F7\n"
 			"F5D6C4D3C3F4F6F3E6E7C6F7E8C5B4C7D7B6B5E3C8A3A4A5D2F8F2F1A7C1\n"
 			"F5F4E3F6D3E2F3F2E6D2G5H6G4H5D1D6G3H4E1C3C2C6F1G6B3C1B1B4C5C4\n";
-#ifdef _WIN32
-		HANDLE t;
-#else
-		pthread_t t;
-#endif
+		TestThread t;
 		write_file("libtest-stop1.txt", unfinished);
 		write_file("libtest-stop2.txt", unfinished);
 		edax_base_complete("libtest-stop1.txt");
 		stop_often_on = 1;
-#ifdef _WIN32
-		t = CreateThread(NULL, 0, stop_often, NULL, 0, NULL);
-#else
-		pthread_create(&t, NULL, stop_often, NULL);
-#endif
+		t = thread_start(stop_often);
 		edax_base_complete("libtest-stop2.txt");
 		stop_often_on = 0;
-#ifdef _WIN32
-		WaitForSingleObject(t, INFINITE);
-		CloseHandle(t);
-#else
-		pthread_join(t, NULL);
-#endif
+		thread_wait(t);
 		CHECK(file_size("libtest-stop1.txt") > 100 && same_files("libtest-stop1.txt", "libtest-stop2.txt"));
 	}
 
-	if (!original) {
-		// book deviate3 129 254 export all writes every position of these negamaxed books once (no loss is out of the
-		// limits), as in a new process: also after the book was changed, loaded or merged since the last export
-		static const char *const file = "libedax-export.txt";
-		int n_a, n_b;
+	if (!original) test_export_after_changes(export_lines);
 
-		section("export after the book changes");
-		CHECK(export_lines != NULL);
-		if (export_lines) {
-			edax_init();
-			edax_book_fix(); // (book add does not negamax the book)
-			edax_book_save("libtest-export-a.dat"); // the book of the games of libtest-base.txt
-			edax_book_info(&info);
-			n_a = info.n_nodes;
-			CHECK_INT(export_lines(3, 129, 254, file, 2), n_a);
-			write_file("libtest-base2.txt", "F5F4E3F6D3E2F3F2E6D2\nF5D6C4D3C3F4F6F3E6E7\n");
-			edax_book_new(2, 8);
-			edax_book_add("libtest-base2.txt");
-			edax_book_fix();
-			edax_book_save("libtest-export-b.dat");
-			edax_book_info(&info);
-			n_b = info.n_nodes;
-			printf("books: %d and %d positions\n", n_a, n_b);
-			CHECK(n_b >= 12);
-			CHECK_INT(export_lines(3, 129, 254, file, 2), n_b);
-			edax_book_load("libtest-export-a.dat");
-			edax_book_info(&info);
-			CHECK_INT(info.n_nodes, n_a);
-			CHECK_INT(export_lines(3, 129, 254, file, 2), n_a);
-			edax_book_merge("libtest-export-b.dat");
-			edax_book_info(&info);
-			printf("after merge: %d positions\n", info.n_nodes);
-			CHECK(info.n_nodes > n_a);
-			CHECK_INT(export_lines(3, 129, 254, file, 2), info.n_nodes);
-			remove(file);
-		}
-	}
-
-	if (!original) {
-		int (*store_tasks)(void) = (int (*)(void)) optional(dll, "edax_book_store_tasks");
-		int (*store_games)(const char*, char*) = (int (*)(const char*, char*)) optional(dll, "edax_book_store_games");
-		char status[16];
-		int n_before;
-
-		section("games learned together");
-		CHECK(store_tasks != NULL && store_games != NULL);
-		if (store_tasks && store_games) {
-			// one game after the other (book-store-tasks = 1): as init, play, go & book store
-			CHECK_INT(store_tasks(), 1);
-			edax_book_new(4, 12);
-			memset(status, 'x', sizeof status);
-			CHECK_INT(store_games("f5d6c3\n2,F5F6E6\n// a comment\nf5f5\nf5 d6 c4\nfix\n", status), 3);
-			CHECK_STR(status, "110010");
-			CHECK_INT(edax_is_game_over(), 1); // the last game
-			edax_book_info(&info);
-			printf("after 3 games: %d positions\n", info.n_nodes);
-			CHECK(info.n_nodes >= 14);
-			CHECK_INT(store_games("", status), 0);
-			CHECK_STR(status, "");
-			CHECK_INT(store_games("a1", NULL), 0);
-			CHECK_INT(store_games(NULL, status), 0);
-			CHECK_STR(status, "");
-			CHECK_INT(store_games("\n\r\nf5d6\r\n", status), 1); // empty lines, CR LF
-			CHECK_STR(status, "001");
-			{	// a line longer than 255 characters because of its spaces is a game; one with too many moves is not
-				char games[1024];
-				int j;
-				strcpy(games, "f5d6c3");
-				memset(games + 6, ' ', 300);
-				strcpy(games + 306, "d3\n");
-				for (j = 0; j < 150; ++j) memcpy(games + 309 + 2 * j, "f5", 2);
-				strcpy(games + 609, "\nf5d6c3d3");
-				CHECK_INT(store_games(games, status), 2);
-				CHECK_STR(status, "101");
-			}
-			// the randomness of a line is any number, as the book-randomness setting
-			CHECK_INT(store_games("200,f5d6\n99999999999999999999,f5f6\n-1,f5f4\n", status), 2);
-			CHECK_STR(status, "110");
-
-			// several games at the same time
-			edax_set_option("n-tasks", "4");
-			edax_set_option("book-store-tasks", "auto");
-			CHECK(store_tasks() >= 2 && store_tasks() <= 4); // auto: n-tasks, which is 4 or the number of CPUs
-			edax_set_option("book-store-tasks", "2");
-			CHECK_INT(store_tasks(), 2);
-			edax_init();
-			play("f5f4");
-			n_before = info.n_nodes;
-			memset(status, 'x', sizeof status);
-			CHECK_INT(store_games("f5f4e3\nf5d6c4d3\n1,f5d6c5f4e3\nf5d6c5f4e3\nh8\nf5f6e6f4e3", status), 5);
-			CHECK_STR(status, "111101");
-			CHECK_STR(moves(), "F5f4"); // the current game is not changed
-			edax_book_info(&info);
-			printf("after 5 more games: %d positions\n", info.n_nodes);
-			CHECK(info.n_nodes > n_before);
-			edax_book_store(); // a game: its positions are searched at the same time
-			edax_book_fix();
-			edax_set_option("book-store-tasks", "1");
-			edax_set_option("n-tasks", "1");
-			CHECK_INT(store_tasks(), 1);
-		}
-	}
+	if (!original) test_store_games(dll);
 
 	section("bench");
 	memset(&bench, 0, sizeof bench);
@@ -910,20 +984,10 @@ int main(int argc, char **argv)
 	CHECK_INT(bench.result.positions, 2);
 	CHECK(bench.result.n_nodes > 0);
 	{ // edax_stop from another thread ends the bench: the problem that was cut is not counted, the time is the time of the others
-#ifdef _WIN32
-		HANDLE t = CreateThread(NULL, 0, stop_later, NULL, 0, NULL);
-#else
-		pthread_t t;
-		pthread_create(&t, NULL, stop_later, NULL);
-#endif
+		const TestThread t = thread_start(stop_later);
 		memset(&bench, 0, sizeof bench);
 		edax_bench(&bench.result, 100);
-#ifdef _WIN32
-		WaitForSingleObject(t, INFINITE);
-		CloseHandle(t);
-#else
-		pthread_join(t, NULL);
-#endif
+		thread_wait(t);
 		printf("stopped bench: %d positions, %llu nodes, %llu ms\n", bench.result.positions, bench.result.n_nodes, bench.result.T);
 		CHECK(bench.result.positions < 100);
 		CHECK(bench.result.T < 60000);
@@ -957,38 +1021,7 @@ int main(int argc, char **argv)
 	libedax_terminate();
 
 #ifdef _WIN32
-	if (!original) {
-		// a book file that exists but cannot be opened (here: opened without sharing), in a folder whose name is not ASCII
-		// (UTF-8 for the library): the book is not loaded, it is not replaced when the library ends, and it is loaded later
-		static const wchar_t folder[] = L"libtest-\u5b9a\u77f3", locked[] = L"libtest-\u5b9a\u77f3\\book.dat";
-		char *locked_args[] = {"", "-book-file", "libtest-\xe5\xae\x9a\xe7\x9f\xb3/book.dat", "-level", "6", "-n-tasks", "1"};
-		int (*keep_unread)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_keep_unread_file");
-		HANDLE h;
-
-		section("a locked book in a folder of non-ASCII name");
-		CHECK(keep_unread != NULL);
-		CreateDirectoryW(folder, NULL);
-		CHECK(CopyFileW(L"libtest-book2.dat", locked, FALSE));
-		h = CreateFileW(locked, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-		CHECK(h != INVALID_HANDLE_VALUE);
-		libedax_initialize(7, locked_args);
-		edax_book_info(&info);
-		CHECK_INT(info.n_nodes, 1); // (a new book, not saved)
-		if (keep_unread) CHECK_INT(keep_unread(locked_args[2]), 0); // the file could not be loaded, and cannot be kept under another name
-		if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
-		libedax_terminate();
-		CHECK(CopyFileW(locked, L"libtest-locked.dat", FALSE) && same_files("libtest-locked.dat", "libtest-book2.dat"));
-		libedax_initialize(7, locked_args);
-		edax_book_info(&info);
-		n = info.n_nodes;
-		edax_book_load("libtest-book2.dat");
-		edax_book_info(&info);
-		CHECK(n > 1);
-		CHECK_INT(n, info.n_nodes);
-		libedax_terminate();
-		DeleteFileW(locked);
-		RemoveDirectoryW(folder);
-	}
+	if (!original) test_locked_book(dll);
 #endif
 
 	free(movelist);
