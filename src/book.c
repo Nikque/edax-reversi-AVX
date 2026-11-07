@@ -2879,16 +2879,49 @@ static long long book_file_remaining(FILE *f)
 }
 
 /**
- * Book file that exists but could not be loaded (damaged, truncated, another version, or not
- * readable). Edax then works with a new book: when this book is saved to the same file, the
- * file that could not be loaded is kept under another name instead of being replaced.
+ * Book files that exist but could not be loaded (damaged, truncated, another version, or not
+ * readable). Edax then works with a new book: when this book is saved to one of these files, the
+ * file that could not be loaded is kept under another name instead of being replaced. A file keeps
+ * its mark until it is loaded or kept aside: up to v4.5.5-nikque.26 only the last file was marked, and
+ * the book file that could not be loaded at the start was replaced (without being kept) once another
+ * file could not be loaded either ("book load").
  */
-static char *book_unread_file = NULL;
+static struct {
+	char **file;  /**< names of the files */
+	int n;        /**< number of files */
+} book_unread = {NULL, 0};
 
-static void book_unread_set(const char *file)
+/** @return the index of the mark of a file, or -1 if it has none. */
+static int book_unread_find(const char *file)
 {
-	free(book_unread_file);
-	book_unread_file = file ? string_duplicate(file) : NULL;
+	int i;
+
+	if (file) for (i = 0; i < book_unread.n; ++i) if (strcmp(file, book_unread.file[i]) == 0) return i;
+	return -1;
+}
+
+/** @brief Mark a file that could not be loaded. */
+static void book_unread_add(const char *file)
+{
+	char **names, *name;
+
+	if (file == NULL || book_unread_find(file) >= 0) return;
+	names = (char**) realloc(book_unread.file, (book_unread.n + 1) * sizeof *names);
+	if (names) book_unread.file = names;
+	name = names ? string_duplicate(file) : NULL;
+	if (name == NULL) { error("cannot allocate the mark of %s, which could not be loaded\n", file); return; }
+	book_unread.file[book_unread.n++] = name;
+}
+
+/** @brief Remove the mark of a file: it was loaded, or it is kept under another name. */
+static void book_unread_remove(const char *file)
+{
+	const int i = book_unread_find(file);
+
+	if (i >= 0) {
+		free(book_unread.file[i]);
+		book_unread.file[i] = book_unread.file[--book_unread.n];
+	}
 }
 
 /** @brief Leave a book without any position after a load that failed (book_free() can be called on it). */
@@ -3033,12 +3066,12 @@ static bool book_set_aside(const char *file, const char *ext, const char *reason
  */
 bool book_keep_unread_file(const char *file)
 {
-	if (file == NULL || book_unread_file == NULL || strcmp(file, book_unread_file) != 0) return true;
+	if (book_unread_find(file) < 0) return true;
 	if (!book_set_aside(file, ".damaged", "could not be loaded")) {
 		error("\nCannot keep the book that could not be loaded; %s must not be replaced\n", file);
 		return false;
 	}
-	book_unread_set(NULL);
+	book_unread_remove(file);
 	return true;
 }
 
@@ -3091,7 +3124,7 @@ bool book_load(Book *book, const char *file)
 	f = fopen(file, "rb");
 	if (f == NULL && errno != ENOENT) { // the file exists (or may exist) but cannot be opened: not a new book
 		error("Cannot open opening book %s\n", file);
-		book_unread_set(file);
+		book_unread_add(file);
 		book_set_unloaded(book);
 		return false;
 	}
@@ -3225,7 +3258,7 @@ bool book_load(Book *book, const char *file)
 
 		info("done\n");
 		fclose(f);
-		if (book_unread_file && strcmp(file, book_unread_file) == 0) book_unread_set(NULL);
+		book_unread_remove(file);
 		if (book_replaced_file && strcmp(file, book_replaced_file) == 0) book_set_replaced_file(NULL); // (the book in memory is the one of the file again)
 		*book = loaded;
 		return true;
@@ -3233,7 +3266,7 @@ bool book_load(Book *book, const char *file)
 book_load_failed:
 		book_stream_close(&stream);
 		fclose(f);
-		book_unread_set(file); // a save to this file keeps it under another name (see book_save)
+		book_unread_add(file); // a save to this file keeps it under another name (see book_save)
 		if (loaded.array) book_free(&loaded);
 		book_set_unloaded(book);
 		return false;
@@ -3495,12 +3528,12 @@ static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 		goto book_save_failed;
 	}
 	// the file could not be loaded: its content is not in this book, so it is kept under another name
-	if (book_unread_file && strcmp(file, book_unread_file) == 0) {
+	if (book_unread_find(file) >= 0) {
 		if (!book_set_aside(file, ".damaged", "could not be loaded")) {
 			error("\nCannot keep the book that could not be loaded; %s was not replaced\n", file);
 			goto book_save_failed;
 		}
-		book_unread_set(NULL);
+		book_unread_remove(file);
 	}
 	// the file holds the book in use before "book new", and the save was not asked for this file by its name:
 	// it is kept under another name (not a file that only holds the initial position)
