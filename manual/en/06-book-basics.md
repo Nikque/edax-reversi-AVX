@@ -184,9 +184,15 @@ At startup, Edax reads the file given by the `book-file` setting (`data/book.dat
   - Its level is the `level` setting, and its depth follows the table in 6.4.
   - The screen shows something like `New book 18 21...`. The second number is the lowest number of empty squares the book covers: 21 for depth 40.
   - This new book is saved under that file name when Edax exits. So even if you do nothing, a small file containing just the initial position appears.
-- **If the file exists but cannot be read** (it is damaged, opened by another program, and so on), Edax also starts with a new book.
+- **If the file exists but cannot be read** (it is damaged, cut short, and so on), Edax also starts with a new book.
   - In this case, nothing is saved on exit unless the book was changed.
   - **The unreadable file is not overwritten.** If something later has to be saved under that name, the original file is first renamed to `book.dat.damaged` (`.damaged.1`, … if that name is taken) and kept.
+- **If the file exists but cannot be opened** (another program has it open without sharing, there is no permission to read it, and so on), Edax waits about 2 seconds and tries again. If it still cannot be opened, Edax starts with a new book, but the file is not taken for a damaged one.
+  - The screen shows `Cannot open opening book data/book.dat; it is not loaded, and no save replaces it`.
+  - **This book is never saved to that file** (neither on exit nor by `book save`), and no `.damaged` file is made. The original file is left as it is.
+  - Once the other program has closed it, `book load data/book.dat` loads it as usual. Restarting Edax works too.
+  - To keep what was learned meanwhile, save it under another name, such as `book save data/other.dat`.
+  - Up to v4.5.5-nikque.26, a file that could not be opened was taken for a damaged one: a later save moved it to `.damaged` and replaced it with the new book.
 
 To switch to another book, do one of these:
 

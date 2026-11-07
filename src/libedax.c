@@ -559,6 +559,7 @@ LIBEDAX_API void libedax_terminate(void)
 	if (g_ui->free) g_ui->free(g_ui);
 	lib_bestpath_free();
 	book_analysis_quiesce(); // (the numbering of the positions of the book freed)
+	book_unread_forget(); // (the files that the book freed could not be loaded from: the next initialization loads its own)
 
 	// the evaluation function stays loaded: it is reused by the next initialization
 	options_free();
@@ -1647,6 +1648,26 @@ LIBEDAX_API int edax_book_keep_unread_file(const char *book_file)
 {
 	if (g_ui == NULL || book_file == NULL) return 0;
 	return book_keep_unread_file(book_file) ? 1 : 0;
+}
+
+/**
+ * @brief Tell what became of a book file that was to be loaded (by libedax_initialize, or edax_book_load).
+ *
+ * A book file that another program holds without sharing it (an antivirus, a backup...) when the library
+ * starts is waited for a little (2 seconds). If it still cannot be opened, the library starts with a new
+ * book that is never saved to that file: the program can tell it with this function (and stop, rather than
+ * learn into an empty book).
+ *
+ * @param book_file book file name.
+ * @return 0 if the file can be replaced (it was loaded, or no load of it failed), 1 if it could not be read
+ *         as a book (damaged, truncated: a save to it keeps it as <book_file>.damaged first), 2 if it exists
+ *         but could not be opened (no save replaces it, and edax_book_keep_unread_file returns 0); -1 if the
+ *         library is not initialized or book_file is NULL.
+ */
+LIBEDAX_API int edax_book_file_status(const char *book_file)
+{
+	if (g_ui == NULL || book_file == NULL) return -1;
+	return book_file_status(book_file);
 }
 
 /**

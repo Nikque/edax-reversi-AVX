@@ -403,10 +403,12 @@ static void test_damaged_books(const char *dll)
 	static const char *const damaged = "libtest-damaged.dat", *const other = "libtest-other.dat";
 	char *damaged_args[] = {"", "-book-file", "libtest-damaged.dat", "-level", "6", "-n-tasks", "1"};
 	int (*save_to)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_save_checked");
+	int (*file_status)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_file_status");
 	LibedaxBook info;
 
 	section("book files that could not be loaded");
 	CHECK(save_to != NULL);
+	CHECK(file_status != NULL);
 	write_file(damaged, "not a book: the book file of the settings\n");
 	write_file("libtest-damaged.txt", "not a book: the book file of the settings\n");
 	write_file(other, "not a book either\n");
@@ -417,12 +419,18 @@ static void test_damaged_books(const char *dll)
 	edax_book_load(other); // not loaded: the book is kept
 	edax_book_info(&info);
 	CHECK_INT(info.n_nodes, 1);
+	if (file_status) {
+		CHECK_INT(file_status(damaged), 1);
+		CHECK_INT(file_status(other), 1);
+		CHECK_INT(file_status("libtest-no-such-book.dat"), 0);
+	}
 	if (save_to) {
 		CHECK_INT(save_to(damaged), 1);
 		CHECK(same_files("libtest-damaged.dat.damaged", "libtest-damaged.txt")); // the book file of the settings is kept
 		CHECK(file_size(damaged) > 0 && !same_files(damaged, "libtest-damaged.txt")); // (and replaced by the new book)
 		CHECK_INT(save_to(other), 1);
 		CHECK(same_files("libtest-other.dat.damaged", "libtest-other.txt"));
+		if (file_status) CHECK_INT(file_status(damaged), 0);
 	}
 	libedax_terminate();
 	remove(damaged); remove(other); remove("libtest-damaged.dat.damaged"); remove("libtest-other.dat.damaged");
@@ -488,6 +496,85 @@ static void test_locked_book(const char *dll)
 	libedax_terminate();
 	DeleteFileW(locked);
 	RemoveDirectoryW(folder);
+}
+
+/** a thread that closes a handle (of a file opened without sharing) after half a second */
+static DWORD WINAPI close_later(LPVOID handle)
+{
+	Sleep(500);
+	CloseHandle((HANDLE) handle);
+	return 0;
+}
+
+/**
+ * a good book file that another program holds without sharing when the library starts: the library waits a little for it;
+ * when it still cannot be opened, it is not taken for a damaged file (no .damaged, never replaced) and edax_book_file_status
+ * tells it
+ */
+static void test_busy_book(const char *dll)
+{
+	char *busy_args[] = {"", "-book-file", "libtest-busy.dat", "-level", "6", "-n-tasks", "1"};
+	int (*file_status)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_file_status");
+	int (*keep_unread)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_keep_unread_file");
+	int (*save_to)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_save_checked");
+	LibedaxBook info;
+	LibedaxBoard b;
+	HANDLE h;
+	int n;
+
+	section("a book file held by another program at the start");
+	CHECK(file_status != NULL && keep_unread != NULL && save_to != NULL);
+	CHECK(CopyFileW(L"libtest-book2.dat", L"libtest-busy.dat", FALSE));
+	DeleteFileW(L"libtest-busy.dat.damaged");
+	libedax_initialize(7, busy_args);
+	edax_book_info(&info);
+	n = info.n_nodes;
+	libedax_terminate();
+	CHECK(n > 1);
+
+	// released half a second after the start: the book is loaded
+	h = CreateFileW(L"libtest-busy.dat", GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	CHECK(h != INVALID_HANDLE_VALUE);
+	if (h != INVALID_HANDLE_VALUE) {
+		HANDLE t = CreateThread(NULL, 0, close_later, h, 0, NULL);
+		libedax_initialize(7, busy_args);
+		thread_wait(t);
+		edax_book_info(&info);
+		CHECK_INT(info.n_nodes, n);
+		if (file_status) CHECK_INT(file_status("libtest-busy.dat"), 0);
+		libedax_terminate();
+	}
+
+	// held during the whole start: a new book, which never replaces the file
+	h = CreateFileW(L"libtest-busy.dat", GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	CHECK(h != INVALID_HANDLE_VALUE);
+	libedax_initialize(7, busy_args);
+	edax_book_info(&info);
+	CHECK_INT(info.n_nodes, 1);
+	if (file_status) {
+		CHECK_INT(file_status("libtest-busy.dat"), 2);
+		CHECK_INT(file_status(".\\LIBTEST-BUSY.DAT"), 2); // (the same file, still held)
+	}
+	if (h != INVALID_HANDLE_VALUE) CloseHandle(h); // (it can be opened now)
+	if (keep_unread) CHECK_INT(keep_unread("libtest-busy.dat"), 0);
+	if (save_to) CHECK_INT(save_to("libtest-busy.dat"), 0);
+	edax_init();
+	play("f5");
+	b = board();
+	edax_book_add_board(&b); // the book is changed: it needs saving
+	edax_book_info(&info);
+	CHECK_INT(info.n_nodes, 2);
+	libedax_terminate(); // (no save to the book file)
+	CHECK(same_files("libtest-busy.dat", "libtest-book2.dat"));
+	CHECK_INT(file_size("libtest-busy.dat.damaged"), -1);
+
+	// the next start loads it
+	libedax_initialize(7, busy_args);
+	edax_book_info(&info);
+	CHECK_INT(info.n_nodes, n);
+	if (file_status) CHECK_INT(file_status("libtest-busy.dat"), 0);
+	libedax_terminate();
+	DeleteFileW(L"libtest-busy.dat");
 }
 #endif
 
@@ -1080,6 +1167,7 @@ int main(int argc, char **argv)
 	if (!original) test_damaged_books(dll);
 #ifdef _WIN32
 	if (!original) test_locked_book(dll);
+	if (!original) test_busy_book(dll);
 #endif
 
 	free(movelist);
