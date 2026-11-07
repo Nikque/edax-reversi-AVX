@@ -328,9 +328,15 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   if(!capture_begin(1))return 2;histogram_print(h);h[64][32]=1;h[70][40]=1;h[70][41]=1;histogram_print(h);out=capture_end();if(!out)return 2;
   for(char *c=out;*c;++c)*c=(char)tolower((unsigned char)*c);
   ok=!strstr(out,"nan")&&!strstr(out,"inf")&&!strstr(out,"ind");printf("HISTOGRAM of 0, then 3 positions: %d characters, without nan nor inf=%d\n",(int)strlen(out),ok);free(out);
+  /* histogram_stats of no position: no division by 0 (up to v4.5.5-nikque.26 nan was printed) */
+  histogram_init(h);if(!capture_begin(1))return 2;histogram_stats(h);out=capture_end();if(!out)return 2;
+  for(char *c=out;*c;++c)*c=(char)tolower((unsigned char)*c);
+  {const int ok0=!strstr(out,"nan")&&!strstr(out,"inf")&&!strstr(out,"ind");printf("HISTOGRAM stats of 0 position: without nan nor inf=%d\n",ok0);ok=ok&&ok0;}free(out);
   /* every row and column of many positions: the text, as before (its hash) */
   for(int i=0;i<129;++i)for(int j=0;j<65;++j)h[i][j]=1+rr()%5;
   if(!capture_begin(1))return 2;histogram_print(h);out=capture_end();if(!out)return 2;{unsigned long long x=1469598103934665603ULL;for(char *c=out;*c;++c)x=(x^(unsigned char)*c)*1099511628211ULL;printf("HISTOGRAM of random counts: %d characters, hash %016llx\n",(int)strlen(out),x);}
+  free(out);
+  if(!capture_begin(1))return 2;histogram_stats(h);out=capture_end();if(!out)return 2;{unsigned long long x=1469598103934665603ULL;for(char *c=out;*c;++c)x=(x^(unsigned char)*c)*1099511628211ULL;printf("HISTOGRAM stats of random counts: %d characters, hash %016llx\n",(int)strlen(out),x);}
   free(out);if(!ok)return 2;}
  else return 1;
  return 0;

@@ -120,6 +120,11 @@ void histogram_stats(unsigned long long h[129][65])
 		s_xy += x[i] * y[j] * h[i][j];
 	}
 
+	if (n == 0.0) { // (no position: up to v4.5.5-nikque.26 divided by 0, and nan was printed)
+		printf("statistics summary\n");
+		printf("n  = 0\n\n");
+		return;
+	}
 	m_x /= n;
 	m_y /= n;
 
