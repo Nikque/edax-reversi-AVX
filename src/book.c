@@ -4446,7 +4446,10 @@ bool book_merge_file(Book *dest, const char *file)
 				Position *q = book_probe(dest, &p.board);
 				if (q == NULL) {
 					position_merge(&merged, &p);
-					if (dest->n_nodes == UINT_MAX || position_array_add(book_array(dest, &p.board), &merged, dest) <= 0) { position_free(&p); error("cannot add a position to the book\n"); goto merge_end; }
+					// a board written in another orientation (a book file of another tool): in the bucket of its unique board,
+					// where it is looked for (up to v4.5.5-nikque.26 the merge linked no move to it, then book_fix moved it there)
+					position_unique(&merged);
+					if (dest->n_nodes == UINT_MAX || position_array_add(book_array(dest, &merged.board), &merged, dest) <= 0) { position_free(&p); error("cannot add a position to the book\n"); goto merge_end; }
 					++dest->n_nodes; ++dest->stats.n_nodes; ++n_added;
 				} else if (!position_is_done(q, dest)) { // a position of the destination: remember the source leaf (see book_link_parallel)
 					// (a board of the file that is not the unique one has its leaf in another orientation: no hint)

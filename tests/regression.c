@@ -259,6 +259,22 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   printf("IMPORT leaf scores 6, 300, -65: imported=%d positions=%u (1 expected), leaf score of the first %d\n",ok,ok?k.n_nodes:0,p?p->leaf.score:-999);
   for(int i=1;ok&&i<3;++i){Position *q=book_probe(&k,b+i);if(q)printf("IMPORT line %d imported with the leaf score %d\n",i+1,q->leaf.score);}
   ok=ok&&k.n_nodes==1&&p&&p->leaf.score==6;if(k.array)book_free(&k);remove("audit-import.txt");if(!ok)return 2;}
+ else if(!strcmp(t,"mergeorient")){ /* book merge of a position written in another orientation (a book file of another tool): the merge links it
+   (up to v4.5.5-nikque.26 it was put in the bucket of its board as written, linked to nothing, then moved by book fix) */
+  Search s;init_search(&s,1);Book src={0},d={0};Position p;Board b,x,u;int m=NOMOVE,ok;const int first[4]={F5,D3,C4,E6};board_init(&b);
+  for(int i=0;i<4&&m==NOMOVE;++i){board_next(&b,first[i],&x);board_unique(&x,&u);if(!board_equal(&x,&u))m=first[i];}
+  if(m==NOMOVE)return 2;
+  book_init(&src);position_init(&p);p.board=x;p.level=1;p.leaf.move=(unsigned char)first_bit(board_get_moves(&x));p.leaf.score=0;p.score.value=0;if(book_add(&src,&p)<=0||!book_save(&src,"audit-merge-orient.dat"))return 2;book_free(&src);
+  d.search=&s;book_new(&d,1,49);ok=book_merge_file(&d,"audit-merge-orient.dat");
+  if(ok){book_link_parallel(&d);book_fix(&d);book_negamax(&d);} /* (as play_book_merge) */
+  Position *r=book_probe(&d,&b),*c=book_probe(&d,&x);
+  printf("MERGE a position in another orientation: merged=%d positions=%u, links of the root %d, position found=%d\n",ok,d.n_nodes,r?r->n_link:-1,c!=NULL);
+  ok=ok&&d.n_nodes==2&&r&&r->n_link>0&&c;
+  /* the same position twice, in two orientations: a duplicated position, as the same board twice (the merge is refused) */
+  book_init(&src);position_init(&p);p.board=x;p.level=1;if(book_add(&src,&p)<=0)return 2;position_init(&p);p.board=u;p.level=1;if(book_add(&src,&p)<=0||!book_save(&src,"audit-merge-orient.dat"))return 2;book_free(&src);
+  book_free(&d);d.search=&s;book_new(&d,1,49);int twice=book_merge_file(&d,"audit-merge-orient.dat");
+  printf("MERGE the same position in two orientations to a new book: merged=%d positions=%u\n",twice,d.n_nodes);ok=ok&&!twice&&d.n_nodes==1;
+  book_free(&d);search_free(&s);remove("audit-merge-orient.dat");if(!ok)return 2;}
  else return 1;
  return 0;
 }
