@@ -339,6 +339,7 @@ Example (a test book):
 - When the current position is not in the book, the answer has `notinbook=1`. When it is two or more moves beyond the book depth, it has `deep=1`. In both cases `kept=` is the whole book and `removed=0` (`book reduce` does not change the book).
 - When the book after the current position is damaged (a link to an occupied square, or a link back to the same position; since v4.5.5-nikque.21), it does not count. It answers `@error id=N damaged=1` and `@end id=N error=1`.
 - A GUI program can show these numbers and ask for confirmation before it sends `book reduce`.
+- The result of the count is used by the `book reduce` after it ([8.4](08-book-maintenance.md)). When another analysis needs the memory of its marks, it is forgotten, and `book reduce` recomputes (with the same result).
 
 **Errors, stopping and syntax**
 

@@ -205,7 +205,8 @@ Restrictions and messages:
 Related features:
 
 - You can check the numbers first with `book reducecount id=N x=X y=Y`. It does not change the book ([12.4](12-integration.md)). It counts with the same recomputed values as `book reduce`, so the numbers match.
-- If `book reduce` runs right after the count, from the same position and with the same X Y, it reuses the count's result without recomputing the values or traversing again (since v4.5.5-nikque.22; setting `book-reduce-reuse`).
+- If `book reduce` runs after the count, with the book unchanged, from the same position and with the same X Y, it reuses the count's result without recomputing the values or traversing again (since v4.5.5-nikque.22; setting `book-reduce-reuse`).
+- The result of the count (about 2 bytes a position) is kept until `book reduce`, a command that changes the book, or the next `book reducecount`. When another analysis (`book moveinfo`, ...) needs the memory of its marks meanwhile, the result gives it and is forgotten (up to v4.5.5-nikque.26 it was kept until the book changed, and the marks of the other analyses could take about 16 bytes each). `book reduce` then recomputes and traverses again, with the same positions kept.
 - After most positions have been removed, the book shrinks its number of buckets and releases memory (since v4.5.5-nikque.22; setting `book-reduce-shrink`). The positions are then saved in a different order (the positions themselves are the same).
 
 ### Cautions when trimming

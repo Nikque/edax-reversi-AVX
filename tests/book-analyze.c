@@ -21,10 +21,11 @@
  *
  * moveinfo-memory: book moveinfo when an allocation of a walk fails ends with an error, not with lines left out.
  * push-parent: an item of a walk whose number, or the number of its parent, does not fit in an int is refused.
+ * reducecount-memory: the positions counted by book reducecount give their memory to a walk of another analysis.
  *
  * Build: tests\build-book-analyze.cmd (Visual Studio 2022 x64 Developer Command Prompt), run: tests\book-analyze.exe umigame
  * (or umigame-large, umigame-order, precision, precision-book <book file> [stages], reach, reach-book <book file> <games file>, missing,
- * missing-book <book file> <games file>, umi-inherit, umi-book <book file> <games file> [umi=...], bookhint, moveinfo-memory, push-parent)
+ * missing-book <book file> <games file>, umi-inherit, umi-book <book file> <games file> [umi=...], bookhint, moveinfo-memory, push-parent, reducecount-memory)
  */
 #define BOOK_ANALYZE_TEST
 #define main edax_original_main
@@ -1253,6 +1254,59 @@ static int push_parent(void)
 	return r ? 2 : 0;
 }
 
+/**
+ * @brief The positions counted by book reducecount, kept for book reduce (ba_counted), give their memory to a walk of
+ * another analysis that needs it (ba_dense_reserve), and are forgotten (up to v4.5.5-nikque.26 they kept it until the
+ * book changed, and the walk took its marks in a hash table).
+ */
+static int reducecount_memory(void)
+{
+	static Book book;
+	const bool reuse = options.book_reduce_reuse;
+	int t, n_tried = 0, n_bad = 0;
+
+	options.book_reduce_reuse = true;
+	for (t = 0; t < 20 && n_tried < 5; ++t) {
+		BaParams prm;
+		BaJob job;
+		unsigned long long held, want;
+		bool ok;
+		tb_build(&book, 9 + (int) rnd(2), 3); // (a book of thousands of positions, all counted: marks of one byte a position)
+		ba_index_free();
+		ba_index_get(&book);
+		ba_params_default(&prm);
+		prm.x = 129;
+		prm.y = 254;
+		memset(&job, 0, sizeof job);
+		job.book = &book;
+		job.board = tb_board[0];
+		job.player = BLACK;
+		job.id = 1;
+		job.kind = BA_REDUCECOUNT;
+		if (ba_reducecount(&job, &prm) == 0 && ba_counted.valid) {
+			held = (ba_counted.kept.dense ? ba_counted.kept.n_index : 0) + (ba_counted.val.dense ? ba_counted.val.n_index : 0);
+			if (held > 0) { // (marks in hash tables hold no memory reserved for the dense marks)
+				++n_tried;
+				want = 6 * ba.index.n + (1u << 20) - (unsigned long long) ba.dense_bytes + 1; // (more than is left while the count is kept)
+				ok = ba_dense_reserve(want);
+				printf("reducecount-memory book %d: the count holds %llu bytes; %llu bytes for a walk %s, count %s\n", t, held, want,
+					ok ? "given" : "refused", ba_counted.valid ? "kept" : "forgotten");
+				if (!ok || ba_counted.valid || (unsigned long long) ba.dense_bytes != want) ++n_bad;
+				if (ok) ba_dense_release(want);
+			}
+		}
+		ba_counted_free();
+		if (ba.dense_bytes != 0) { ++n_bad; printf("FAIL reducecount-memory book %d: %lld bytes left reserved\n", t, ba.dense_bytes); ba.dense_bytes = 0; }
+		book_free(&book);
+	}
+	options.book_reduce_reuse = reuse;
+	inherit_forget();
+	ba_index_free();
+	printf("reducecount-memory: %d counts that held dense marks, %d wrong\n", n_tried, n_bad);
+	if (n_tried == 0) { printf("FAIL reducecount-memory: no count held dense marks\n"); return 2; }
+	return n_bad ? 2 : 0;
+}
+
 /** @brief The tables of the search, and one thread (the tests on books). */
 static void test_search_init(void)
 {
@@ -1278,5 +1332,6 @@ int main(int argc, char **argv)
 	if (strcmp(argv[1], "missing-book") == 0 && argc >= 4) { test_search_init(); return missing_book(argv[2], argv[3]); }
 	if (strcmp(argv[1], "moveinfo-memory") == 0) { test_search_init(); return moveinfo_memory(); }
 	if (strcmp(argv[1], "push-parent") == 0) return push_parent();
+	if (strcmp(argv[1], "reducecount-memory") == 0) { test_search_init(); return reducecount_memory(); }
 	return 1;
 }

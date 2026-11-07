@@ -230,7 +230,8 @@ Positions: 19 (moves = 22 links + 17 leaves);
 
 - 消える数は、`book reducecount id=N x=X y=Y` で先に確かめられます。book は変えません（[12.4](12-integration.md)）。
 - `book reduce` と同じく、評価値を計算し直した値で数えるので、同じ数になります。
-- 数えた直後に、同じ局面・同じ X Y で `book reduce` を実行すると、数えた結果を使います。計算し直しとたどる処理を省きます（v4.5.5-nikque.22 から。設定 `book-reduce-reuse`）。
+- 数えた後、book を変えずに、同じ局面・同じ X Y で `book reduce` を実行すると、数えた結果を使います。計算し直しとたどる処理を省きます（v4.5.5-nikque.22 から。設定 `book-reduce-reuse`）。
+- 数えた結果（局面 1 つに 2 バイトほど）は、`book reduce`、book を変えるコマンド、次の `book reducecount` まで持ちます。その間に、ほかの解析（`book moveinfo` など）が印のメモリを要るときは、そちらに譲って捨てます（v4.5.5-nikque.26 までは、book が変わるまで持ち続け、ほかの解析の印は 1 つ 16 バイトほどの形になることがありました）。捨てた後の `book reduce` は、計算し直してたどります。残る局面は同じです。
 
 **メモリの返却**
 
