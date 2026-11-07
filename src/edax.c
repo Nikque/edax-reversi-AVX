@@ -346,20 +346,57 @@ static char* parse_loss_limits(char *param, int *move_loss, int *total_loss)
 }
 
 /**
+ * @brief Read a file name: a word, or a name between double quotes, which may hold spaces (the quotes are dropped).
+ * @param s Words.
+ * @param name File name (out: empty if there is none).
+ * @param size Size of name.
+ * @param wrong What is wrong with the name (out): NULL, or the name is longer than size - 1 characters (it is not cut),
+ * or its quote is not closed.
+ * @return the rest of the words.
+ */
+static const char* parse_file_name(const char *s, char *name, const size_t size, const char **wrong)
+{
+	size_t n = 0;
+	const bool quoted = (*(s = parse_skip_spaces(s)) == '"');
+
+	*wrong = NULL;
+	if (quoted) ++s;
+	for (; *s && (quoted ? *s != '"' : !isspace((unsigned char) *s)); ++s, ++n) if (n + 1 < size) name[n] = *s;
+	name[n + 1 < size ? n : size - 1] = '\0';
+	if (n + 1 > size) *wrong = "the file name is too long";
+	else if (quoted && *s != '"') *wrong = "the quote of the file name is not closed";
+	if (quoted && *s == '"') ++s;
+	return s;
+}
+
+/**
  * @brief "export <file> [leaf|ends|all]" after the numbers of book deviate, deviate2, deviate3: the lines of its walk
- * are written to the file, nothing is expanded (see book_deviate_export).
- * @return false if the words are not there (the command expands the book).
+ * are written to the file, nothing is expanded (see book_deviate_export). The file name may be written between double
+ * quotes ("C:\a b\lines.txt"). Another word after the numbers is an error (up to v4.5.5-nikque.26 it was skipped, and
+ * the book expanded: "exprot" for "export"), and so is a file name too long (it was cut).
+ * @return false if nothing follows the numbers (the command expands the book).
  */
 static bool deviate_export(Play *play, const char *param, const int base, const int x, const int y)
 {
-	char word[16], file[FILENAME_MAX + 1], game_line[2 * PLAY_GAME_SIZE + 1];
+	static const char *names[] = {"", "deviate", "deviate2", "deviate3"};
+	char word[64], file[FILENAME_MAX], game_line[2 * PLAY_GAME_SIZE + 1];
+	const char *wrong;
 	int which = BOOK_EXPORT_LEAF;
 
-	param = parse_word(param, word, sizeof word - 1);
+	param = parse_skip_spaces(param);
+	if (*param == '\0') return false;
+	param = parse_word(param, word, sizeof word);
 	string_to_lowercase(word);
-	if (strcmp(word, "export") != 0) return false;
-	param = parse_word(param, file, FILENAME_MAX);
-	parse_word(param, word, sizeof word - 1);
+	if (strcmp(word, "export") != 0) {
+		printf("ERROR: book %s: unknown word %s after the numbers (export, or nothing); the book is not expanded\n", names[base], word);
+		return true;
+	}
+	param = parse_file_name(param, file, sizeof file, &wrong);
+	if (wrong) {
+		printf("ERROR: book deviate export: %s\n", wrong);
+		return true;
+	}
+	parse_word(param, word, sizeof word);
 	string_to_lowercase(word);
 	if (strcmp(word, "ends") == 0) which = BOOK_EXPORT_ENDS;
 	else if (strcmp(word, "all") == 0) which = BOOK_EXPORT_ALL;

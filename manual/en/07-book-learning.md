@@ -209,7 +209,7 @@ Each command takes two numbers.
 | `book deviate2 X Y` | How many discs one move may lose (either side) | The limit for **the total of discs lost by both sides** from the starting position down to there | **Not expanded** |
 | `book deviate3 X Y` | As `book deviate2` | As `book deviate2` | Expanded |
 
-Without the numbers, all three use `2 4`.
+Without the numbers, all three use `2 4`. A word other than `export` (the export below) after the numbers is an error, `ERROR: book deviate2: unknown word … after the numbers`, and the book is not expanded (up to v4.5.5-nikque.26, a typo such as `exprot` was skipped and the book expanded).
 
 **book deviate X Y** (the method of the original Edax): each round selects and expands leaves twice.
 
@@ -263,7 +263,8 @@ book deviate2 2 4 export lines.txt ends
 - The total loss of `book deviate2` and `book deviate3` is at most 254 (as when they expand). A larger number is reduced to 254 with the warning of the commands that expand (`WARNING: total loss 300 reduced to 254`), by `edax_book_deviate_export` of libedax too (up to v4.5.5-nikque.26, libedax alone said `cumulative loss = 300 is out of range. Set to 254`).
 - At the end, `Book deviate2 2 4 export ends...finished: 120 lines written (lines.txt)` is shown. When the current position is not in the book, an empty file is made.
 - The book does not change: nothing is saved, and no progress file is written.
-- When it cannot write the lines, it prints a line beginning with `ERROR:` and does not expand the book: with no file name (`ERROR: book deviate export: no file`), with a last word other than `leaf`, `ends` and `all` (`unknown word`), or when the file cannot be written (`ERROR: book deviate2 2 4 export: cannot write the file lines.txt`).
+- A file name that holds spaces is written between double quotes (`book deviate2 2 4 export "C:\My Books\lines.txt" ends`); the quotes are not part of the name.
+- When it cannot write the lines, it prints a line beginning with `ERROR:` and does not expand the book: with no file name (`ERROR: book deviate export: no file`), with a file name too long (`the file name is too long`: 259 characters at most on Windows; up to v4.5.5-nikque.26 the name was cut without a word), with a quote that is not closed (`the quote of the file name is not closed`), with a last word other than `leaf`, `ends` and `all` (`unknown word`), or when the file cannot be written (`ERROR: book deviate2 2 4 export: cannot write the file lines.txt`).
 
 ## 7.4 Automatic expansion: the other commands
 
