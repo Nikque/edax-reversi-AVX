@@ -251,7 +251,7 @@ The last line of the file contains the book's depth (since v4.5.5-nikque.13).
 
 Notes:
 
-- If the file cannot be opened or contains no positions, the current book is kept (`was not imported; current book retained` is printed). Lines that cannot be read as a position are skipped, and the import continues.
+- If the file cannot be opened or contains no positions, the current book is kept (`was not imported; current book retained` is printed). Lines that cannot be read as a position are skipped, and the import continues. A line whose leaf score is out of -64 to 64 is one of them (up to v4.5.5-nikque.26, 300 was read as 44, for example).
 - Because the links are rebuilt, the imported book may differ in some leaves from the book before export. In a test with a book of 2,246 positions, a second export made after the import differed in 7 lines.
 - **A file without the `% depth` line** (exported by a version up to v4.5.5-nikque.12, or made by hand):
   - The depth becomes **the smallest depth that contains the deepest position**.

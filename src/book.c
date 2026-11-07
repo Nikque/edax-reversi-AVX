@@ -607,15 +607,17 @@ static int position_import(Position *position, FILE *f, const bool verbose, int 
 			s = parse_move(old = s + 1, &position->board, &move);
 			if (s != old && *(s = parse_find(s, ',')) == ',') {
 				s = parse_int(old = s + 1, &value);
-				if (s != old) {
+				if (s == old) {
+				} else if (value < SCORE_MIN || value > SCORE_MAX) {
+					wrong = "wrong leaf score"; // (up to v4.5.5-nikque.26 kept as a signed char: 300 was read as 44)
+				} else {
 					position->leaf.move = move.x;
 					position->leaf.score = value;
 				}
 			}
 		}
-	} else if (verbose) {
-		warn("%s: %s\n=> wrong position\n", wrong, line);
 	}
+	if (wrong != NULL && verbose) warn("%s: %s\n=> wrong position\n", wrong, line);
 
 	free(line);
 	return wrong == NULL;
