@@ -785,11 +785,18 @@ typedef struct BaQueue {
 	long long n, size;
 } BaQueue;
 
+#ifdef BOOK_ANALYZE_TEST
+static long long ba_test_alloc_fail = -1; /**< allocations of the walks that succeed before one fails, -1: none fails (test builds) */
+#define BA_TEST_ALLOC_FAILS() (ba_test_alloc_fail >= 0 && ba_test_alloc_fail-- == 0)
+#else
+#define BA_TEST_ALLOC_FAILS() false
+#endif
+
 static bool ba_push(BaQueue *q, Position *p, const unsigned int idx, const long long parent, const int move, const int depth, const int loss)
 {
 	if (q->n == q->size) {
 		const long long size = q->size + q->size / 2 + 1024;
-		BaItem *item = (BaItem*) realloc(q->item, (size_t) size * sizeof *item);
+		BaItem *item = BA_TEST_ALLOC_FAILS() ? NULL : (BaItem*) realloc(q->item, (size_t) size * sizeof *item);
 		if (item == NULL || parent > INT_MAX) { if (item) q->item = item; return false; }
 		q->item = item; q->size = size;
 	}
@@ -1569,7 +1576,7 @@ static long long ba_reach(BaWork *w, Position *root, const unsigned int root_idx
 {
 	BaReachThread t[MAX_THREADS];
 	BaList cur = {NULL, 0, 0};
-	volatile unsigned int *bits = (volatile unsigned int*) calloc((size_t) (ba.index.n / 32 + 1), sizeof (unsigned int));
+	volatile unsigned int *bits = BA_TEST_ALLOC_FAILS() ? NULL : (volatile unsigned int*) calloc((size_t) (ba.index.n / 32 + 1), sizeof (unsigned int));
 	const int n_thread = ba_n_thread();
 	long long n = 1;
 	int i;
@@ -2328,6 +2335,7 @@ typedef struct BaTeam {
 	const Position *current;    /**< current position, NULL if it is not in the book */
 	BaStageInfo current_info;   /**< its stage, if current_known (kept when it was the position after a move) */
 	bool current_known;
+	bool failed;                /**< a walk had no memory (the analysis ends with an error) */
 	Lock lock;
 } BaTeam;
 
@@ -2563,14 +2571,21 @@ static void* ba_team_run(void *v)
 	ba_work_init(&w, job, team->prm);
 	for (;;) {
 		BaMove *m;
+		bool failed;
 		lock(team);
 		i = team->next++;
+		failed = team->failed;
 		unlock(team);
-		if (i >= team->n_move || job->cancel) break;
+		if (i >= team->n_move || job->cancel || failed) break;
 		m = team->move + i;
 		if (m->p == NULL || m->same >= 0) continue;
 		if (team->part == BA_PART_STAGE) {
-			if (ba_move_stage(&w, team->current, &team->current_info, team->current_known, m) < 0) { if (!job->cancel) m->stage = 0; break; }
+			if (ba_move_stage(&w, team->current, &team->current_info, team->current_known, m) < 0) {
+				// no memory: the analysis ends with an error (up to v4.5.5-nikque.26 the line of the move was left
+				// out of an @end without error)
+				if (!job->cancel) { lock(team); team->failed = true; unlock(team); }
+				break;
+			}
 			ba_print_move(job, m, true);
 		} else {
 			if (!ba_move_umi(&w, job->player, m)) break;
@@ -2661,6 +2676,7 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 	Position *current;
 	unsigned int current_idx;
 	int i, n;
+	bool failed;
 
 	memset(move, 0, sizeof move);
 	ba_work_init(&w, job, prm);
@@ -2682,13 +2698,13 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 	if ((prm->parts & BA_PART_STAGE) && !job->cancel) {
 		team.part = BA_PART_STAGE;
 		ba_team(&team);
-		for (i = 0; i < n && !job->cancel; ++i) if (move[i].p && move[i].same >= 0) {
+		for (i = 0; i < n && !job->cancel && !team.failed; ++i) if (move[i].p && move[i].same >= 0) {
 			move[i].stage = move[move[i].same].stage;
 			move[i].missing = move[move[i].same].missing;
 			ba_print_move(job, move + i, true);
 		}
 	}
-	if ((prm->parts & BA_PART_UMI) && prm->umi != BA_UMI_OFF && !job->cancel) {
+	if ((prm->parts & BA_PART_UMI) && prm->umi != BA_UMI_OFF && !job->cancel && !team.failed) {
 		team.part = BA_PART_UMI;
 		ba_team(&team);
 		for (i = 0; i < n && !job->cancel; ++i) if (move[i].p && move[i].same >= 0) {
@@ -2700,17 +2716,18 @@ static int ba_moveinfo(BaJob *job, const BaParams *prm)
 			ba_print_umi(job, move + i);
 		}
 	}
+	failed = team.failed;
 	lock_free(&team);
-	if ((prm->parts & BA_PART_COUNT) && !job->cancel) {
+	if ((prm->parts & BA_PART_COUNT) && !job->cancel && !failed) {
 		long long hist[61];
 		for (i = 0; i < n && !job->cancel; ++i) if (move[i].p) {
 			const long long k = ba_reach_kept(&w, move[i].p, move[i].idx, hist);
-			if (k < 0) break;
+			if (k < 0) { failed = !job->cancel; break; } // (no memory: an error, as for the stages)
 			ba_print("@move id=%d sq=%s part=count positions=%lld\n", job->id, move[i].sq, k);
 		}
 	}
 	ba_work_free(&w);
-	if (job->cancel) return -1;
+	if (job->cancel || failed) return -1; // (ba_run tells it: @cancel, or @error memory=1)
 	ba_print("@end id=%d ms=%lld\n", job->id, real_clock() - t);
 	return 0;
 }
