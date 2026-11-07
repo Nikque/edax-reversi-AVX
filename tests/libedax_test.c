@@ -378,7 +378,9 @@ static void test_store_games(const char *dll)
 		CHECK_INT(store_tasks(), 2);
 		edax_init();
 		play("f5f4");
+		edax_book_info(&info); // (the positions of the book now: up to v4.5.5-nikque.26 the count after the first 3 games)
 		n_before = info.n_nodes;
+		printf("before 5 more games: %d positions\n", n_before);
 		memset(status, 'x', sizeof status);
 		CHECK_INT(store_games("f5f4e3\nf5d6c4d3\n1,f5d6c5f4e3\nf5d6c5f4e3\nh8\nf5f6e6f4e3", status), 5);
 		CHECK_STR(status, "111101");
