@@ -912,6 +912,9 @@ void ul_clock_print_time(time_t tm, FILE* f)
 EvalBuilder* eval_builder_create(int n_vectors, int* vector_size, int* vector_times, int n_features, int n_games) {
 	EvalBuilder* eval;
 	int i;
+	// the rows of the features and of the scores: at least one (the commands without games, merge or show, create
+	// it with 0 games, and feature[0] was written in an empty array up to v4.5.5-nikque.15)
+	const int n_rows = (n_games ? n_games : 1);
 
 	eval = (EvalBuilder*)malloc(sizeof(EvalBuilder));
 
@@ -1001,16 +1004,14 @@ EvalBuilder* eval_builder_create(int n_vectors, int* vector_size, int* vector_ti
 	}
 	eval->n_features = n_features;
 	eval->n_games = n_games;
-	// (at least one game: the commands without games, merge or show, create it with 0 games, and feature[0] was
-	// written in an empty array up to v4.5.5-nikque.15)
-	eval->feature = (int**)malloc((n_games ? n_games : 1) * sizeof(int*));
+	eval->feature = (int**)malloc(n_rows * sizeof(int*));
 	assert(eval->feature != NULL);
-	eval->feature[0] = (int*)malloc((n_games ? n_games : 1) * eval->n_features * sizeof(int));
+	eval->feature[0] = (int*)malloc(n_rows * eval->n_features * sizeof(int));
 	assert(eval->feature[0] != NULL);
 	for (i = 1; i < n_games; i++) {
 		eval->feature[i] = eval->feature[i - 1] + eval->n_features;
 	}
-	eval->score = (char*)malloc((n_games ? n_games : 1) * sizeof(char));
+	eval->score = (char*)malloc(n_rows * sizeof(char));
 	assert(eval->score != NULL);
 
 	return eval;
