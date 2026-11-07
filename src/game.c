@@ -1688,7 +1688,7 @@ int game_analyze(Game *game, Search *search, const int n_empties, const bool app
 		if (!can_move(board.player, board.opponent)) {
 			stack[n_move].best = MOVE_INIT;
 			line_init(&stack[n_move].pv, player);
-			stack[n_move].n_empties = bit_count(~(board.player | board.opponent));
+			stack[n_move].n_empties = board_count_empties(&board);
 			stack[n_move++].played = MOVE_PASS;
 			board_pass(&board);
 			player = !player;
