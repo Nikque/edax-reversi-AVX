@@ -14,11 +14,21 @@ static unsigned long long ref_moves(Board b){unsigned long long m=0;for(int x=0;
 static Board ref_next(Board b,int x){unsigned long long f=ref_flip(b,x);Board q={b.opponent^f,b.player^f^(1ULL<<x)};return q;}
 static int ref_solve(Board b,int alpha,int beta){unsigned long long m=ref_moves(b);if(!m){Board q={b.opponent,b.player};if(ref_moves(q))return -ref_solve(q,-beta,-alpha);int d=bit_count(b.player)-bit_count(b.opponent),e=64-bit_count(b.player|b.opponent);return d>0?d+e:d<0?d-e:0;}int best=-65;while(m){int x=first_bit(m);m&=m-1;int v=-ref_solve(ref_next(b,x),-beta,-alpha);if(v>best)best=v;if(v>alpha)alpha=v;if(alpha>=beta)break;}return best;}
 static const char *eval_path(void) { const char *p = getenv("EDAX_EVAL_FILE"); return p ? p : "data/eval.dat"; }
-static void init_search(Search *s,int tasks){options.n_task=tasks;options.hash_table_size=10;options.verbosity=0;options.cpu_affinity=false;eval_open(eval_path());search_global_init();search_init(s);}
-static Board late_board(int empties){Board b;board_init(&b);while(board_count_empties(&b)>empties){unsigned long long m=ref_moves(b);if(!m){board_pass(&b);m=ref_moves(b);if(!m)break;}int k=rr()%bit_count(m);while(k--)m&=m-1;b=ref_next(b,first_bit(m));}return b;}
+/* the engine of the cases: threads, a small hash table, no output, the evaluation of eval_path() */
+static void init_engine(int tasks){options.n_task=tasks;options.hash_table_size=10;options.verbosity=0;options.cpu_affinity=false;eval_open(eval_path());search_global_init();}
+static void init_search(Search *s,int tasks){init_engine(tasks);search_init(s);}
+/* one of the moves m, at random (rr) */
+static int random_move(unsigned long long m){int k=rr()%bit_count(m);while(k--)m&=m-1;return first_bit(m);}
+/* a copy of a file without its last byte; returns the size of the file */
+static long copy_cut(const char *from,const char *to){FILE *in=fopen(from,"rb"),*out=fopen(to,"wb");fseek(in,0,SEEK_END);long n=ftell(in);rewind(in);for(long i=0;i<n-1;++i)fputc(fgetc(in),out);fclose(in);fclose(out);return n;}
+static bool file_exists(const char *path){FILE *f=fopen(path,"rb");if(!f)return false;fclose(f);return true;}
+/* a user interface of a protocol, without its input thread: the messages are added to its event */
+static UI *ui_new(void){UI *ui=mm_malloc(sizeof *ui);memset(ui,0,sizeof *ui);event_init(&ui->event);return ui;}
+static void ui_delete(UI *ui){event_free(&ui->event);mm_free(ui);}
+static Board late_board(int empties){Board b;board_init(&b);while(board_count_empties(&b)>empties){unsigned long long m=ref_moves(b);if(!m){board_pass(&b);m=ref_moves(b);if(!m)break;}b=ref_next(b,random_move(m));}return b;}
 static void core(int tasks){Search s;init_search(&s,tasks);unsigned long long checks=0;int exact=0,passes=0;for(int g=0;g<300;++g){Board b;board_init(&b);for(int ply=0;ply<120;++ply){unsigned long long m=ref_moves(b);if(m!=board_get_moves(&b)){puts("FAIL moves");exit(2);}for(int x=0;x<64;++x)if(!((b.player|b.opponent)&(1ULL<<x))){Move mv;unsigned long long f=board_get_move_flip(&b,x,&mv);++checks;if(f!=ref_flip(b,x)){puts("FAIL flips");exit(2);}}
  Board unique;board_unique(&b,&unique);for(int sym=0;sym<8;++sym){Board transformed,u;board_symetry(&b,sym,&transformed);board_unique(&transformed,&u);if(!board_equal(&unique,&u)){puts("FAIL symmetry");exit(2);}}
- if(!m){board_pass(&b);++passes;if(!ref_moves(b))break;continue;}int k=rr()%bit_count(m);while(k--)m&=m-1;int x=first_bit(m);Board next=ref_next(b,x),actual;board_next(&b,x,&actual);if(!board_equal(&next,&actual)){puts("FAIL next");exit(2);}Eval e={0},fresh={0};e.n_empties=board_count_empties(&b);eval_set(&e,&b);eval_update(x,ref_flip(b,x),&e);fresh.n_empties=board_count_empties(&next);eval_set(&fresh,&next);if(memcmp(&e.feature,&fresh.feature,sizeof e.feature)){puts("FAIL incremental eval");exit(2);}b=next;}}
+ if(!m){board_pass(&b);++passes;if(!ref_moves(b))break;continue;}int x=random_move(m);Board next=ref_next(b,x),actual;board_next(&b,x,&actual);if(!board_equal(&next,&actual)){puts("FAIL next");exit(2);}Eval e={0},fresh={0};e.n_empties=board_count_empties(&b);eval_set(&e,&b);eval_update(x,ref_flip(b,x),&e);fresh.n_empties=board_count_empties(&next);eval_set(&fresh,&next);if(memcmp(&e.feature,&fresh.feature,sizeof e.feature)){puts("FAIL incremental eval");exit(2);}b=next;}}
  for(int i=0;i<96;++i){Board b=late_board(1+i%12);int want=ref_solve(b,-65,65);search_cleanup(&s);search_set_board(&s,&b,BLACK);search_set_level(&s,60,board_count_empties(&b));search_run(&s);if(s.result->score!=want){printf("FAIL exact tasks=%d empty=%d expected=%d actual=%d\n",tasks,board_count_empties(&b),want,s.result->score);exit(2);}++exact;}
  printf("PASS core tasks=%d games=300 flip_checks=%llu symmetries=all8 exact_positions=%d empties=1..12 pass_events=%d\n",tasks,checks,exact,passes);search_free(&s);}
 int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init();edge_stability_init();const char *t=argv[1];
@@ -28,22 +38,22 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
  else if(!strcmp(t,"edx")){Game g;Base b,c;remove("audit-roundtrip.edx");game_init(&g);g.move[0]=26;g.date.month=10;base_init(&b);base_init(&c);base_append(&b,&g);base_save(&b,"audit-roundtrip.edx");base_load(&c,"audit-roundtrip.edx");printf("EDX roundtrip expected_games=1 actual=%d expected_firstmove=26 actual=%d\n",c.n_games,c.n_games?c.game[0].move[0]:-1);if(c.n_games!=1||c.game[0].move[0]!=26)return 2;base_free(&b);base_free(&c);}
  else if(!strcmp(t,"savefail")){Book b={0};book_init(&b);int ok=book_save(&b,"audit-directory-does-not-exist/book.dat");book_free(&b);printf("BOOK save to missing directory accepted=%d\n",ok);if(ok)return 2;}
  else if(!strcmp(t,"deviatesave")){
-  const char *path="audit-deviate-save.dat";Book b={0};book_init(&b);int rounds=0;FILE *f;
+  const char *path="audit-deviate-save.dat";Book b={0};book_init(&b);int rounds=0;
   remove(path);options_read("book-deviate-save-rounds","0");
   book_deviate_save_progress(&b,path,1,&rounds);book_deviate_save_progress(&b,path,1,&rounds);
-  if((f=fopen(path,"rb"))!=NULL){fclose(f);return 2;}
+  if(file_exists(path))return 2;
   book_deviate_save_progress(&b,path,0,&rounds);
-  if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
+  if(!file_exists(path))return 2;remove(path);
   options_read("book-deviate-save-rounds","10");rounds=0;
   for(int i=0;i<9;++i)book_deviate_save_progress(&b,path,1,&rounds);
-  if((f=fopen(path,"rb"))!=NULL){fclose(f);return 2;}
+  if(file_exists(path))return 2;
   book_deviate_save_progress(&b,path,1,&rounds);
-  if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
+  if(!file_exists(path))return 2;remove(path);
   book_deviate_save_progress(&b,path,1,&rounds);book_deviate_save_progress(&b,path,0,&rounds);
-  if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
+  if(!file_exists(path))return 2;remove(path);
   options_read("book-deviate-save-rounds","1");rounds=0;
   book_deviate_save_progress(&b,path,1,&rounds);
-  if((f=fopen(path,"rb"))==NULL)return 2;fclose(f);remove(path);
+  if(!file_exists(path))return 2;remove(path);
   book_free(&b);puts("PASS deviate save cadence: final-only, every 10 rounds, final remainder, and every round");
  }
  else if(!strcmp(t,"reproducible")){
@@ -112,13 +122,12 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
  else if(!strcmp(t,"core")){core(argc>2?atoi(argv[2]):1);}
  else if(!strcmp(t,"nboard")){Result result={0};result.n_nodes=1234;result.time=12345;nboard_observer(&result);}
  else if(!strcmp(t,"gtp")||!strcmp(t,"gtptime")||!strcmp(t,"gtpreg")||!strcmp(t,"xboard")){
- options.n_task=1;options.hash_table_size=10;options.verbosity=0;options.cpu_affinity=false;options.book_file="tests/merge-complete-fixture.dat";
- eval_open(eval_path());search_global_init();UI *ui=mm_malloc(sizeof *ui);memset(ui,0,sizeof *ui);event_init(&ui->event);
+ options.book_file="tests/merge-complete-fixture.dat";init_engine(1);UI *ui=ui_new();
  if(!strcmp(t,"xboard")){ui->type=UI_XBOARD;ui_init_xboard(ui);event_add_message(&ui->event,string_duplicate("level 0 5 1"));event_add_message(&ui->event,string_duplicate("quit"));ui_loop_xboard(ui);ui_free_xboard(ui);}
  else {ui->type=UI_GTP;ui_init_gtp(ui);if(!strcmp(t,"gtp")){event_add_message(&ui->event,string_duplicate("42 play white d3"));event_add_message(&ui->event,string_duplicate("7 name"));event_add_message(&ui->event,string_duplicate("name"));}
  else if(!strcmp(t,"gtpreg")){options.level=0;event_add_message(&ui->event,string_duplicate("reg_genmove black"));} else{ui->play->force.real[0].opponent=0x12345678;printf("GTP before forced_board=%llx\n",ui->play->force.real[0].opponent);event_add_message(&ui->event,string_duplicate("time_left banana 99 0"));}
  event_add_message(&ui->event,string_duplicate("quit"));ui_loop_gtp(ui);if(!strcmp(t,"gtptime"))printf("GTP after forced_board=%llx\n",ui->play->force.real[0].opponent);ui_free_gtp(ui);}
- event_free(&ui->event);mm_free(ui);
+ ui_delete(ui);
  }
  else if(!strcmp(t,"formats")){Game src,dst;Random random;random_seed(&random,1234);game_rand(&src,20,&random);src.date.year=2026;src.date.month=9;src.date.day=27;src.date.hour=1;src.date.minute=2;src.date.second=3;
  void (*exports[4])(const Game*,FILE*)={game_export_text,game_export_ggf,game_export_sgf,game_export_pgn};void (*imports[4])(Game*,FILE*)={game_import_text,game_import_ggf,game_import_sgf,game_import_pgn};const char *names[]={"txt","ggf","sgf","pgn"};
@@ -129,13 +138,13 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
  else if(!strcmp(t,"pgnfen")){Game g;Board want=late_board(12);char fen[128];FILE *f=tmpfile();fprintf(f,"[FEN \"%s\"]\n*\n",board_to_FEN(&want,BLACK,fen));rewind(f);game_import_pgn(&g,f);printf("PGN FEN expected_empty=%d actual_empty=%d\n",board_count_empties(&want),board_count_empties(&g.initial_board));fclose(f);}
  else if(!strcmp(t,"unsupported")){FILE *f=fopen("audit-sentinel.xyz","wb");fputs("KEEP THIS FILE",f);fclose(f);Play *p=mm_malloc(sizeof *p);memset(p,0,sizeof *p);board_init(&p->initial_board);p->initial_player=BLACK;play_save(p,"audit-sentinel.xyz");f=fopen("audit-sentinel.xyz","rb");fseek(f,0,SEEK_END);printf("UNSUPPORTED SAVE bytes_before=14 bytes_after=%ld\n",ftell(f));fclose(f);mm_free(p);}
  else if(!strcmp(t,"bookio")){Book b={0},c={0};FILE *f=fopen("audit-book-saved.dat","wb");fputs("KEEP",f);fclose(f);if(!book_load(&b,"tests/merge-complete-fixture.dat")||b.n_nodes!=2)return 2;if(!book_save(&b,"audit-book-saved.dat"))return 2;if(!book_load(&c,"audit-book-saved.dat")||c.n_nodes!=2)return 2;printf("BOOK save and reload nodes=%d\n",c.n_nodes);book_free(&b);book_free(&c);}
- else if(!strcmp(t,"truncated")){FILE *in=fopen("tests/merge-complete-fixture.dat","rb"),*out=fopen("audit-truncated.dat","wb");fseek(in,0,SEEK_END);long n=ftell(in);rewind(in);for(long i=0;i<n-1;++i)fputc(fgetc(in),out);fclose(in);fclose(out);Book b={0};int ok=book_load(&b,"audit-truncated.dat");printf("TRUNCATED accepted=%d nodes=%d original_expected=2\n",ok,b.n_nodes);book_free(&b);if(ok)return 2;}
- else if(!strcmp(t,"corruptstartup")){FILE *in=fopen("tests/merge-complete-fixture.dat","rb"),*out=fopen("audit-truncated.dat","wb");fseek(in,0,SEEK_END);long n=ftell(in);rewind(in);for(long i=0;i<n-1;++i)fputc(fgetc(in),out);fclose(in);fclose(out);options.n_task=1;options.hash_table_size=10;options.verbosity=0;options.cpu_affinity=false;options.book_file="audit-truncated.dat";eval_open(eval_path());search_global_init();UI *ui=mm_malloc(sizeof *ui);memset(ui,0,sizeof *ui);event_init(&ui->event);ui->type=UI_GTP;ui_init_gtp(ui);int safe=!ui->book.need_saving;ui_free_gtp(ui);event_free(&ui->event);mm_free(ui);in=fopen("audit-truncated.dat","rb");fseek(in,0,SEEK_END);long after=ftell(in);fclose(in);printf("CORRUPT STARTUP autosave_disabled=%d original_bytes=%ld after_bytes=%ld\n",safe,n-1,after);if(!safe||after!=n-1)return 2;}
+ else if(!strcmp(t,"truncated")){copy_cut("tests/merge-complete-fixture.dat","audit-truncated.dat");Book b={0};int ok=book_load(&b,"audit-truncated.dat");printf("TRUNCATED accepted=%d nodes=%d original_expected=2\n",ok,b.n_nodes);book_free(&b);if(ok)return 2;}
+ else if(!strcmp(t,"corruptstartup")){long n=copy_cut("tests/merge-complete-fixture.dat","audit-truncated.dat");options.book_file="audit-truncated.dat";init_engine(1);UI *ui=ui_new();ui->type=UI_GTP;ui_init_gtp(ui);int safe=!ui->book.need_saving;ui_free_gtp(ui);ui_delete(ui);FILE *in=fopen("audit-truncated.dat","rb");fseek(in,0,SEEK_END);long after=ftell(in);fclose(in);printf("CORRUPT STARTUP autosave_disabled=%d original_bytes=%ld after_bytes=%ld\n",safe,n-1,after);if(!safe||after!=n-1)return 2;}
  else if(!strcmp(t,"ggsclock")){GGSClock c;char input[WORD_SIZE+1];memset(input,'1',WORD_SIZE);input[WORD_SIZE]=0;ggs_parse_clock(&c,input);}
- else if(!strcmp(t,"cassio")){options.n_task=1;options.hash_table_size=10;options.verbosity=0;options.cpu_affinity=false;eval_open(eval_path());search_global_init();Engine *e=calloc(1,sizeof *e);e->search=engine_create_search();for(int i=0;i<24;++i){Board b=late_board(3+i%7);char text[80];int want=ref_solve(b,-65,65);for(int repeat=0;repeat<2;++repeat){int got=engine_endgame_search(e,board_to_string(&b,BLACK,text),-64,64,100);if(got!=want){printf("FAIL Cassio expected=%d actual=%d\n",want,got);return 2;}}}engine_free(e->search);free(e);puts("PASS Cassio endgame API 24 positions x 2 repeated searches");}
+ else if(!strcmp(t,"cassio")){init_engine(1);Engine *e=calloc(1,sizeof *e);e->search=engine_create_search();for(int i=0;i<24;++i){Board b=late_board(3+i%7);char text[80];int want=ref_solve(b,-65,65);for(int repeat=0;repeat<2;++repeat){int got=engine_endgame_search(e,board_to_string(&b,BLACK,text),-64,64,100);if(got!=want){printf("FAIL Cassio expected=%d actual=%d\n",want,got);return 2;}}}engine_free(e->search);free(e);puts("PASS Cassio endgame API 24 positions x 2 repeated searches");}
  else if(!strcmp(t,"events")){Event ev;event_init(&ev);int expected=0;for(int i=0;i<10000;++i){char b[32];sprintf(b,"%d",i);event_add_message(&ev,string_duplicate(b));if(i%3==0){char *s=event_peek_message(&ev);if(!s||atoi(s)!=expected++)return 2;free(s);}}char *s;while((s=event_peek_message(&ev))){if(atoi(s)!=expected++)return 2;free(s);}printf("PASS event FIFO %d messages with wrap and growth\n",expected);event_free(&ev);}
  else if(!strcmp(t,"missinglink")){Search s;init_search(&s,1);Book b={0};if(!book_load(&b,"tests/merge-complete-fixture.dat")||b.n_nodes!=2)return 2;b.search=&s;Position *root=book_root(&b),*child=NULL,*p;PositionArray *a;Book *bp=&b;foreach_position(p,a,bp)if(p!=root)child=p;if(!root||!child||root->n_link==0)return 2;{PositionArray *ca=b.array+(board_get_hash_code(&child->board)&(b.n-1));book_remove_at(&b,ca,(int)(child-ca->positions));}book_clean(&b);position_negamax(book_root(&b),&b);book_fix(&b);root=book_root(&b);printf("MISSING LINK nodes=%d root_links_after_fix=%d\n",b.n_nodes,root->n_link);if(b.n_nodes!=1||root->n_link!=0)return 2;book_free(&b);search_free(&s);}
- else if(!strcmp(t,"mergefile")){FILE *in=fopen("tests/merge-complete-fixture.dat","rb"),*out=fopen("audit-merge-truncated.dat","wb");fseek(in,0,SEEK_END);long n=ftell(in);rewind(in);for(long i=0;i<n-1;++i)fputc(fgetc(in),out);fclose(in);fclose(out);Book d={0};book_init(&d);int ok=book_merge_file(&d,"audit-merge-truncated.dat");printf("MERGE truncated_source accepted=%d destination_nodes=%d\n",ok,d.n_nodes);if(ok||d.n_nodes!=0)return 2;ok=book_merge_file(&d,"tests/merge-complete-fixture.dat");printf("MERGE complete_source accepted=%d destination_nodes=%d\n",ok,d.n_nodes);if(!ok||d.n_nodes!=2)return 2;book_free(&d);}
+ else if(!strcmp(t,"mergefile")){copy_cut("tests/merge-complete-fixture.dat","audit-merge-truncated.dat");Book d={0};book_init(&d);int ok=book_merge_file(&d,"audit-merge-truncated.dat");printf("MERGE truncated_source accepted=%d destination_nodes=%d\n",ok,d.n_nodes);if(ok||d.n_nodes!=0)return 2;ok=book_merge_file(&d,"tests/merge-complete-fixture.dat");printf("MERGE complete_source accepted=%d destination_nodes=%d\n",ok,d.n_nodes);if(!ok||d.n_nodes!=2)return 2;book_free(&d);}
  else if(!strcmp(t,"linkstore")){Position p;Link l;int i,ok;position_init(&p);for(i=0;i<7;++i){l.move=(unsigned char)i;l.score=(signed char)i;position_add_link(&p,&l);}ok=p.n_link==7&&position_links(&p)[6].move==6;{Link keep[3]={{1,1},{3,3},{5,5}};position_set_links(&p,keep,3);}ok=ok&&p.n_link==3&&position_links(&p)[2].move==5;for(i=10;i<13;++i){l.move=(unsigned char)i;l.score=0;position_add_link(&p,&l);}ok=ok&&p.n_link==6&&position_links(&p)[0].move==1&&position_links(&p)[5].move==12;position_free(&p);printf("LINK storage inline/heap ok=%d\n",ok);if(!ok)return 2;}
  else if(!strcmp(t,"mergetwice")){ /* a second merge must not take the positions of the first one for duplicated positions; a merge that fails must only remove what it added */
   Book s={0},d={0};Position p;Board b;FILE *f;long n;unsigned char *data;unsigned int count=2;int ok;
@@ -173,14 +182,14 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
  else if(!strcmp(t,"basereplace")){ /* v4.5.5-nikque.16: base correct/complete save to another file first, then replace the file */
   Base b;Game g;FILE *f;int ok;remove("audit-replace.txt");remove("audit-replace.txt.saving.txt");f=fopen("audit-replace.txt","w");fputs("f5d6\nf5f6\nf5d6c3",f);fclose(f);
   base_init(&b);ok=base_load(&b,"audit-replace.txt")&&b.n_games==3;game_init(&g);text_to_game("f5f4",&g);b.game[0]=g;ok=ok&&base_replace(&b,"audit-replace.txt");base_free(&b);
-  base_init(&b);ok=ok&&base_load(&b,"audit-replace.txt")&&b.n_games==3&&b.game[0].move[1]==g.move[1];base_free(&b);f=fopen("audit-replace.txt.saving.txt","r");if(f){fclose(f);ok=0;}
+  base_init(&b);ok=ok&&base_load(&b,"audit-replace.txt")&&b.n_games==3&&b.game[0].move[1]==g.move[1];base_free(&b);if(file_exists("audit-replace.txt.saving.txt"))ok=0;
   printf("BASE replace: 3 games, first one changed, no file left aside ok=%d\n",ok);remove("audit-replace.txt");if(!ok)return 2;}
  else if(!strcmp(t,"keepunread")){ /* v4.5.5-nikque.16: a book file that could not be loaded is kept as .damaged before a book saved to another file replaces it */
   Search s;init_search(&s,1);Book b={0};FILE *f;int ok,kept;remove("audit-unread.dat");remove("audit-unread.dat.damaged");remove("audit-unread.dat.saving");
   f=fopen("audit-unread.dat","wb");for(int i=0;i<300;++i)fputc(i*7,f);fclose(f);b.search=&s;ok=!book_load(&b,"audit-unread.dat");book_free(&b);
   book_init(&b);b.search=&s;book_new(&b,2,36);ok=ok&&book_save(&b,"audit-unread.dat.saving");ok=ok&&book_keep_unread_file("audit-unread.dat");
   f=fopen("audit-unread.dat.damaged","rb");kept=f!=NULL;if(f){fseek(f,0,SEEK_END);kept=ftell(f)==300;fclose(f);}ok=ok&&kept&&rename("audit-unread.dat.saving","audit-unread.dat")==0;
-  ok=ok&&book_keep_unread_file("audit-unread.dat");f=fopen("audit-unread.dat.damaged.1","rb");if(f){fclose(f);ok=0;} /* (once kept, the file is no longer the one that could not be loaded) */
+  ok=ok&&book_keep_unread_file("audit-unread.dat");if(file_exists("audit-unread.dat.damaged.1"))ok=0; /* (once kept, the file is no longer the one that could not be loaded) */
   printf("BOOK unread file kept as .damaged (300 bytes)=%d ok=%d\n",kept,ok);book_free(&b);remove("audit-unread.dat");remove("audit-unread.dat.damaged");search_free(&s);if(!ok)return 2;}
  else if(!strcmp(t,"statsrange")){ /* v4.5.5-nikque.16: book stats counts apart the scores out of -64..64 (a book file holds up to +/-127) */
   Search s;init_search(&s,1);Book b={0};Board init;Position *p;b.search=&s;book_new(&b,2,36);board_init(&init);p=book_probe(&b,&init);if(!p)return 2;p->score.value=127;
@@ -188,7 +197,7 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
  else if(!strcmp(t,"gamescore")){ /* v4.5.5-nikque.16: the score of a game of an odd number of moves had the wrong sign */
   int bad[2]={0,0},total[2]={0,0};
   for(int k=0;k<4000;++k){Game g;Board b;int n=0,black=1;game_init(&g);board_init(&b);
-   for(;;){unsigned long long m=board_get_moves(&b);if(!m){board_pass(&b);black^=1;m=board_get_moves(&b);if(!m)break;}int r=rr()%bit_count(m);while(r--)m&=m-1;g.move[n++]=first_bit(m);board_next(&b,first_bit(m),&b);black^=1;}
+   for(;;){unsigned long long m=board_get_moves(&b);if(!m){board_pass(&b);black^=1;m=board_get_moves(&b);if(!m)break;}int x=random_move(m);g.move[n++]=x;board_next(&b,x,&b);black^=1;}
    int p=bit_count(b.player),o=bit_count(b.opponent),e=64-p-o,d=p-o;if(d>0)d+=e;else if(d<0)d-=e;++total[n&1];if(game_score(&g)!=(black?d:-d))++bad[n&1];}
   printf("GAME score: even moves %d games %d wrong, odd moves %d games %d wrong\n",total[0],bad[0],total[1],bad[1]);if(bad[0]||bad[1]||!total[1])return 2;}
  else if(!strcmp(t,"badinput")){ /* v4.5.5-nikque.16: FEN rows, edx games, boards of fewer than 4 discs, book depth */
@@ -208,7 +217,7 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   base_init(&b);game_init(&g);text_to_game("f5f4",&g);base_append(&b,&g);ok=ok&&!base_save(&b,"audit-trunc.wtb");base_free(&b);f=fopen("audit-trunc.wtb","rb");fseek(f,0,SEEK_END);ok=ok&&ftell(f)==n-30;fclose(f);
   printf("WTHOR truncated file kept ok=%d\n",ok);remove("audit-trunc.wtb");remove("WTHOR.JOU");if(!ok)return 2;}
  else if(!strcmp(t,"cassiolist")){ /* v4.5.5-nikque.16: the list of the positions of Cassio keeps every position */
-  options.n_task=1;options.hash_table_size=10;options.verbosity=0;options.cpu_affinity=false;eval_open(eval_path());search_global_init();
+  init_engine(1);
   Engine *e=calloc(1,sizeof *e);Board b[3];int ok;e->search=engine_create_search();e->last_position.n=0;
   for(int i=0;i<3;++i){b[i]=late_board(20+i);is_position_new(e,b+i);}
   ok=e->last_position.n==3&&board_equal(e->last_position.board,b+2)&&board_equal(e->last_position.board+1,b+1)&&board_equal(e->last_position.board+2,b);
