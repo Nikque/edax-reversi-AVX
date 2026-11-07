@@ -441,6 +441,9 @@ static void test_damaged_books(const char *dll)
 	if (save_to) {
 		CHECK_INT(save_to("./libtest-damaged.dat"), 1);
 		CHECK(same_files("libtest-damaged.dat.damaged", "libtest-damaged.txt"));
+		if (file_status) CHECK_INT(file_status(damaged), 0); // (the file kept aside has no mark left)
+		CHECK_INT(save_to(damaged), 1);
+		CHECK_INT(file_size("libtest-damaged.dat.damaged.1"), -1); // the new book is replaced, not kept aside
 	}
 	libedax_terminate();
 	remove(damaged); remove("libtest-damaged.dat.damaged");
@@ -452,6 +455,7 @@ static void test_damaged_books(const char *dll)
 		if (keep_unread) {
 			CHECK_INT(keep_unread(".\\LIBTEST-DAMAGED.DAT"), 1);
 			CHECK(same_files("libtest-damaged.dat.damaged", "libtest-damaged.txt"));
+			if (file_status) CHECK_INT(file_status(damaged), 0);
 		}
 		libedax_terminate();
 		remove(damaged); remove("libtest-damaged.dat.damaged");
