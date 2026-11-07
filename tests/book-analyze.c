@@ -19,9 +19,11 @@
  *
  * bookhint: the warning of a book command typed without book tells to type it after book.
  *
+ * moveinfo-memory: book moveinfo when an allocation of a walk fails ends with an error, not with lines left out.
+ *
  * Build: tests\build-book-analyze.cmd (Visual Studio 2022 x64 Developer Command Prompt), run: tests\book-analyze.exe umigame
  * (or umigame-large, umigame-order, precision, precision-book <book file> [stages], reach, reach-book <book file> <games file>, missing,
- * missing-book <book file> <games file>, umi-inherit, umi-book <book file> <games file> [umi=...], bookhint)
+ * missing-book <book file> <games file>, umi-inherit, umi-book <book file> <games file> [umi=...], bookhint, moveinfo-memory)
  */
 #define BOOK_ANALYZE_TEST
 #define main edax_original_main
@@ -1174,6 +1176,54 @@ static int bookhint(void)
 	return n_bad ? 2 : 0;
 }
 
+/* ------------------------------------------------------------------ analyses without memory ------------------------------------------------- */
+
+/**
+ * @brief book moveinfo when an allocation of a walk fails (ba_test_alloc_fail): the analysis ends with an error (as
+ * ba_run tells it: @error memory=1), not with an @end that leaves out the lines of moves (up to v4.5.5-nikque.26: the
+ * stage of ba_move_stage, the positions reached of ba_reach_kept).
+ */
+static int moveinfo_memory(void)
+{
+	static Book book;
+	static const struct { int parts; const char *name; } part[] = {{BA_PART_STAGE, "parts=stage"}, {BA_PART_COUNT, "parts=count"}};
+	int t, k, n_tried = 0, n_bad = 0;
+
+	for (t = 0; t < 20; ++t) {
+		tb_random_book(&book);
+		for (k = 0; k < 2; ++k) {
+			BaParams prm;
+			BaJob job;
+			int r0, r;
+			bool failed;
+			ba_params_default(&prm);
+			prm.parts = part[k].parts;
+			memset(&job, 0, sizeof job);
+			job.book = &book;
+			job.board = tb_board[0];
+			job.player = BLACK;
+			job.id = 1;
+			inherit_forget();
+			r0 = ba_moveinfo(&job, &prm); // (with memory)
+			inherit_forget();
+			ba_test_alloc_fail = 0; // the first allocation of a walk fails
+			r = ba_moveinfo(&job, &prm);
+			failed = ba_test_alloc_fail < 0;
+			ba_test_alloc_fail = -1;
+			if (r0 != 0) { ++n_bad; printf("FAIL moveinfo-memory book %d %s: %d with memory\n", t, part[k].name, r0); }
+			if (!failed) continue; // (no walk: no move of the position is in the book)
+			++n_tried;
+			if (r >= 0) { ++n_bad; printf("FAIL moveinfo-memory book %d %s: an allocation failed, the analysis ended without an error\n", t, part[k].name); }
+		}
+		book_free(&book);
+	}
+	inherit_forget();
+	ba_index_free();
+	printf("moveinfo-memory: %d analyses with an allocation that failed, %d wrong\n", n_tried, n_bad);
+	if (n_tried == 0) { printf("FAIL moveinfo-memory: no allocation failed\n"); return 2; }
+	return n_bad ? 2 : 0;
+}
+
 /** @brief The tables of the search, and one thread (the tests on books). */
 static void test_search_init(void)
 {
@@ -1197,5 +1247,6 @@ int main(int argc, char **argv)
 	if (strcmp(argv[1], "umi-book") == 0 && argc >= 4) { test_search_init(); return umi_book(argv[2], argv[3], argc >= 5 ? argv[4] : "umi=best"); }
 	if (strcmp(argv[1], "missing") == 0) { test_search_init(); return missing(); }
 	if (strcmp(argv[1], "missing-book") == 0 && argc >= 4) { test_search_init(); return missing_book(argv[2], argv[3]); }
+	if (strcmp(argv[1], "moveinfo-memory") == 0) { test_search_init(); return moveinfo_memory(); }
 	return 1;
 }

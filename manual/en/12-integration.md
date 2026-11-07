@@ -343,6 +343,7 @@ Example (a test book):
 **Errors, stopping and syntax**
 
 - An unknown word gets `@error id=N word=…` and `@end id=N error=1`. A stopped analysis gets `@cancel id=N`.
+- When there is not enough memory, the answer is `@error id=N memory=1` and `@end id=N error=1`; the `@move` lines before it are only a part of the analysis (up to v4.5.5-nikque.26, `book moveinfo` alone left out the lines of the moves it could not analyse and gave an `@end` without error).
 - If `id=` is not an int, the answer is `@error word=id` alone, and nothing is analysed or stopped.
 - The words of a command are split at spaces. A value between `"…"` is one value, spaces included (an `id=` inside it is not the number).
 - The names (`id=`, …) are case-insensitive.
