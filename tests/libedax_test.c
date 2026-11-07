@@ -203,6 +203,7 @@ static void write_file(const char *file, const char *text)
 
 /** functions added to the original api: NULL with the original libedax */
 typedef void (*Deviate)(int, int);
+typedef long long (*Export)(int, int, int, const char*, int);
 static void* optional(const char *dll, const char *name)
 {
 #ifdef _WIN32
@@ -227,6 +228,7 @@ int main(int argc, char **argv)
 	LibedaxBook info;
 	union { LibedaxBenchResult result; char room[256]; } bench; // the original libedax keeps a lock after the result
 	Deviate deviate2, deviate3;
+	Export export_lines;
 	bool original; // the original libedax: skip what it does not support
 	char line[128];
 	int i, n, sym;
@@ -245,6 +247,7 @@ int main(int argc, char **argv)
 
 	deviate2 = (Deviate) optional(dll, "edax_book_deviate2");
 	deviate3 = (Deviate) optional(dll, "edax_book_deviate3");
+	export_lines = (Export) optional(dll, "edax_book_deviate_export");
 	original = !(deviate2 && deviate3);
 	printf("%s: %s\n", dll, original ? "original libedax" : "libedax of Edax 4.5.5");
 	if (!original) {
@@ -551,8 +554,6 @@ int main(int argc, char **argv)
 	}
 	{
 		// book deviate, deviate2, deviate3 ... export (v4.5.5-nikque.26): the lines are written, no position is added
-		typedef long long (*Export)(int, int, int, const char*, int);
-		Export export_lines = (Export) optional(dll, "edax_book_deviate_export");
 		static const char *const file = "libedax-export.txt";
 		if (!original) CHECK(export_lines != NULL);
 		if (export_lines) {
@@ -798,6 +799,44 @@ int main(int argc, char **argv)
 	}
 
 	if (!original) {
+		// book deviate3 129 254 export all writes every position of these negamaxed books once (no loss is out of the
+		// limits), as in a new process: also after the book was changed, loaded or merged since the last export
+		static const char *const file = "libedax-export.txt";
+		int n_a, n_b;
+
+		section("export after the book changes");
+		CHECK(export_lines != NULL);
+		if (export_lines) {
+			edax_init();
+			edax_book_fix(); // (book add does not negamax the book)
+			edax_book_save("libtest-export-a.dat"); // the book of the games of libtest-base.txt
+			edax_book_info(&info);
+			n_a = info.n_nodes;
+			CHECK_INT(export_lines(3, 129, 254, file, 2), n_a);
+			write_file("libtest-base2.txt", "F5F4E3F6D3E2F3F2E6D2\nF5D6C4D3C3F4F6F3E6E7\n");
+			edax_book_new(2, 8);
+			edax_book_add("libtest-base2.txt");
+			edax_book_fix();
+			edax_book_save("libtest-export-b.dat");
+			edax_book_info(&info);
+			n_b = info.n_nodes;
+			printf("books: %d and %d positions\n", n_a, n_b);
+			CHECK(n_b >= 12);
+			CHECK_INT(export_lines(3, 129, 254, file, 2), n_b);
+			edax_book_load("libtest-export-a.dat");
+			edax_book_info(&info);
+			CHECK_INT(info.n_nodes, n_a);
+			CHECK_INT(export_lines(3, 129, 254, file, 2), n_a);
+			edax_book_merge("libtest-export-b.dat");
+			edax_book_info(&info);
+			printf("after merge: %d positions\n", info.n_nodes);
+			CHECK(info.n_nodes > n_a);
+			CHECK_INT(export_lines(3, 129, 254, file, 2), info.n_nodes);
+			remove(file);
+		}
+	}
+
+	if (!original) {
 		int (*store_tasks)(void) = (int (*)(void)) optional(dll, "edax_book_store_tasks");
 		int (*store_games)(const char*, char*) = (int (*)(const char*, char*)) optional(dll, "edax_book_store_games");
 		char status[16];
@@ -910,7 +949,47 @@ int main(int argc, char **argv)
 	edax_book_info(&info);
 	printf("book: level %d depth %d positions %d\n", info.options.level, 61 - info.options.n_empties, info.n_nodes);
 	CHECK(info.n_nodes >= 12);
+	if (!original && export_lines) { // (the book of the last export was freed by libedax_terminate)
+		edax_init();
+		CHECK_INT(export_lines(3, 129, 254, "libedax-export.txt", 2), info.n_nodes);
+		remove("libedax-export.txt");
+	}
 	libedax_terminate();
+
+#ifdef _WIN32
+	if (!original) {
+		// a book file that exists but cannot be opened (here: opened without sharing), in a folder whose name is not ASCII
+		// (UTF-8 for the library): the book is not loaded, it is not replaced when the library ends, and it is loaded later
+		static const wchar_t folder[] = L"libtest-\u5b9a\u77f3", locked[] = L"libtest-\u5b9a\u77f3\\book.dat";
+		char *locked_args[] = {"", "-book-file", "libtest-\xe5\xae\x9a\xe7\x9f\xb3/book.dat", "-level", "6", "-n-tasks", "1"};
+		int (*keep_unread)(const char*) = (int (*)(const char*)) optional(dll, "edax_book_keep_unread_file");
+		HANDLE h;
+
+		section("a locked book in a folder of non-ASCII name");
+		CHECK(keep_unread != NULL);
+		CreateDirectoryW(folder, NULL);
+		CHECK(CopyFileW(L"libtest-book2.dat", locked, FALSE));
+		h = CreateFileW(locked, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		CHECK(h != INVALID_HANDLE_VALUE);
+		libedax_initialize(7, locked_args);
+		edax_book_info(&info);
+		CHECK_INT(info.n_nodes, 1); // (a new book, not saved)
+		if (keep_unread) CHECK_INT(keep_unread(locked_args[2]), 0); // the file could not be loaded, and cannot be kept under another name
+		if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+		libedax_terminate();
+		CHECK(CopyFileW(locked, L"libtest-locked.dat", FALSE) && same_files("libtest-locked.dat", "libtest-book2.dat"));
+		libedax_initialize(7, locked_args);
+		edax_book_info(&info);
+		n = info.n_nodes;
+		edax_book_load("libtest-book2.dat");
+		edax_book_info(&info);
+		CHECK(n > 1);
+		CHECK_INT(n, info.n_nodes);
+		libedax_terminate();
+		DeleteFileW(locked);
+		RemoveDirectoryW(folder);
+	}
+#endif
 
 	free(movelist);
 	free(hintlist);
