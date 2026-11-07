@@ -2935,12 +2935,15 @@ static void book_unread_add(const char *file, const bool unopened)
 	book_unread.mark[book_unread.n++].unopened = unopened;
 }
 
-/** @brief Remove the mark of a file: it was loaded, or it is kept under another name. */
-static void book_unread_remove(const char *file)
+/**
+ * @brief Remove a mark: the file was loaded, or it is kept under another name.
+ *
+ * @param i Index of the mark (see book_unread_find), found before the file is renamed: a file named
+ * another way than its mark is found by the file itself, which no longer has its name once kept aside.
+ */
+static void book_unread_remove(const int i)
 {
-	const int i = book_unread_find(file);
-
-	if (i >= 0) {
+	if (0 <= i && i < book_unread.n) {
 		free(book_unread.mark[i].file);
 		book_unread.mark[i] = book_unread.mark[--book_unread.n];
 	}
@@ -3125,7 +3128,7 @@ bool book_keep_unread_file(const char *file)
 		error("\nCannot keep the book that could not be loaded; %s must not be replaced\n", file);
 		return false;
 	}
-	book_unread_remove(file);
+	book_unread_remove(i);
 	return true;
 }
 
@@ -3335,7 +3338,7 @@ bool book_load(Book *book, const char *file)
 
 		info("done\n");
 		fclose(f);
-		book_unread_remove(file);
+		book_unread_remove(book_unread_find(file));
 		if (book_replaced_file && strcmp(file, book_replaced_file) == 0) book_set_replaced_file(NULL); // (the book in memory is the one of the file again)
 		*book = loaded;
 		return true;
@@ -3614,11 +3617,12 @@ static bool book_save_to(Book *book, const char *file, const bool keep_replaced)
 	}
 	// the file could not be loaded: its content is not in this book, so it is kept under another name
 	if (book_file_status(file) == BOOK_FILE_DAMAGED) {
+		const int unread = book_unread_find(file);
 		if (!book_set_aside(file, ".damaged", "could not be loaded")) {
 			error("\nCannot keep the book that could not be loaded; %s was not replaced\n", file);
 			goto book_save_failed;
 		}
-		book_unread_remove(file);
+		book_unread_remove(unread);
 	}
 	// the file holds the book in use before "book new", and the save was not asked for this file by its name:
 	// it is kept under another name (not a file that only holds the initial position)
