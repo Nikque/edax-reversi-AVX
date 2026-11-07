@@ -421,6 +421,19 @@ static bool ggs_parse_clock(GGSClock *ggsclock, const char *line) {
 	return true;
 }
 
+/**
+ * @brief Set a string of a message: the string of the previous message is freed (up to v4.5.5-nikque.15 the
+ * names, ids and commands of the previous messages were not freed).
+ *
+ * @param s String (NULL or allocated).
+ * @param value Its new value.
+ */
+static void ggs_set_string(char **s, const char *value)
+{
+	free(*s);
+	*s = string_duplicate(value);
+}
+
 
 /**
  * @brief ggs_player_set
@@ -439,8 +452,7 @@ static bool ggs_player_set(GGSPlayer *player, const char *name, const char *rati
 	if (name == NULL || *name == '\0') return false;
 
 	parse_word(name, word, WORD_SIZE);
-	free(player->name); // (the names of the previous message: up to v4.5.5-nikque.15 they were not freed)
-	player->name = string_duplicate(word);
+	ggs_set_string(&player->name, word);
 
 	rating = parse_skip_spaces(rating);	
 	if (*rating == '(') ++rating;
@@ -541,8 +553,7 @@ static bool ggs_request(GGSRequest *request, Text *text)
 		if (strcmp("+", word) == 0) {
 			if (*line) {
 				line = parse_word(line, word, WORD_SIZE);
-				free(request->id); // (the id of the previous request)
-				request->id = string_duplicate(word);
+				ggs_set_string(&request->id, word);
 				return true;
 			}
 		}
@@ -575,8 +586,7 @@ static bool ggs_match_on(GGSMatchOn *match, Text *text)
 	if (strcmp("match", word) != 0) return false;
 
 	line = parse_word(line, word, WORD_SIZE);
-	free(match->id); // (the id of the previous match)
-	match->id = string_duplicate(word);
+	ggs_set_string(&match->id, word);
 
 	line = parse_word(line, word, WORD_SIZE);
 	if (!ggs_player_set(&(match->player[0]), line, word))return false;
@@ -620,8 +630,7 @@ static bool ggs_match_off(GGSMatchOff *match, Text *text)
 	if (strcmp("match", word) != 0) return false;
 
 	line = parse_word(line, word, WORD_SIZE);
-	free(match->id); // (the id of the previous match)
-	match->id = string_duplicate(word);
+	ggs_set_string(&match->id, word);
 
 	line = parse_word(line, word, WORD_SIZE);
 	if (!ggs_player_set(&(match->player[0]), line, word)) return false;
@@ -666,8 +675,7 @@ static bool ggs_board(GGSBoard *board, Text *text)
 
 	if (*line == '\0') return false;
 	line = parse_word(line, word, WORD_SIZE);
-	free(board->id); // (the id of the previous board)
-	board->id = string_duplicate(word);
+	ggs_set_string(&board->id, word);
 
 	if (*line == '\0') return false;
 	line = parse_word(line, word, WORD_SIZE);
@@ -835,8 +843,7 @@ static int ggs_admin(GGSAdmin *admin, Text *text)
 		const size_t n = strlen(admin_list[i]);
 		// the whole name (up to v4.5.5-nikque.15 any name that started with it: "dan" was "daniel" too)
 		if (strncmp(admin_list[i], word, n) == 0 && (word[n] == '\0' || word[n] == ':')) {
-			free(admin->command);
-			admin->command = string_duplicate(line);
+			ggs_set_string(&admin->command, line);
 			strcpy(admin->name, admin_list[i]);
 			return true;
 		}
