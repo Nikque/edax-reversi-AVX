@@ -164,6 +164,16 @@ static int brute_force(const TestGraph *g, const int counter, bool *complete)
 	return bf_best;
 }
 
+/** @brief A walk state of the umigame numbers without book (test_load puts a graph in it). */
+static void test_umi_work(BaWork *w, BaJob *job, BaParams *prm)
+{
+	memset(job, 0, sizeof *job);
+	ba_params_default(prm);
+	memset(w, 0, sizeof *w);
+	w->job = job;
+	w->prm = prm;
+}
+
 /**
  * @brief The values of the nodes kept while the root is counted (ba_umi_keep_value), compared with the numbers of the
  * part of the graph after each node counted alone, and with a search of every choice of moves there.
@@ -201,11 +211,7 @@ static int umigame(void)
 	int t, c, n_bad = 0, n_shared = 0, n_checked = 0, n_skipped = 0, n_inexact = 0;
 	long long t0 = real_clock(), n_kept = 0;
 
-	memset(&job, 0, sizeof job);
-	ba_params_default(&prm);
-	memset(&w, 0, sizeof w);
-	w.job = &job;
-	w.prm = &prm;
+	test_umi_work(&w, &job, &prm);
 	w.keep_depth = 255; // (the values of all the nodes are kept: the root is counted as without)
 	w2 = w;
 	w2.keep_depth = 0;
@@ -255,11 +261,7 @@ static int umigame_large(void)
 	int t, c, u, n_inexact = 0, n_bad = 0;
 	long long t0 = real_clock(), n_kept = 0, n_below = 0;
 
-	memset(&job, 0, sizeof job);
-	ba_params_default(&prm);
-	memset(&w, 0, sizeof w);
-	w.job = &job;
-	w.prm = &prm;
+	test_umi_work(&w, &job, &prm);
 	w2 = w;
 	for (t = 0; t < 200; ++t) {
 		long long plain[2];
@@ -340,11 +342,7 @@ static int umigame_order(void)
 	long long t0 = real_clock(), n_part = 0;
 	char name[64];
 
-	memset(&job, 0, sizeof job);
-	ba_params_default(&prm);
-	memset(&w, 0, sizeof w);
-	w.job = &job;
-	w.prm = &prm;
+	test_umi_work(&w, &job, &prm);
 	w2 = w;
 	for (t = 0; t < 200; ++t) {
 		test_graph(&g, 40, 60, 3);
@@ -378,6 +376,20 @@ static int umigame_order(void)
 
 static Board tb_board[TB_MAX];  /**< positions of a random book, in the order they were added (by plies) */
 static int tb_n;
+
+/** @brief Order of the positions: 0 as given (the next positions after), 1 backwards, 2 at random. */
+static void test_order(int *order, const int n, const int o)
+{
+	int i;
+	for (i = 0; i < n; ++i) order[i] = o == 1 ? n - 1 - i : i;
+	if (o == 2) for (i = n - 1; i > 0; --i) { const int j = (int) rnd((unsigned) i + 1), k = order[i]; order[i] = order[j]; order[j] = k; }
+}
+
+/** @brief A score of a random book, in the range of the scores. */
+static signed char tb_score(const int s)
+{
+	return (signed char) (s < -SCORE_MAX ? -SCORE_MAX : s > SCORE_MAX ? SCORE_MAX : s);
+}
 
 static void tb_add(Book *book, const Board *board)
 {
@@ -415,7 +427,7 @@ static int tb_value(Book *book, Position *p)
 			int s = -tb_value(book, child);
 			if (rnd(25) == 0) s += rnd(2) ? 1 : -2; // (a link not negamaxed again)
 			link.move = (unsigned char) x[i];
-			link.score = (signed char) (s < -SCORE_MAX ? -SCORE_MAX : s > SCORE_MAX ? SCORE_MAX : s);
+			link.score = tb_score(s);
 			position_add_link(p, &link);
 			if (link.score > best) best = link.score;
 		} else if (x[i] != PASS) leaf[n_leaf++] = x[i];
@@ -424,7 +436,7 @@ static int tb_value(Book *book, Position *p)
 		int s = best > -SCORE_INF ? best - 2 * (int) rnd(4) + (rnd(4) == 0 ? 2 : 0) : 2 * ((int) rnd(9) - 4);
 		if (rnd(20) == 0) ++s; // (an odd value)
 		p->leaf.move = (unsigned char) leaf[rnd((unsigned) n_leaf)];
-		p->leaf.score = (signed char) (s < -SCORE_MAX ? -SCORE_MAX : s > SCORE_MAX ? SCORE_MAX : s);
+		p->leaf.score = tb_score(s);
 		if (p->leaf.score > best) best = p->leaf.score;
 	}
 	if (best == -SCORE_INF) best = 0;
@@ -468,6 +480,22 @@ static void tb_build(Book *book, const int plies, const int width)
 	for (i = 0; i < tb_n; ++i) tb_value(book, book_probe(book, tb_board + i));
 }
 
+/** @brief A random book of 5 to 10 plies (see tb_build), its positions numbered for the analyses. */
+static void tb_random_book(Book *book)
+{
+	tb_build(book, 5 + (int) rnd(6), 1 + (int) rnd(3));
+	ba_index_free();
+	ba_index_get(book);
+}
+
+/** @brief A job on a book (its position is set for each test) and its walk state. */
+static void test_book_work(BaWork *w, BaJob *job, Book *book, const BaParams *prm)
+{
+	memset(job, 0, sizeof *job);
+	job->book = book;
+	ba_work_init(w, job, prm);
+}
+
 /** Counts of the comparisons of the stages. */
 typedef struct PrecisionCount {
 	long long moves, wrong, down, down_walked;
@@ -491,9 +519,7 @@ static void precision_compare(Book *book, const Board *boards, const int n_board
 	BaWork w;
 	int i, o;
 
-	memset(&job, 0, sizeof job);
-	job.book = book;
-	ba_work_init(&w, &job, prm);
+	test_book_work(&w, &job, book, prm);
 	for (i = 0; i < n_board; ++i) { // the stage of each position alone
 		unsigned int idx;
 		Position *p = ba_probe(&w, boards + i, &idx);
@@ -502,8 +528,7 @@ static void precision_compare(Book *book, const Board *boards, const int n_board
 		ref_walks[idx] = (int) (ba_test_range_walks - walks);
 	}
 	for (o = 0; o < 3; ++o) {
-		for (i = 0; i < n_board; ++i) order[i] = o == 1 ? n_board - 1 - i : i;
-		if (o == 2) for (i = n_board - 1; i > 0; --i) { const int j = (int) rnd((unsigned) i + 1), k = order[i]; order[i] = order[j]; order[j] = k; }
+		test_order(order, n_board, o);
 		free(ba_cache); ba_cache = NULL; // (the results are forgotten)
 		for (i = 0; i < n_board; ++i) {
 			BaMove move[MAX_MOVE + 1];
@@ -559,6 +584,7 @@ static void precision_print(const PrecisionCount *c, const long long t0)
 }
 
 static const char *const precision_stages[] = {"1/1,2/2,3/3,4/4,5/5", "0/0,1/2,2/1,3/3", "2/4,1/1", "3/2,4/4,6/6", "0/1"};
+#define PRECISION_STAGES ((int) (sizeof precision_stages / sizeof *precision_stages))
 
 static bool precision_params(const int base, const char *stages, BaParams *prm, char *name, const int size)
 {
@@ -580,11 +606,9 @@ static int precision(void)
 
 	memset(&c, 0, sizeof c);
 	for (t = 0; t < 200; ++t) {
-		tb_build(&book, 5 + (int) rnd(6), 1 + (int) rnd(3));
-		ba_index_free();
-		ba_index_get(&book);
+		tb_random_book(&book);
 		for (i = 0; i < tb_n; ++i) if (position_is_solved(book_probe(&book, tb_board + i))) ++n_solved;
-		for (base = BA_DEVIATE; base <= BA_DEVIATE3; ++base) for (si = 0; si < (int) (sizeof precision_stages / sizeof *precision_stages); ++si) {
+		for (base = BA_DEVIATE; base <= BA_DEVIATE3; ++base) for (si = 0; si < PRECISION_STAGES; ++si) {
 			BaParams prm;
 			char name[160], s[128];
 			if (!precision_params(base, precision_stages[si], &prm, s, (int) sizeof s)) { printf("FAIL precision: %s\n", s); return 2; }
@@ -646,14 +670,6 @@ static void inherit_forget(void)
 {
 	free(ba_cache); ba_cache = NULL;
 	free(ba_reached); ba_reached = NULL;
-}
-
-/** @brief Order of the positions: 0 as given (the next positions after), 1 backwards, 2 at random. */
-static void inherit_order(int *order, const int n, const int o)
-{
-	int i;
-	for (i = 0; i < n; ++i) order[i] = o == 1 ? n - 1 - i : i;
-	if (o == 2) for (i = n - 1; i > 0; --i) { const int j = (int) rnd((unsigned) i + 1), k = order[i]; order[i] = order[j]; order[j] = k; }
 }
 
 /** @brief The positions of a random book (see tb_build), the side to move by the number of discs. */
@@ -737,12 +753,10 @@ static void reach_compare(Book *book, const TestPos *pos, const int n_pos, const
 	BaWork w;
 	int i, o;
 
-	memset(&job, 0, sizeof job);
-	job.book = book;
 	ba_params_default(&prm);
-	ba_work_init(&w, &job, &prm);
+	test_book_work(&w, &job, book, &prm);
 	for (o = 0; o < 3; ++o) {
-		inherit_order(order, n_pos, o);
+		test_order(order, n_pos, o);
 		inherit_forget();
 		memset(counted, 0, (size_t) ba.index.n);
 		for (i = 0; i < n_pos; ++i) {
@@ -790,9 +804,7 @@ static int reach(void)
 	for (t = 0; t < 200; ++t) {
 		TestPos *pos;
 		char name[32];
-		tb_build(&book, 5 + (int) rnd(6), 1 + (int) rnd(3));
-		ba_index_free();
-		ba_index_get(&book);
+		tb_random_book(&book);
 		pos = inherit_tb_positions();
 		snprintf(name, sizeof name, "book %d", t);
 		reach_compare(&book, pos, tb_n, name, &c);
@@ -815,6 +827,14 @@ static bool inherit_load(Book *book, const char *file, const char *games, TestPo
 	return true;
 }
 
+/** @brief Free what inherit_load loaded. */
+static void inherit_unload(Book *book, TestPos *pos)
+{
+	ba_index_free();
+	free(pos);
+	book_free(book);
+}
+
 /** @brief The positions reached, kept, along the games of a file in a book file (see reach_compare). */
 static int reach_book(const char *file, const char *games)
 {
@@ -830,9 +850,7 @@ static int reach_book(const char *file, const char *games)
 	reach_compare(&book, pos, n, file, &c);
 	snprintf(name, sizeof name, "reach-book (%d positions)", n);
 	r = reach_result(&c, name, t0);
-	ba_index_free();
-	free(pos);
-	book_free(&book);
+	inherit_unload(&book, pos);
 	return r;
 }
 
@@ -854,11 +872,9 @@ static void missing_compare(Book *book, const TestPos *pos, const int n_pos, con
 	BaWork w;
 	int i, o;
 
-	memset(&job, 0, sizeof job);
-	job.book = book;
-	ba_work_init(&w, &job, prm);
+	test_book_work(&w, &job, book, prm);
 	for (o = 0; o < 3; ++o) {
-		inherit_order(order, n_pos, o);
+		test_order(order, n_pos, o);
 		inherit_forget();
 		for (i = 0; i < n_pos; ++i) {
 			BaMove move[MAX_MOVE + 1];
@@ -916,11 +932,9 @@ static int missing(void)
 	memset(&c, 0, sizeof c);
 	for (t = 0; t < 100; ++t) {
 		TestPos *pos;
-		tb_build(&book, 5 + (int) rnd(6), 1 + (int) rnd(3));
-		ba_index_free();
-		ba_index_get(&book);
+		tb_random_book(&book);
 		pos = inherit_tb_positions();
-		for (base = BA_DEVIATE; base <= BA_DEVIATE3; ++base) for (si = 0; si < (int) (sizeof precision_stages / sizeof *precision_stages); ++si) {
+		for (base = BA_DEVIATE; base <= BA_DEVIATE3; ++base) for (si = 0; si < PRECISION_STAGES; ++si) {
 			BaParams prm;
 			char name[160], s[128];
 			if (!precision_params(base, precision_stages[si], &prm, s, (int) sizeof s)) { printf("FAIL missing: %s\n", s); return 2; }
@@ -954,9 +968,7 @@ static int missing_book(const char *file, const char *games)
 	}
 	snprintf(name, sizeof name, "missing-book %s (%d positions)", file, n);
 	r = missing_result(&c, name, t0);
-	ba_index_free();
-	free(pos);
-	book_free(&book);
+	inherit_unload(&book, pos);
 	return r;
 }
 
@@ -985,7 +997,7 @@ static void umi_alone(BaWork *w, const int player, const BaMove *m, UmiResult *r
 	const int b = ba_umi_build(w, m->p, m->idx, !player, player);
 	r->known = true;
 	r->exact = true;
-	r->umi[0] = r->umi[1] = 0;
+	r->umi[BLACK] = r->umi[WHITE] = 0;
 	r->state = b == 1 ? 1 : b < 0 ? 2 : 0;
 	if (b == 0) {
 		r->umi[BLACK] = ba_umi_count(w, BLACK);
@@ -1012,14 +1024,12 @@ static void umi_compare(Book *book, const TestPos *pos, const int n_pos, const B
 	BaWork w, w_ref;
 	int i, o, plan;
 
-	memset(&job, 0, sizeof job);
-	job.book = book;
-	ba_work_init(&w, &job, prm);
+	test_book_work(&w, &job, book, prm);
 	ba_work_init(&w_ref, &job, prm);
 	for (plan = 0; plan < UMI_PLANS; ++plan) for (o = 0; o < 3; ++o) {
 		ba_umi_keep_depth = umi_plans[plan].depth;
 		rng_state = rng; // (the same random order for each way)
-		inherit_order(order, n_pos, o);
+		test_order(order, n_pos, o);
 		inherit_forget();
 		for (i = 0; i < n_pos; ++i) {
 			BaMove move[MAX_MOVE + 1];
@@ -1088,9 +1098,7 @@ static int umi_inherit(void)
 	memset(c, 0, sizeof c);
 	for (t = 0; t < 100; ++t) {
 		TestPos *pos;
-		tb_build(&book, 5 + (int) rnd(6), 1 + (int) rnd(3));
-		ba_index_free();
-		ba_index_get(&book);
+		tb_random_book(&book);
 		pos = inherit_tb_positions();
 		for (mode = 0; mode < UMI_MODES; ++mode) {
 			BaParams prm;
@@ -1130,9 +1138,7 @@ static int umi_book(const char *file, const char *games, const char *mode)
 	umi_compare(&book, pos, n, &prm, file, &c);
 	snprintf(name, sizeof name, "umi-book %s (%d positions) %s", file, n, mode);
 	r = umi_result(&c, name, t0);
-	ba_index_free();
-	free(pos);
-	book_free(&book);
+	inherit_unload(&book, pos);
 	return r;
 }
 
@@ -1168,6 +1174,13 @@ static int bookhint(void)
 	return n_bad ? 2 : 0;
 }
 
+/** @brief The tables of the search, and one thread (the tests on books). */
+static void test_search_init(void)
+{
+	bit_init(); edge_stability_init(); search_global_init();
+	options.n_task = 1;
+}
+
 int main(int argc, char **argv)
 {
 	setbuf(stdout, NULL);
@@ -1176,29 +1189,13 @@ int main(int argc, char **argv)
 	if (strcmp(argv[1], "umigame-large") == 0) return umigame_large();
 	if (strcmp(argv[1], "umigame-order") == 0) return umigame_order();
 	if (strcmp(argv[1], "bookhint") == 0) return bookhint();
-	if (strcmp(argv[1], "precision") == 0 || (strcmp(argv[1], "precision-book") == 0 && argc >= 3)) {
-		bit_init(); edge_stability_init(); search_global_init();
-		options.n_task = 1;
-		if (argv[1][9] == '\0') return precision();
-		return precision_book(argv[2], argc >= 4 ? argv[3] : precision_stages[0]);
-	}
-	if (strcmp(argv[1], "reach") == 0 || (strcmp(argv[1], "reach-book") == 0 && argc >= 4)) {
-		bit_init(); edge_stability_init(); search_global_init();
-		options.n_task = 1;
-		if (argv[1][5] == '\0') return reach();
-		return reach_book(argv[2], argv[3]);
-	}
-	if (strcmp(argv[1], "umi-inherit") == 0 || (strcmp(argv[1], "umi-book") == 0 && argc >= 4)) {
-		bit_init(); edge_stability_init(); search_global_init();
-		options.n_task = 1;
-		if (argv[1][4] == 'i') return umi_inherit();
-		return umi_book(argv[2], argv[3], argc >= 5 ? argv[4] : "umi=best");
-	}
-	if (strcmp(argv[1], "missing") == 0 || (strcmp(argv[1], "missing-book") == 0 && argc >= 4)) {
-		bit_init(); edge_stability_init(); search_global_init();
-		options.n_task = 1;
-		if (argv[1][7] == '\0') return missing();
-		return missing_book(argv[2], argv[3]);
-	}
+	if (strcmp(argv[1], "precision") == 0) { test_search_init(); return precision(); }
+	if (strcmp(argv[1], "precision-book") == 0 && argc >= 3) { test_search_init(); return precision_book(argv[2], argc >= 4 ? argv[3] : precision_stages[0]); }
+	if (strcmp(argv[1], "reach") == 0) { test_search_init(); return reach(); }
+	if (strcmp(argv[1], "reach-book") == 0 && argc >= 4) { test_search_init(); return reach_book(argv[2], argv[3]); }
+	if (strcmp(argv[1], "umi-inherit") == 0) { test_search_init(); return umi_inherit(); }
+	if (strcmp(argv[1], "umi-book") == 0 && argc >= 4) { test_search_init(); return umi_book(argv[2], argv[3], argc >= 5 ? argv[4] : "umi=best"); }
+	if (strcmp(argv[1], "missing") == 0) { test_search_init(); return missing(); }
+	if (strcmp(argv[1], "missing-book") == 0 && argc >= 4) { test_search_init(); return missing_book(argv[2], argv[3]); }
 	return 1;
 }
