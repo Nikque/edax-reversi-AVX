@@ -24,7 +24,7 @@ The final audit of v4.5.5-nikque.8 adds `mergetwice` (a second merge does not ta
 
 `expandredo` searches the second of two expansions before the first, whose new position is a move of the new position of the second: when the first is applied, the second has old links, is searched again, then applied, and the book is the one of `position_expand` (the first, then the second).
 
-Additional case names are listed in `tests/regression.c`. Some cases write small `audit-*` files in the current directory. Run them from a disposable checkout if you want to keep the source directory clean.
+Additional case names are listed in `tests/regression.c`. Some cases write small `audit-*` files in the current directory. Run them from a disposable checkout if you want to keep the source directory clean. The cases that read `tests/merge-complete-fixture.dat` (`gtp`, `bookio`, `truncated`, `mergefile`, ...) fail with the exit code 2 when it is not in the current directory, as a case does when a file of its own cannot be opened (up to v4.5.5-nikque.26 they crashed).
 
 To check Cassio's input thread, including EOF immediately after a command with
 no final newline, run `python tests/cassio-eof.py bin/wEdax-x86-64-v4.exe`.
