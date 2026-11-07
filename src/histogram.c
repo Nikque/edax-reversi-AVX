@@ -32,7 +32,7 @@ void histogram_print(unsigned long long h[129][65])
 	int i, j;
 	unsigned long long n, N;
 	double x, y, s, s2;
-	double mean[65], variance[65], median[65];
+	double mean[65], variance[65], median[65], bias[65], precision[65];
 
 	for (j = 0; j < 65; ++j) printf("; %d", j * 2 - 64);
 	printf("; total; mean; error; bias; precision");  
@@ -47,8 +47,9 @@ void histogram_print(unsigned long long h[129][65])
 			s += y * h[i][j];
 			s2 += (x - y) * (x - y) * h[i][j];
 		}
-		s /= n;
-		s2 /= (n - 1);
+		// (a row of 0 or 1 position: up to v4.5.5-nikque.26 divided by 0, nan and inf were printed)
+		s = n > 0 ? s / n : 0.0;
+		s2 = n > 1 ? s2 / (n - 1) : 0.0;
 		if (n > 5) printf("; %lld; %.2f; %.2f; %.2f; %.2f", n, s, sqrt(s2), x - s, sqrt(s2 - (x - s) * (x - s)));
 		else if (n > 0) printf("; %lld; %.2f; %.2f", n, s, sqrt(s2));
 		else printf("; %lld", n);
@@ -67,8 +68,11 @@ void histogram_print(unsigned long long h[129][65])
 			s2 += (x - y) * (x - y) * h[i][j];
 		}
 		N += n;
-		mean[j] = s / n;
-		variance[j] = s2 / (n - 1) ;
+		// (a column of 0 or 1 position: 0, as for the rows)
+		mean[j] = n > 0 ? s / n : 0.0;
+		variance[j] = n > 1 ? s2 / (n - 1) : 0.0;
+		bias[j] = n > 0 ? y - mean[j] : 0.0;
+		precision[j] = n > 1 && variance[j] > bias[j] * bias[j] ? sqrt(variance[j] - bias[j] * bias[j]) : 0.0;
 		// the mean of the values of rank (n - 1) / 2 and n / 2 (up to v4.5.5-nikque.15, with an even count, the bin
 		// after the lower one was taken for the upper one, even when it was empty)
 		median[j] = 0.0;
@@ -88,8 +92,8 @@ void histogram_print(unsigned long long h[129][65])
 	printf("mean"); for (j = 0; j < 65; ++j) printf("; %.2f", mean[j]); printf("\n");
 	printf("median"); for (j = 0; j < 65; ++j) printf("; %.2f", median[j]); printf("\n");
 	printf("error"); for (j = 0; j < 65; ++j) printf("; %.2f", sqrt(variance[j])); printf("\n");
-	printf("bias"); for (j = 0; j < 65; ++j) printf("; %.2f", (2*j - 64) - mean[j]); printf("\n");
-	printf("precision"); for (j = 0; j < 65; ++j) {x = (2*j - 64) - mean[j]; printf("; %.2f", sqrt(variance[j] - x * x));} printf("\n");
+	printf("bias"); for (j = 0; j < 65; ++j) printf("; %.2f", bias[j]); printf("\n");
+	printf("precision"); for (j = 0; j < 65; ++j) printf("; %.2f", precision[j]); printf("\n");
 }
 
 void histogram_stats(unsigned long long h[129][65])
