@@ -53,6 +53,17 @@ static struct {
 } lib_bench;
 
 /**
+ * edax_hint is running, and edax_stop was called since it started. Each search of edax_hint starts with the
+ * stop of the search cleared (search_run): a stop that comes between two searches is kept here, and no
+ * other search starts (up to v4.5.5-nikque.26 it was lost, and the next searches ran to their end).
+ */
+static struct {
+	Lock lock;
+	bool running;
+	bool stop;
+} lib_hint;
+
+/**
  * A command which changes the book is running. edax_stop() does not stop it: a stopped search
  * would give its unfinished result to the book (the book commands do not look at the stop).
  */
@@ -504,6 +515,7 @@ LIBEDAX_API void libedax_initialize(int argc, char **argv)
 	} else {
 		lib_default_options = options;
 		lock_init(&lib_bench);
+		lock_init(&lib_hint);
 		lock_init(&lib_book_change);
 		lib_is_started = true;
 	}
@@ -975,6 +987,29 @@ static void lib_hint_search_run(Play *play, const bool multipv_depth_max)
 }
 
 /**
+ * @brief Tell that edax_hint starts or ends (see lib_hint): the stop of an earlier call is forgotten.
+ * @param running true when it starts.
+ */
+static void lib_hint_set_running(const bool running)
+{
+	lock(&lib_hint);
+	lib_hint.running = running;
+	lib_hint.stop = false;
+	unlock(&lib_hint);
+}
+
+/** @brief Was edax_stop called since edax_hint started? */
+static bool lib_hint_stopped(void)
+{
+	bool stop;
+
+	lock(&lib_hint);
+	stop = lib_hint.stop;
+	unlock(&lib_hint);
+	return stop;
+}
+
+/**
  * @brief go command.
  */
 LIBEDAX_API void edax_go(void)
@@ -1012,6 +1047,7 @@ LIBEDAX_API void edax_hint(const int n_hints, LibedaxHintList *hintlist)
 
 	if (play_is_game_over(play)) return;
 
+	lib_hint_set_running(true);
 	lib_hint_search_init(play);
 	if (n > search->movelist.n_moves) n = search->movelist.n_moves;
 	if (n > LIBEDAX_MOVELIST_SIZE - 1) n = LIBEDAX_MOVELIST_SIZE - 1;
@@ -1027,7 +1063,7 @@ LIBEDAX_API void edax_hint(const int n_hints, LibedaxHintList *hintlist)
 		}
 	}
 
-	while (n-- > 0) {
+	while (n-- > 0 && !lib_hint_stopped()) { // (a stop that came before this search, which clears the stop of the search)
 		lib_hint_search_run(play, n > 0);
 		lib_hint_set_result(hint, search->result);
 		++hint;
@@ -1036,6 +1072,7 @@ LIBEDAX_API void edax_hint(const int n_hints, LibedaxHintList *hintlist)
 		if (search->stop != STOP_END) break;
 		movelist_exclude(&search->movelist, search->result->move);
 	}
+	lib_hint_set_running(false);
 }
 
 /**
@@ -1231,6 +1268,9 @@ LIBEDAX_API void edax_stop(void)
 	lock(&lib_bench);
 	if (lib_bench.result != NULL) lib_bench.stop = true; // a running bench ends (see lib_obf_speed)
 	unlock(&lib_bench);
+	lock(&lib_hint);
+	if (lib_hint.running) lib_hint.stop = true; // edax_hint ends: no other search starts (see lib_hint)
+	unlock(&lib_hint);
 	lock(&lib_book_change);
 	if (!lib_book_change.running) play_stop(g_ui->play);
 	unlock(&lib_book_change);
