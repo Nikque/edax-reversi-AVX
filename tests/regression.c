@@ -29,6 +29,23 @@ static long copy_cut(const char *from,const char *to){FILE *in=fopen(from,"rb"),
 static bool file_exists(const char *path){FILE *f=fopen(path,"rb");if(!f)return false;fclose(f);return true;}
 /* false (said) when the book of the cases is not in the current folder */
 static bool have_fixture(void){if(file_exists(FIXTURE))return true;printf("FAIL: %s is not in the current folder (run the cases from the root of the repository)\n",FIXTURE);return false;}
+/* what is written to stdout (fd 1) or stderr (fd 2) between capture_begin and capture_end, which gives it back (to be freed) */
+#ifdef _WIN32
+#include <io.h>
+#define fd_dup _dup
+#define fd_dup2 _dup2
+#define fd_close _close
+#define fd_of _fileno
+#else
+#include <unistd.h>
+#define fd_dup dup
+#define fd_dup2 dup2
+#define fd_close close
+#define fd_of fileno
+#endif
+static int capture_fd=-1,capture_saved=-1;
+static bool capture_begin(int fd){FILE *f;fflush(stdout);fflush(stderr);if((f=fopen("audit-capture.txt","wb"))==NULL)return false;capture_saved=fd_dup(fd);fd_dup2(fd_of(f),fd);fclose(f);capture_fd=fd;return true;}
+static char *capture_end(void){FILE *f;long n;char *s;fflush(stdout);fflush(stderr);fd_dup2(capture_saved,capture_fd);fd_close(capture_saved);if((f=fopen("audit-capture.txt","rb"))==NULL)return NULL;fseek(f,0,SEEK_END);n=ftell(f);rewind(f);s=malloc(n+1);n=(long)fread(s,1,n,f);s[n]=0;fclose(f);remove("audit-capture.txt");return s;}
 /* a user interface of a protocol, without its input thread: the messages are added to its event */
 static UI *ui_new(void){UI *ui=mm_malloc(sizeof *ui);memset(ui,0,sizeof *ui);event_init(&ui->event);return ui;}
 static void ui_delete(UI *ui){event_free(&ui->event);mm_free(ui);}
@@ -275,6 +292,14 @@ int main(int argc,char **argv){if(argc<2)return 1;setbuf(stdout,NULL);bit_init()
   book_free(&d);d.search=&s;book_new(&d,1,49);int twice=book_merge_file(&d,"audit-merge-orient.dat");
   printf("MERGE the same position in two orientations to a new book: merged=%d positions=%u\n",twice,d.n_nodes);ok=ok&&!twice&&d.n_nodes==1;
   book_free(&d);search_free(&s);remove("audit-merge-orient.dat");if(!ok)return 2;}
+ else if(!strcmp(t,"deviate254")){ /* book deviate2/3 export with a cumulative loss above 254: reduced with the warning of book deviate2/3, in book_deviate_export
+   (up to v4.5.5-nikque.26 edax.c and libedax.c each had their own: libedax said "cumulative loss = 300 is out of range") */
+  if(!have_fixture())return 2;Search s;init_search(&s,1);Book k={0};Board b;char *e;long long n;int ok;
+  if(!book_load(&k,FIXTURE))return 2;k.search=&s;board_init(&b);
+  if(!capture_begin(2))return 2;n=book_deviate_export(&k,&b,NULL,3,2,300,"audit-dev254.txt",BOOK_EXPORT_ALL);e=capture_end();
+  ok=e&&strstr(e,"WARNING: total loss 300 reduced to 254")!=NULL;
+  printf("DEVIATE export with the cumulative loss 300: %lld lines, the warning \"total loss 300 reduced to 254\"=%d\n",n,ok);
+  free(e);remove("audit-dev254.txt");book_free(&k);search_free(&s);if(!ok)return 2;}
  else return 1;
  return 0;
 }

@@ -293,7 +293,7 @@ book deviate2 2 4 export lines.txt ends
 - 今の局面が初期局面のとき、`all` の初期局面そのものの行は、空の行です。
 - 端になるのは、終局の局面、book の深さ（`book depth`）より先の局面、条件に合う手が book にない局面です。
 - `book deviate` は、2 回のたどり（上の説明）を、どちらも広げる前の book でたどった分を合わせて書きます。`ends` は、どちらのたどりも先へ進まない局面です。
-- `book deviate2`・`book deviate3` の合計の上限は 254 までです（広げるときと同じ）。
+- `book deviate2`・`book deviate3` の合計の上限は 254 までです（広げるときと同じ）。254 を超える数は、広げるときと同じ警告（`WARNING: total loss 300 reduced to 254`）を出して 254 にします。libedax の `edax_book_deviate_export` も同じです（v4.5.5-nikque.26 までは、libedax だけ `cumulative loss = 300 is out of range. Set to 254` と出していました）。
 - 終わると `Book deviate2 2 4 export ends...finished: 120 lines written (lines.txt)` と出ます。今の局面が book にないときは、空のファイルを作ります。
 - book は変わらないので、保存も途中経過のファイルもありません。
 - 書き出せないときは `ERROR:` で始まる行が出て、book は広げません。ファイル名がないとき（`ERROR: book deviate export: no file`）、最後の語が `leaf`・`ends`・`all` のどれでもないとき（`unknown word`）、ファイルに書けないとき（`ERROR: book deviate2 2 4 export: cannot write the file lines.txt`）です。

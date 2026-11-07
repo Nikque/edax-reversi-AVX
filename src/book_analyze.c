@@ -3228,12 +3228,13 @@ static bool ba_export_order(const BaWork *w, const int base, BaList *order)
  * @param line Moves of the game up to the current position (written first), or NULL.
  * @param base 1: book deviate, 2: deviate2, 3: deviate3.
  * @param x Relative error (deviate), or loss of one move (deviate2, deviate3).
- * @param y Absolute error (deviate), or cumulative loss (deviate2, deviate3).
+ * @param y Absolute error (deviate), or cumulative loss (deviate2, deviate3: above VISIT_LOSS_MAX, reduced to it with
+ * the warning of book deviate2, deviate3).
  * @param file File to write.
  * @param which BOOK_EXPORT_LEAF, BOOK_EXPORT_ENDS or BOOK_EXPORT_ALL.
  * @return the number of lines written, -1 on error (said).
  */
-long long book_deviate_export(Book *book, const Board *board, const char *line, const int base, const int x, const int y, const char *file, const int which)
+long long book_deviate_export(Book *book, const Board *board, const char *line, const int base, const int x, int y, const char *file, const int which)
 {
 	static const char *names[] = {"", "deviate", "deviate2", "deviate3"}, *whats[] = {"leaf", "ends", "all"};
 	const char *name = names[base], *what = whats[which];
@@ -3246,8 +3247,15 @@ long long book_deviate_export(Book *book, const Board *board, const char *line, 
 	unsigned int root_idx;
 	long long k, written = 0;
 	bool ok;
-	FILE *f = fopen(file, "w");
+	FILE *f;
 
+	// (as book deviate2, deviate3: a mark of one byte a position; up to v4.5.5-nikque.26 edax and libedax each warned
+	// in their own words)
+	if (base != 1 && y > VISIT_LOSS_MAX) {
+		warn("total loss %d reduced to %d\n", y, VISIT_LOSS_MAX);
+		y = VISIT_LOSS_MAX;
+	}
+	f = fopen(file, "w");
 	if (f == NULL) {
 		printf("ERROR: book %s %d %d export: cannot write the file %s\n", name, x, y, file);
 		return -1;
