@@ -744,6 +744,21 @@ int main(int argc, char **argv)
 	CHECK(hintlist->hint[1].move != hintlist->hint[2].move);
 	edax_hint(60, hintlist);
 	CHECK_INT(hintlist->n_hints, 3);
+	if (!original) { // edax_stop from another thread ends edax_hint; a stop before a call does not stop it
+		TestThread t;
+		edax_set_option("level", "20");
+		stop_often_on = 1;
+		t = thread_start(stop_often);
+		edax_hint(60, hintlist);
+		stop_often_on = 0;
+		thread_wait(t);
+		printf("stopped hint: %d hints\n", hintlist->n_hints);
+		CHECK(hintlist->n_hints < 3);
+		edax_set_option("level", "4");
+		edax_stop();
+		edax_hint(60, hintlist);
+		CHECK_INT(hintlist->n_hints, 3);
+	}
 	edax_hint_prepare(NULL);
 	for (n = 0; n < 10; ++n) {
 		if (n & 1) edax_hint_next(&hint); else edax_hint_next_no_multipv_depth(&hint);
