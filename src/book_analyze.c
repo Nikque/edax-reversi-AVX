@@ -792,12 +792,16 @@ static long long ba_test_alloc_fail = -1; /**< allocations of the walks that suc
 #define BA_TEST_ALLOC_FAILS() false
 #endif
 
+/** @return false if memory is exhausted, or if the item or its parent has a number that does not fit in BaItem.parent. */
 static bool ba_push(BaQueue *q, Position *p, const unsigned int idx, const long long parent, const int move, const int depth, const int loss)
 {
+	// (the number of an item is the parent of its next items: up to v4.5.5-nikque.26 a parent was checked only when
+	// the queue grew, and a parent above INT_MAX became negative)
+	if (parent > INT_MAX || q->n > INT_MAX) return false;
 	if (q->n == q->size) {
 		const long long size = q->size + q->size / 2 + 1024;
 		BaItem *item = BA_TEST_ALLOC_FAILS() ? NULL : (BaItem*) realloc(q->item, (size_t) size * sizeof *item);
-		if (item == NULL || parent > INT_MAX) { if (item) q->item = item; return false; }
+		if (item == NULL) return false;
 		q->item = item; q->size = size;
 	}
 	q->item[q->n].p = p;
