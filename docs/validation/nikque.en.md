@@ -5,6 +5,17 @@ Tests and measurements done for each version, moved without changes from the for
 For what changed, see the [release notes](../../RELEASE-NOTES.md). "Above" and "below" in the text refer to positions in the former document.
 
 
+## v4.5.5-nikque.27
+
+Checks:
+
+- Before and after the changes (builds of the same source), on test books with 1 and 4 threads: the book commands (76 cases) write the same files and give the same answers, the analysis commands (20,046) give the same answers, and 25 cases of the other commands give the same output (but the time and the line numbers of `book.c` in its error messages); `book reduce` with 4 threads saves the same books (12 cases, 6 settings). The differences of `tests/regression.c` are the line numbers of `book.c`, the new cases and checks, and `enhance`, which varied from run to run before (a random seed from the clock). The new checks of the bugs (`tests/libedax_test.c`, `tests/book-analyze.c`, `tests/regression.c`) fail with the code before the fixes, but a few that cannot hit the bug on purpose (checked with test copies of the code).
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`). The unit tests of the analyses (`tests/book-analyze.c`) pass, the earlier ones with the numbers of the previous version, and the 3 new ones (`book moveinfo` without memory, the limit of the numbers of the items, the memory of a count given away) too.
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (77,639,567) and lines as v4.5.5-nikque.26; the 7 Cassio cases pass. The 3 DLLs: the API checks (`tests/libedax_test.c`, 279 checks), 0 failures. Suite F of `book-reproducible` gives the same books as v4.5.5-nikque.26. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 251 checks (all but the 28 for Windows only), 0 failures. Android (NDK r27d): no warning. Release CI (run 42432224298): the Linux and macOS libraries pass 251 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,175,751, arm64 2,181,259). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The search, the evaluation, the book learning and the file format are not changed (only the handling of the book files that could not be loaded or opened, the fixes of the commands above, the functions of libedax, and the code rearranged without changing what it does). The node counts above check that the search is the same.
+- Size (against v4.5.5-nikque.26): the 5 Windows programs −1,024 to +1,536 bytes, the 3 DLLs +1,536 to +3,584 bytes. Built by the release workflow: the Linux programs −8,192 to +4,128 and libraries +0 to +8,192, the macOS programs +64 and −4,040 and library +480, Windows ARM64 +3,072, the Android programs −712 and +344 and libraries +504 and +16 bytes.
+- Speed: not measured.
+
 ## v4.5.5-nikque.26
 
 Checks:

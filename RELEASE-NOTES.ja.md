@@ -14,6 +14,7 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 
 | nikque | eval2 | newedax |
 |---|---|---|
+| nikque.27 | eval2.15 | newedax.12 |
 | nikque.26 | eval2.14 | newedax.11 |
 | nikque.25 | eval2.13 | newedax.10 |
 | nikque.24 | eval2.12 | newedax.9 |
@@ -33,6 +34,42 @@ eval2・newedax の各版は、同じ行の nikque の版の変更をすべて�
 ---
 
 # nikque 系列
+
+## v4.5.5-nikque.27
+
+起動のときにほかのプログラムが開いていた book のファイルを、壊れたものとして置き換えることがなくなりました。見直しで見つけたほかの不具合（読めなかった book のファイル、`book import`、`book merge`、`book deviate` の仲間の `export`、libedax など）も直し、動きを変えずにコードを整理しました。
+
+**変更**
+
+- ファイルはあるのに起動のときに開けない book（ほかのプログラムが共有なしで開いている、読む権限がない、など）：2 秒ほど待って開き直します。それでも開けなければ、これまでどおり新しい book で始めますが、**そのファイルには保存しません**（`book save` でも、終了のときも）。`.damaged` も作りません（表示は `Cannot open opening book …; it is not loaded, and no save replaces it`）。ほかのプログラムが閉じた後に `book load` で読めます。nikque.26 までは、壊れたものとして扱い、後の保存で `.damaged` に移して、新しい book で置き換えていました。
+- 読めなかった book のファイルは、それぞれ、読み込むか退けるまで印を持ちます（前は、別のファイルの読み込みに失敗すると印がそちらへ移り、後の保存が最初のファイルを `.damaged` に残さずに置き換えていました）。同じファイルを別の書き方の名前（`./`、`/` の代わりの `\`、Windows での大文字と小文字、絶対の名前）で渡しても見つけます。
+- libedax：`edax_book_file_status(file)` を足しました。読み込むはずだった book のファイルがどうなったかを返します（0 は置き換えてよい、1 は読めなかった（壊れている）、2 は開けなかった（置き換えない））。初期化の後に呼べば、空の book に学習を始めずに止められます。
+- libedax：日本語などの名前（ASCII でない名前）の book のファイルが起動のときに開けなかったとき、終わりに 1 局面の book で置き換えることがなくなりました。
+- libedax：`edax_book_deviate_export` は、書き出すたびに今の book の局面に番号を付けます（`edax_book_load`・`edax_book_merge` の後に、誤りなしで手順が抜けることがありました）。`edax_hint` の 2 つの探索の間に来た `edax_stop` を忘れません。`edax_book_add_board` は、前の book の関数の失敗の印を消します。`edax_book_new` と `book new` は、深さを `book depth` と同じく 1〜61 に収めます。
+- `book import`：Leaf の評価値が -64〜64 の外の行は、読めない行として飛ばします（300 を 44 として読んでいました）。
+- `book merge`：ほかの道具が別の向きで書いた局面を、探す所に入れ、そこへの手もつなぎます（前は、merge の後にその局面へ進む手がありませんでした）。同じ局面を 2 つの向きで持つファイルは断ります（`duplicated position`。逆の順のときは前から断っていました）。
+- `book deviate` の仲間の `export`：ファイル名を `"…"` で囲めば空白を含められます。長すぎる名前、閉じていない引用符、数の後ろの `export` のほかの語は誤りで、book を広げません（前は、`exprot` のような打ち間違いを読み飛ばして広げ、長い名前は黙って切っていました）。合計の損失が 254 を超えたときの警告は、libedax でもコマンドと同じです。
+- `book moveinfo` は、メモリが足りないとき `@error id=N memory=1` と `@end id=N error=1` で終わります（前は、調べられなかった手の行を出さないまま、誤りなしで終わっていました）。`book reducecount` の数えた結果は、メモリを要るほかの解析に譲ります（その後の `book reduce` は数え直し、結果は同じです）。2^31 個を超える項目をたどるときは、誤った親をたどらずに誤りで止まります。
+- 時間の `5:`（対局の持ち時間、xboard の level、GGS の時計）を 5 分と読みます（5 分 5 秒と読んでいました）。
+- 実行ファイルのフォルダーの名前が長すぎて `config.ini` の場所を組み立てられないときは、`config.ini` を読まず、そう知らせます（前は、カレントフォルダーの `config.ini` を読み、誤った警告を出していました）。
+- 元の Edax の部分：`weval` の表と統計（`histogram`）が、局面が 0 か 1 の行・列・表で 0 で割らなくなりました（`nan`・`inf`）。`eval_builder` の使い方の文を、実際の読み方に合わせました。GTP の `time_left` は、ほかの命令と同じく誤った色を知らせます。
+- 試験：`tests/libedax_test.c` は 279 項目（61 項目増。うち 28 項目は Windows だけ）、`tests/book-analyze.c` は 3 つ増、`tests/regression.c` は場面を足しました。`tests/regression.c` のファイルを開けない場面は、落ちずに終了コード 2 で失敗します。
+- `book.c`・`book_analyze.c`・libedax・`play.c`・`options.c`・`base.c`・`util.c` とほかのいくつかのファイル、試験のコードを、動きを変えずに整理しました（何度も書いていた処理を共通の関数に）。
+- 手引き：4.1・6.6・7.3・8.4・8.5・12.2・12.4・13.1 に書きました。
+
+**互換性**
+
+- 探索の結果・`eval.dat`・book のファイル形式は変わりません。
+- 答えが nikque.26 と違うのは、上の場合だけです。book のエラーの文に入るソースの行番号（`book.c : book_load : …`）は変わりました。
+- libedax：設定の book のファイルを起動のときに開けなかったときは、どの保存もそのファイルを置き換えません（`edax_book_save_checked`・`edax_book_keep_unread_file` は 0）。book を自分で保存するプログラムは、初期化の後に `edax_book_file_status` を確かめてください。
+
+**確認**：直す前と後で、試験用の book（1 スレッドと 4 スレッド）の book のコマンド 76 通りの書いたファイルと答え、解析の命令 20,046 個の答え、ほかのコマンド 25 場面の出力（時間と `book.c` の行番号のほか）が同じでした。直した不具合の新しい項目は、狙って起こせない少しのもの（試験用に写したコードで確かめた）のほか、直す前のコードでは失敗しました。libedax の試験 279 項目と解析の単体試験が通り、gcc（WSL）の組み立ては警告が前と同じで、そのライブラリは 251 項目（Windows だけの項目のほか全部）が通りました。
+
+**未確認**：実 book での時間とメモリ。
+
+[検証記録](docs/validation/nikque.ja.md#v455-nikque27)
+
+---
 
 ## v4.5.5-nikque.26
 
@@ -1000,6 +1037,23 @@ Edax をほかのプログラムから使えるライブラリ libedax を追加
 # eval2 系列
 
 nikque 系列に新しい評価関数（着手可能数の重み）を足した系列です。ブランチ `eval2` から公開しています。各版は、上の「版の対応」の表のとおり、nikque の版の変更をすべて含みます。
+
+## v4.5.5-eval2.15
+
+v4.5.5-nikque.27 の変更を取り込みました（[nikque.27](#v455-nikque27)）。
+
+**変更**
+
+- nikque.27 の直し（起動のときにほかのプログラムが開いていた book を置き換えない、libedax の `edax_book_file_status`、`book import`、`book merge`、`book deviate` の仲間の `export`、メモリが足りないときの `book moveinfo` など）と、整理したコードを取り込みました（内容は nikque.27 と同じです）。
+
+**互換性**
+
+- 評価関数と `eval.dat` は eval2.1 のままです（同じファイル）。
+- 探索の結果（評価値・ノード数）は eval2.14 と同じです。答えが eval2.14 と違うのは、nikque.27 の場合だけです。
+
+[検証記録](docs/validation/eval2.ja.md#v455-eval215)
+
+---
 
 ## v4.5.5-eval2.14
 
