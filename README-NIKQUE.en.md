@@ -4,7 +4,22 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.14).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.26) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.15).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.27) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+
+## Changes in v4.5.5-eval2.15
+
+The changes of v4.5.5-nikque.27 (the nikque.27 entry below: a book file held by another program at the start is not replaced, `edax_book_file_status` of libedax, the fixes of the book files that could not be loaded, `book import`, `book merge`, the `export` of the `book deviate` family, libedax and others, and the code rearranged without changing what it does) are added to v4.5.5-eval2.14. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The search and its results are those of v4.5.5-eval2.14; the answers differ from eval2.14 only in the cases of nikque.27.
+
+- Manual: 4.1, 6.6, 7.3, 8.4, 8.5, 12.2, 12.4 and 13.1 have the same text as the nikque manual.
+
+Checks:
+
+- Before and after the changes (builds of the same source), on test books with 1 and 4 threads: the book commands (76 cases) write the same files and give the same answers, the analysis commands (20,046) give the same answers, and 25 cases of the other commands give the same output (but the time and the line numbers of `book.c` in its error messages). The differences of `tests/regression.c` are the line numbers of `book.c`, the new cases and checks, and `enhance`, which varied from run to run before (a random seed from the clock). The new checks of the bugs (`tests/libedax_test.c`, `tests/book-analyze.c`, `tests/regression.c`) fail with the code before the fixes, but a few that cannot hit the bug on purpose (checked with test copies of the code).
+- With the released `wEdax-x86-64-v3.exe`: the `book reduce` tests (500 cases on 2 small books) and the 14 tests of damaged books and wrong words pass; so do the earlier tests of the analysis commands (3 small books, the real `book deviate` family, 40,000 random graphs of positions, the background thread, the lines of `book bestlines` and `book findline`). The unit tests of the analyses (`tests/book-analyze.c`) pass, the earlier ones with the numbers of the previous version, and the 3 new ones (`book moveinfo` without memory, the limit of the numbers of the items, the memory of a count given away) too.
+- Search: the 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same results, node counts (78,733,223) and lines as v4.5.5-eval2.14; the 7 Cassio cases pass. The 3 DLLs: the API checks (`tests/libedax_test.c`, 279 checks), 0 failures. Suite F of `book-reproducible` gives the same books as v4.5.5-eval2.14. Linux (WSL, gcc 11.4, built as the release workflow does): the 4 programs give the same rows, the 3 libraries 251 checks (all but the 28 for Windows only), 0 failures. Android (NDK r27d): no warning. Release CI (run 42432244412): the Linux and macOS libraries pass 251 API checks with 0 failures, and fforum-1-19 on macOS gives the same node counts as before (x64 2,192,396, arm64 2,196,096). The Windows x86 and x64 programs and DLLs are the local PGO builds. No program or library holds a folder of the build machine.
+- The search, the evaluation, the book learning and the file format are not changed (only the handling of the book files that could not be loaded or opened, the fixes of the commands above, the functions of libedax, and the code rearranged without changing what it does). The node counts above check that the search is the same.
+- Size (against v4.5.5-eval2.14): the 5 Windows programs −1,024 to +1,536 bytes, the 3 DLLs +1,536 to +3,584 bytes. Built by the release workflow: the Linux programs −4,096 to +4,128 and libraries −4,096 to +8,192, the macOS programs +64 and −8,136 and library +480, Windows ARM64 +3,584, the Android programs −696 and +344 and libraries +520 and +32 bytes.
+- Speed: not measured.
 
 ## Changes in v4.5.5-eval2.14
 
@@ -307,6 +322,38 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+## Changes in v4.5.5-nikque.27
+
+A book file that another program holds when Edax starts is no longer taken for a damaged one and replaced. Other bugs found in a review are fixed (the book files that could not be loaded, `book import`, `book merge`, the `export` of the `book deviate` family, libedax and others), and the code was rearranged without changing what it does.
+
+**Changes**
+
+- A book file that exists but cannot be opened at the start (another program has it open without sharing, there is no permission to read it, …): Edax waits about 2 seconds and tries again. If it still cannot open it, it starts with a new book as before, but **never saves to that file** (neither `book save` nor the save at exit) and makes no `.damaged` file (`Cannot open opening book …; it is not loaded, and no save replaces it`). Once the other program has closed it, `book load` loads it. Up to nikque.26 such a file was taken for a damaged one: a later save moved it to `.damaged` and replaced it with the new book.
+- Each book file that could not be loaded keeps its mark until it is loaded or kept aside (before, the failure of another file moved the mark to it, and a save then replaced the first file without keeping it as `.damaged`). The same file given under a name written another way (`./`, `\` for `/`, another case on Windows, a full name) is found too.
+- libedax: `edax_book_file_status(file)` (new) tells what became of a book file that was to be loaded: 0 it may be replaced, 1 it could not be read (damaged), 2 it could not be opened (it is never replaced). Called after the initialization, it lets a program stop instead of learning into an empty book.
+- libedax: a book file of non-ASCII name (in a folder of Japanese name, for instance) that could not be opened at the start is no longer replaced at the end by a book of one position.
+- libedax: `edax_book_deviate_export` numbers the positions of the current book for each export (after `edax_book_load` or `edax_book_merge`, lines could be left out without an error). An `edax_stop` that comes between two searches of `edax_hint` is kept. `edax_book_add_board` clears the failure mark of the last book function. `edax_book_new` and `book new` keep the depth between 1 and 61, as `book depth` does.
+- `book import`: a line whose leaf score is out of -64 to 64 is skipped as a line that cannot be read (300 was read as 44).
+- `book merge`: a position written in another orientation (by another tool) is added where it is looked for, and the moves to it are linked (before, no move led to it after the merge). A file that holds the same position in two orientations is refused (`duplicated position`), as it already was in the other order.
+- The `export` of the `book deviate` family: a file name between double quotes may hold spaces; a name too long, a quote that is not closed and a word other than `export` after the numbers are errors, and the book is not expanded (before, a typo such as `exprot` was skipped and the book expanded, and a long name was cut). Above 254, the total loss gives the same warning from libedax as from the commands.
+- `book moveinfo` without enough memory ends with `@error id=N memory=1` and `@end id=N error=1` (before, the lines of the moves it could not analyse were left out without an error). The result of `book reducecount` gives its memory to another analysis that needs it; `book reduce` then counts again, with the same result. A walk of more than 2^31 items stops with an error instead of following a wrong parent.
+- A time written `5:` (the time of a game, the xboard level, the GGS clocks) is 5 minutes (it was 5 minutes 5 seconds).
+- When the name of the folder of the executable is too long for the path of its `config.ini`, no `config.ini` is read, and the warning says so (before, the `config.ini` of the current folder was read, with a wrong warning).
+- Upstream parts: the table and the statistics of `weval` (`histogram`) no longer divide by 0 (`nan`, `inf`) for a row, a column or a table of 0 or 1 position; the usage of `eval_builder` tells `show` as it is read; `time_left` of GTP tells a wrong color as the other commands do.
+- Tests: `tests/libedax_test.c` has 279 checks (61 more, 28 of them on Windows only), `tests/book-analyze.c` 3 more tests, `tests/regression.c` new cases; a case of `tests/regression.c` whose file cannot be opened fails with the exit code 2 instead of crashing.
+- The code of `book.c`, `book_analyze.c`, libedax, `play.c`, `options.c`, `base.c`, `util.c`, a few other files and the tests was rearranged (shared functions instead of code written several times), without changing what it does.
+- Manual: 4.1, 6.6, 7.3, 8.4, 8.5, 12.2, 12.4 and 13.1.
+
+**Compatibility**
+
+- The search results, `eval.dat` and the book file format do not change.
+- The answers differ from nikque.26 only in the cases above. The error messages of the book give a line of the source (`book.c : book_load : …`), which changed.
+- libedax: when the book file of the settings could not be opened at the start, no save replaces it (`edax_book_save_checked` and `edax_book_keep_unread_file` give 0). A program that saves the book itself should look at `edax_book_file_status` after the initialization.
+
+**Checked**: before and after the changes, on test books with 1 and 4 threads, the book commands (76 cases) write the same files and give the same answers, the analysis commands (20,046) give the same answers, and 25 cases of the other commands give the same output (but the time and the line numbers of `book.c`); the new checks of the bugs fail with the code before the fixes, but a few that cannot hit the bug on purpose (checked with test copies of the code). The 279 checks of the test of libedax and the unit tests of the analyses pass; the gcc build (WSL) gives the same warnings as before, and its libraries pass 251 checks (all but the checks for Windows only).
+
+**Not checked**: the time and the memory on a real book.
+
 ## Changes in v4.5.5-nikque.26
 
 `book deviate`, `book deviate2` and `book deviate3` can write the lines they walk to a text file without expanding the book (`export`).
