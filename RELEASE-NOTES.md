@@ -2,6 +2,15 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.16 (with the changes of v4.5.5-nikque.28)
+
+The fix of v4.5.5-nikque.28 is added to v4.5.5-eval2.15: **the exact search could rarely give a wrong score (and move) at level 60 from 17 empties on.** An exact search (a level whose depth is the number of empties, with no selectivity) first searches the position with selectivity (probcut), then exactly. Between those iterations, a node of the midgame search at the depth where the endgame search starts (`DEPTH_MIDGAME_TO_ENDGAME`, 15 empties) was stored in the hash table as exact, because its moves are searched by the endgame search. When that node has to pass, the search of the opponent stays in the midgame search at the same depth, where probcut can cut it: that score was stored as exact and taken by the exact iteration. The exact score of the root, and its move, could then be wrong (by a few discs). About 1 to 2 exact searches in 100,000 at 17 empties gave a wrong score (with 1 or 4 threads, with any hash table size: the same positions every time). Now such a node (a pass) is stored with the selectivity of the search (`NWS_midgame` of `midgame.c`). The same error is in Edax 4.5.5 and 4.5.6 of Toshihiko Okuhara (edax-reversi-AVX, also its master of 2026-11-03), from which this version comes (267 of the 1,205 positions below are wrong with the 4.5.5 program and with 4.5.6 built from its source; 0 with the same fix). Edax 4.6 and 4.7 of Richard Delorme do not have it (0 of 1,205). The evaluation function and `eval.dat` are those of v4.5.5-eval2.1 (the same file); nothing else is changed.
+
+Checks:
+
+- The 5 Windows release programs (PGO) solve the 1,205 positions whose exact scores were wrong (`-l 60`, 1 thread) with 0 wrong scores (366 with v4.5.5-eval2.15); fforum-20-39 with 1 thread gives the same depths, scores and moves as v4.5.5-eval2.15 (78,733,311 nodes, 78,733,223 with eval2.15); the 7 Cassio cases pass; the 3 DLLs pass the 279 API checks. `tests/regression.c` `core` passes with 1 and 4 threads.
+- Speed: not measured.
+
 ## v4.5.5-eval2.15 (with the changes of v4.5.5-nikque.27)
 
 The changes of v4.5.5-nikque.27 (the nikque.27 entry below: a book file held by another program at the start is not replaced, `edax_book_file_status` of libedax, the fixes of the book files that could not be loaded, `book import`, `book merge`, the `export` of the `book deviate` family, libedax and others, and the code rearranged without changing what it does) are added to v4.5.5-eval2.14. **The evaluation function and `eval.dat` are those of v4.5.5-eval2.1** (the same file). The search and its results are those of v4.5.5-eval2.14; the answers differ from eval2.14 only in the cases of nikque.27.
