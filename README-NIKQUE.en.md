@@ -4,7 +4,17 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.16).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.28) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.17).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.29) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+
+## Changes in v4.5.5-eval2.17
+
+The changes of v4.5.5-nikque.29 are added to v4.5.5-eval2.16: **`book correct`, `book leaf recalculate` and `book learn` go on from a book saved before they ended (marks in the book, removed when the command ends; for `book learn`, the file `<book-file>.learn`), and `book deepen` works.** A book saved before `book correct` or `book leaf recalculate` ended holds marks, and the versions up to v4.5.5-eval2.16 read it as a damaged book. The search, `eval.dat` and the book file format do not change.
+
+Checks:
+
+- `tests/book-resume.py` (40 checks), the 14 book suites (the same books as v4.5.5-eval2.16 except the save date; S3 with `-book-seed 1`), `tests/regression.c` (50 cases): passed.
+- The 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same depths, scores, moves and node counts (78,733,311) as v4.5.5-eval2.16, and the 1,205 positions of the exact-search fix with 0 wrong scores; the 3 DLLs pass the 279 API checks; suite F of `book-reproducible` gives the same books.
+- Speed: not measured (the search is not changed).
 
 ## Changes in v4.5.5-eval2.16
 
@@ -331,6 +341,16 @@ Conditions where this version (new `eval.dat`) is slower than the release execut
 - **Book regression tests** (upstream `eval.dat`, 1 thread, level 21, `book-store-tasks = 1`, the AVX-512 release executable): in the 8 suites that cover all the book commands, the 84 files produced are identical to those of the v4.5.5-nikque.9 release executable (only the file that holds a date differs). The 8 suites took 172.1 s → 174.1 s in total (1.012 times; single runs, not distinguishable from noise). No book test was run with the new `eval.dat`, nor with several threads.
 - Peak memory (see "Speed").
 - **Not measured or not checked**: the macOS, Android and Windows ARM64 builds (running and speed; the Android and Windows ARM64 builds were only built), the time of book learning, matches at level 24 or more, searches at level 30 or more, book tests with the new `eval.dat` (the book code is the one of v4.5.5-nikque.9), edax_runner with the library of this version.
+## Changes in v4.5.5-nikque.29
+
+- **`book correct` goes on from a book saved before it ended.** Each solved position searched again gets a mark in the book (saved with the book); a new run on a book saved before the command ended (the timed saves to `<book-file>.err`, or the save at the exit) searches only the positions without a mark. When every solved position is done, all the marks are removed. Up to v4.5.5-nikque.28, every run searched all the solved positions again from the beginning: on a large book that takes days, a run that stopped lost all its work.
+- **`book leaf recalculate` (2, 3, 4) goes on the same way**: each leaf searched again gets a mark, a new run skips the marked leaves, and the marks are removed when the command ends. Within a run, a leaf searched in a round is not searched again in the next rounds (`book-leaf-recalculate-rounds` 2 or more; with one-thread searches it got the same value).
+- **`book learn <file>` goes on from the lines learned.** Each time the book is saved to `<book-file>.store`, a small text file `<book-file>.learn` tells how many lines of the file of games are learned in it (with a check value of these lines and the number of positions, the level and the depth of the book). `book learn` with the same file on this book skips these lines; the file is removed when the whole file is learned. Up to v4.5.5-nikque.28, a new run played all the games of the file again (other games with `book-randomness`).
+- **`book deepen` works.** It searched again the positions of another level than the book with their own level, and did not change their level: nothing became deeper, and a new run searched them all again (the code of the original Edax 4.3). Now the positions whose level searches less deep than the level of the book get that level and are searched again with it; a new run does not search them again. Positions of a deeper level are left as they are.
+
+- The marks are the two upper bits of the level byte of a position in the book file (the level is 0 to 60): the file size and format do not change, and a book without marks is the same as before. **A book saved before `book correct` or `book leaf recalculate` ended holds marks, and the versions up to v4.5.5-nikque.28 read it as a damaged book**; a finished book has no mark. Other tools that read book files directly need to ignore these two bits (nikque GUI 0.4.6 does).
+- `eval.dat` and the search do not change: the same scores, moves and node counts (fforum-20-39 with 1 thread: 78,733,311 nodes for eval2.17, as v4.5.5-eval2.16). The books made by the other commands are the same as with v4.5.5-nikque.28.
+
 ## Changes in v4.5.5-nikque.28
 
 - **The exact search could rarely give a wrong score (and move) at level 60 from 17 empties on.** An exact search (a level whose depth is the number of empties, with no selectivity) first searches the position with selectivity (probcut), then exactly. Between those iterations, a node of the midgame search at the depth where the endgame search starts (`DEPTH_MIDGAME_TO_ENDGAME`, 15 empties) was stored in the hash table as exact, because its moves are searched by the endgame search. When that node has to pass, the search of the opponent stays in the midgame search at the same depth, where probcut can cut it: that score was stored as exact and taken by the exact iteration. The exact score of the root, and its move, could then be wrong (by a few discs). About 1 to 2 exact searches in 100,000 at 17 empties gave a wrong score (with 1 or 4 threads, with any hash table size: the same positions every time). Now such a node (a pass) is stored with the selectivity of the search (`NWS_midgame` of `midgame.c`).

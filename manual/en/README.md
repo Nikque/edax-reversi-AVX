@@ -2,7 +2,7 @@
 
 [日本語](../ja/README.md)
 
-Version described: **v4.5.5-eval2.16** (`Nikque/edax-reversi-AVX`, branch `eval2`; it holds the changes up to v4.5.5-nikque.28). Some parts do not apply to earlier versions; those places say "since v4.5.5-nikque.N", the nikque version that brought the change (the heading of each version in the release notes tells which nikque versions an eval2 version holds).
+Version described: **v4.5.5-eval2.17** (`Nikque/edax-reversi-AVX`, branch `eval2`; it holds the changes up to v4.5.5-nikque.29). Some parts do not apply to earlier versions; those places say "since v4.5.5-nikque.N", the nikque version that brought the change (the heading of each version in the release notes tells which nikque versions an eval2 version holds).
 
 Edax is a program that plays Othello (Reversi). It can also analyse games, solve endgames exactly and build opening data (a *book*). This manual starts with launching the program and playing one game, and goes on step by step to growing and maintaining a book of several hundred million positions.
 

@@ -2,6 +2,16 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.17 (with the changes of v4.5.5-nikque.29)
+
+The changes of v4.5.5-nikque.29 are added to v4.5.5-eval2.16: **`book correct`, `book leaf recalculate` and `book learn` go on from a book saved before they ended (marks in the book, removed when the command ends; for `book learn`, the file `<book-file>.learn`), and `book deepen` works.** A book saved before `book correct` or `book leaf recalculate` ended holds marks, and the versions up to v4.5.5-eval2.16 read it as a damaged book. The search, `eval.dat` and the book file format do not change.
+
+Checks:
+
+- `tests/book-resume.py` (40 checks), the 14 book suites (the same books as v4.5.5-eval2.16 except the save date; S3 with `-book-seed 1`), `tests/regression.c` (50 cases): passed.
+- The 5 Windows release programs (PGO) solve fforum-20-39 with 1 thread with the same depths, scores, moves and node counts (78,733,311) as v4.5.5-eval2.16, and the 1,205 positions of the exact-search fix with 0 wrong scores; the 3 DLLs pass the 279 API checks; suite F of `book-reproducible` gives the same books.
+- Speed: not measured (the search is not changed).
+
 ## v4.5.5-eval2.16 (with the changes of v4.5.5-nikque.28)
 
 The fix of v4.5.5-nikque.28 is added to v4.5.5-eval2.15: **the exact search could rarely give a wrong score (and move) at level 60 from 17 empties on.** An exact search (a level whose depth is the number of empties, with no selectivity) first searches the position with selectivity (probcut), then exactly. Between those iterations, a node of the midgame search at the depth where the endgame search starts (`DEPTH_MIDGAME_TO_ENDGAME`, 15 empties) was stored in the hash table as exact, because its moves are searched by the endgame search. When that node has to pass, the search of the opponent stays in the midgame search at the same depth, where probcut can cut it: that score was stored as exact and taken by the exact iteration. The exact score of the root, and its move, could then be wrong (by a few discs). About 1 to 2 exact searches in 100,000 at 17 empties gave a wrong score (with 1 or 4 threads, with any hash table size: the same positions every time). Now such a node (a pass) is stored with the selectivity of the search (`NWS_midgame` of `midgame.c`). The same error is in Edax 4.5.5 and 4.5.6 of Toshihiko Okuhara (edax-reversi-AVX, also its master of 2026-11-03), from which this version comes (267 of the 1,205 positions below are wrong with the 4.5.5 program and with 4.5.6 built from its source; 0 with the same fix). Edax 4.6 and 4.7 of Richard Delorme do not have it (0 of 1,205). The evaluation function and `eval.dat` are those of v4.5.5-eval2.1 (the same file); nothing else is changed.
