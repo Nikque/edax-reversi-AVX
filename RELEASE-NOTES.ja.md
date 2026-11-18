@@ -4,7 +4,7 @@
 
 ## v4.5.5-eval2.17（v4.5.5-nikque.29 の変更を取り込み）
 
-v4.5.5-eval2.16 に v4.5.5-nikque.29 の変更を取り込みました：**`book correct`・`book leaf recalculate`・`book learn` が、途中で保存された book から続けられるようになりました（book の中の印。コマンドが終わると外れます。`book learn` はファイル `<book-file>.learn`）。`book deepen` が働くようになりました。** `book correct`・`book leaf recalculate` が終わる前に保存された book には印があり、v4.5.5-eval2.16 までの版では壊れた book として読まれません。探索・`eval.dat`・book のファイル形式は変わりません。
+v4.5.5-eval2.16 に v4.5.5-nikque.29 の変更を取り込みました：**`book correct`・`book leaf recalculate`・`book learn` が、途中で保存された book から続けられるようになりました（book の中の印。コマンドが終わると外れます。`book learn` はファイル `<book-file>.learn`）。`book deepen` が働くようになりました。** `book correct`・`book leaf recalculate` が終わる前に保存された book には印があり、v4.5.5-eval2.16 までの版では壊れた book とみなされ、読み込めません。探索・`eval.dat`・book のファイル形式は変わりません。
 
 確かめたこと：
 

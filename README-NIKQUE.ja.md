@@ -8,7 +8,7 @@
 
 ## v4.5.5-eval2.17 の変更点
 
-v4.5.5-eval2.16 に v4.5.5-nikque.29 の変更を取り込みました：**`book correct`・`book leaf recalculate`・`book learn` が、途中で保存された book から続けられるようになりました（book の中の印。コマンドが終わると外れます。`book learn` はファイル `<book-file>.learn`）。`book deepen` が働くようになりました。** `book correct`・`book leaf recalculate` が終わる前に保存された book には印があり、v4.5.5-eval2.16 までの版では壊れた book として読まれません。探索・`eval.dat`・book のファイル形式は変わりません。
+v4.5.5-eval2.16 に v4.5.5-nikque.29 の変更を取り込みました：**`book correct`・`book leaf recalculate`・`book learn` が、途中で保存された book から続けられるようになりました（book の中の印。コマンドが終わると外れます。`book learn` はファイル `<book-file>.learn`）。`book deepen` が働くようになりました。** `book correct`・`book leaf recalculate` が終わる前に保存された book には印があり、v4.5.5-eval2.16 までの版では壊れた book とみなされ、読み込めません。探索・`eval.dat`・book のファイル形式は変わりません。
 
 確かめたこと：
 
@@ -348,7 +348,7 @@ v4.5.5-nikque.9 の配布版（上流の `eval.dat`）より、この版（新�
 - **`book learn <ファイル>` が、学習済みの行から続けられるようになりました。** `<book-file>.store` に保存するたびに、小さなテキストファイル `<book-file>.learn` に、棋譜のファイルの何行目まで学習したか（その行の確かめの値と、book の局面の数・level・深さ）を書きます。同じファイルでこの book に `book learn` を実行すると、その行を飛ばします。ファイルの最後まで学習すると `.learn` は消えます。v4.5.5-nikque.28 までは、もう一度実行すると全部の棋譜を打ち直していました（`book-randomness` があると別の対局になります）。
 - **`book deepen` が働くようになりました。** これまでは、level が book と違う局面を、その局面の今の level で探索し直し、level も書き換えませんでした。何も深くならず、もう一度実行すると全部を探索し直していました（元の Edax 4.3 からの実装）。いまは、level が book の level より浅い局面に book の level を与え、その level で探索し直します。もう一度実行しても探索し直しません。深い level の局面はそのままです。
 
-- 印は、book のファイルの各局面の level の 1 バイト（level は 0〜60）の上の 2 ビットです。ファイルの大きさと形式は変わらず、印のない book は前と同じです。**`book correct`・`book leaf recalculate` が終わる前に保存された book には印があり、v4.5.5-nikque.28 までの版では壊れた book として読まれません。** 終わった book には印がありません。book のファイルを自分で読むほかの道具は、この 2 ビットを無視する必要があります（nikque GUI 0.4.6 は対応済み）。
+- 印は、book のファイルの各局面の level の 1 バイト（level は 0〜60）の上の 2 ビットです。ファイルの大きさと形式は変わらず、印のない book は前と同じです。**`book correct`・`book leaf recalculate` が終わる前に保存された book には印があり、v4.5.5-nikque.28 までの版では壊れた book とみなされ、読み込めません。** 終わった book には印がありません。book のファイルを自分で読むほかの道具は、この 2 ビットを無視する必要があります（nikque GUI 0.4.6 は対応済み）。
 - `eval.dat` と探索は変わりません。評価値・手・ノード数は同じです（fforum-20-39、1 スレッド：eval2.17 は 78,733,311 ノード。v4.5.5-eval2.16 と同じ）。ほかのコマンドが作る book は v4.5.5-nikque.28 と同じです。
 
 ## v4.5.5-nikque.28 の変更点
