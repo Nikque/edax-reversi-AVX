@@ -2,6 +2,20 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.18
+
+This release includes the changes from [v4.5.5-nikque.30](https://github.com/Nikque/edax-reversi-AVX/blob/edax-4.5.5-fixes/RELEASE-NOTES.md#v455-nikque30).
+
+**Compatibility**
+
+- The fix can change search results or node counts in affected positions. The evaluation function, `eval.dat`, and the book file format are the same as in the previous release.
+
+**Not checked**. Playing strength, a production book, and SVE behavior and speed on hardware.
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval218)
+
+---
+
 ## v4.5.5-eval2.17 (with the changes of v4.5.5-nikque.29)
 
 The changes of v4.5.5-nikque.29 are added to v4.5.5-eval2.16: **`book correct`, `book leaf recalculate` and `book learn` go on from a book saved before they ended (marks in the book, removed when the command ends; for `book learn`, the file `<book-file>.learn`), and `book deepen` works.** A book saved before `book correct` or `book leaf recalculate` ended holds marks, and the versions up to v4.5.5-eval2.16 read it as a damaged book. The search, `eval.dat` and the book file format do not change.
