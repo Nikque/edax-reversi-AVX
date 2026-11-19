@@ -2,6 +2,20 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.19
+
+This release includes the changes from [v4.5.5-nikque.31](https://github.com/Nikque/edax-reversi-AVX/blob/edax-4.5.5-fixes/RELEASE-NOTES.md#v455-nikque31).
+
+**Compatibility**
+
+- The previous release's `eval.dat`, books, and search and learning settings remain compatible.
+
+**Not checked.** Production books, playing strength, and communication with a live GGS server.
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval219)
+
+---
+
 ## v4.5.5-eval2.18
 
 This release includes the changes from [v4.5.5-nikque.30](https://github.com/Nikque/edax-reversi-AVX/blob/edax-4.5.5-fixes/RELEASE-NOTES.md#v455-nikque30).
