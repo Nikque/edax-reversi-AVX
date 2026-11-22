@@ -158,13 +158,16 @@ f5f4e3
 
 **Continuing a run that did not end** (since v4.5.5-nikque.29):
 
-- Each time it saves to `.store`, it also writes a small text file `<book file name>.learn`: how many lines of the file of games are learned, a check value of these lines, and the number of positions, the level and the depth of the book then.
+- Before and after each save to `.store`, it also writes a small text file `<book file name>.learn`: how many lines of the file of games are learned, a check value of these lines, and the number of positions, the level and the depth of the book then.
 - When a run stops before its end (Edax closed, the PC stopped...), load `.store` or the book saved at the exit with `book load`, and run `book learn` again **with the same file of games**. The lines learned are skipped: only the other lines are played and learned.
 
 ```
 Book learn: the first 120 lines of learn.txt (118 games) were learned by a run that did not end: they are skipped
 ```
 
+- A run stopped during or just after a save can be continued too. `book learn` finds whether the loaded book is the one before or after the save, and learns from the first line that this book does not have.
+- If the run stopped before its first save and there is no `.store`, load the book that was in use when learning started.
+- In v4.5.5-eval2.17 to 19, a run stopped between the save to `.store` and the write of `.learn` could not be continued. A `.learn` written by these versions can still be continued.
 - **When the whole file is learned, `.learn` is removed.**
 - When the book in use is not the one of `.learn` (another number of positions, level or depth), or when the first lines of the file of games are not the ones learned, a warning is shown and the file is learned from its first line. Lines added at the end of the file of games do not prevent continuing.
 - With the setting `book-store-auto-save = off` (no save to `.store`), no `.learn` is written.
