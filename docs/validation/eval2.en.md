@@ -1,5 +1,22 @@
 # eval2 tests and measurements
 
+## v4.5.5-eval2.20-pre1
+
+- The tests of regressions (51/51), libedax (290 checks), book analysis (11/11), resuming, and book and base (557 checks) passed with no failure.
+- The test that stops `book learn` at each write and resumes it passed with no failure.
+- With the default settings, the number of positions searched on 20 midgame positions (level 14) was that of the previous version (7,799,021).
+- The exact solves of fforum-20-39 had no wrong move or score (96,356,604 positions searched).
+- The new search settings were run one by one and all together: no wrong exact solve and no abnormal end.
+- `stop`, and `?` of XBoard, sent just before a search began were never lost in 90 runs each. A `ping` just after `go` in NBoard was never lost in 60 runs.
+- `book deviate`, `deviate2` and `book enhance` made the same books with one and four threads and `book-reproducible on`.
+- The midgame speedup was 0.925 of the CPU time (AMD Ryzen 9 9950X, AVX-512 build, one thread, level 21, median of 8 runs). In 27 runs of 1,050 positions, depths, scores, best moves, positions searched and lines were unchanged.
+- Loading a book of 80,068 positions 80 times took 0.936 of the CPU time for a book saved in order and 0.629 for one that is not (median of 10 runs). The books saved again were byte for byte the same.
+- Scores and best moves were the same before and after the endgame speedup. The positions searched on fforum-20-39 fell from 108,368,547 to 96,356,604.
+
+Not checked: playing strength, 32 threads, large production books, Android devices, running the Linux and macOS builds, and use from a GUI.
+
+---
+
 ## v4.5.5-eval2.19
 
 - The five executables in the Windows distribution solved 24 synthetic endgame positions scored by an independent implementation with zero move or score errors. All seven Cassio EOF cases passed.

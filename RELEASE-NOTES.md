@@ -2,6 +2,57 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.20-pre1
+
+A pre-release with the book and base functions, new search settings and fixes of v4.5.5-nikque.33-pre1.
+
+**Changes**
+
+- The book and base functions of Edax 4.7 and new search settings were added, as in [v4.5.5-nikque.33-pre1](https://github.com/Nikque/edax-reversi-AVX/blob/v4.5.5-nikque.33-pre1/RELEASE-NOTES.md#v455-nikque33-pre1).
+
+- The midgame search of the AVX-512 builds is faster: 0.93 of the CPU time in a test at level 21 with one thread. Memory use grows by about 28 MB.
+- Books load faster: 0.94 of the CPU time in a test with a book saved in order, 0.63 with one that is not.
+- Sorting in the book and base functions is faster. The results are unchanged.
+- The endgame speedup of v4.5.5-nikque.32 is included. Scores and best moves are the same, and fewer positions are searched in the endgame: 0.89 of them in the fforum-20-39 test.
+
+**Fixes**
+
+- In a timed search with several threads, the whole search could stop just after its time had been extended. Split searches now use the extended time.
+- Reading a `.pgn` with a pass (`pass`) could lose the rest of that game and the next game. Passes are now read.
+- `stop`, and `?` of XBoard, could be lost when they arrived just before a search began. They now stop it.
+- Starting a new game while pondering waited for the pondering to end. The pondering is now stopped first.
+- `book learn` could fail to continue after a stop around a save to `.store` (since v4.5.5-nikque.29, eval2.17 and heath.16). It can now continue wherever it stops. A `.learn` written by the previous versions can still be used.
+- In NBoard, a `ping` just after `go` did not stop the search. It now stops it and the move is sent.
+- Loading a book that was not saved in order could take up to about twice the memory of its positions. It now takes the same as a book saved in order.
+- Failing to allocate memory while reading `eval.dat` ended the program without a message. It now ends with an error.
+- The other fixes of the book and base functions are those of [v4.5.5-nikque.33-pre1](https://github.com/Nikque/edax-reversi-AVX/blob/v4.5.5-nikque.33-pre1/RELEASE-NOTES.md#v455-nikque33-pre1).
+
+**Compatibility**
+
+- The previous release's `eval.dat` and books remain compatible. The book file format is unchanged.
+- With the default settings, searches with a given level or depth give the same scores and best moves as the previous version.
+- Timed searches with several threads can give different results because of the fix.
+- `book play` and `base complete` can give results different from the previous version when they run in parallel.
+- Books made by the `book deviate` family, `book enhance` and `book leaf expand` can differ slightly from the previous version, as the repeated searches are gone.
+- The lines written by `book extract` end where they join, so they can be shorter and fewer than before.
+- `book play` can give other values to positions that cannot be reached from the initial position.
+- `book play` no longer saves at every round. An interrupted run can lose up to `book-save-interval` (60 minutes by default).
+- Saving games needs free space for two copies of the file.
+- `book play n` creates a `.play-to` file and `base complete` a file with `.completing` for their progress. Do not delete them before resuming.
+- `book play` without a number, `book extract`, `base convert` and `base unique` keep their previous meaning, which differs from Edax 4.7.
+
+**Notes**
+
+- This is a pre-release for testing. Setting names and defaults may change before the final version.
+- Keep a copy of important books before use.
+- To continue `book learn`, load `.store` with `book load` first. Without this, `.learn` is overwritten and it may no longer be possible to continue from that `.store`.
+
+**Not checked**: playing strength, 32 threads, large production books, Android devices, running the Linux and macOS builds, and use from a GUI.
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval220-pre1)
+
+---
+
 ## v4.5.5-eval2.19
 
 This release includes the changes from [v4.5.5-nikque.31](https://github.com/Nikque/edax-reversi-AVX/blob/edax-4.5.5-fixes/RELEASE-NOTES.md#v455-nikque31).

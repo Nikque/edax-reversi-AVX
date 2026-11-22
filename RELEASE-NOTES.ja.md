@@ -2,6 +2,57 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-eval2.20-pre1
+
+v4.5.5-nikque.33-pre1 の book・base の機能、探索の新しい設定、不具合の修正を取り込んだプレリリースです。
+
+**変更**
+
+- Edax 4.7 の book・base の機能と、探索の新しい設定を足しました。内容は [v4.5.5-nikque.33-pre1](https://github.com/Nikque/edax-reversi-AVX/blob/v4.5.5-nikque.33-pre1/RELEASE-NOTES.ja.md#v455-nikque33-pre1) と同じです。
+
+- AVX-512 版の中盤の探索を速くしました。1 スレッド、level 21 のテストで、CPU 時間は 0.93 倍です。メモリの使用量は約 28 MB 増えます。
+- book の読み込みを速くしました。テストの CPU 時間は、並びのそろった book で 0.94 倍、そろっていない book で 0.63 倍です。
+- book と base の並べ替えを速くしました。結果は変わりません。
+- v4.5.5-nikque.32 の終盤の高速化を取り込みました。評価値と最善手は同じで、終盤で探索する局面の数が減ります。fforum-20-39 のテストでは 0.89 倍です。
+
+**不具合の修正**
+
+- 持ち時間で読む多スレッドの探索で、時間を延長した直後に探索全体が止まることがありました。延長した時間を分割した探索にも効かせます。
+- パス（`pass`）のある `.pgn` を読むと、その対局の残りと次の対局が失われることがありました。パスを読めるようにしました。
+- `stop`、XBoard の `?` が、探索の開始の直前に届くと失われることがありました。届いた時点で止まります。
+- 先読みの最中に新しい対局を始めると、先読みが終わるまで待たされました。先読みを止めてから始めます。
+- `book learn` は、`.store` の保存の前後に止まると続きから学習できないことがありました（v4.5.5-nikque.29・eval2.17・heath.16 から）。どこで止まっても続けられます。前の版が書いた `.learn` も使えます。
+- NBoard で `go` の直後の `ping` が探索を止めませんでした。探索を止めて手を返します。
+- 並びのそろっていない book の読み込みで、局面のメモリが最大で約 2 倍になりました。そろった book と同じ量にしました。
+- `eval.dat` の読み込みでメモリを確保できないと、説明なしに異常終了しました。エラーで終わります。
+- そのほかの book・base の修正は [v4.5.5-nikque.33-pre1](https://github.com/Nikque/edax-reversi-AVX/blob/v4.5.5-nikque.33-pre1/RELEASE-NOTES.ja.md#v455-nikque33-pre1) と同じです。
+
+**互換性**
+
+- 前の版の `eval.dat` と book を引き続き使えます。book のファイル形式は同じです。
+- レベルや深さを指定した探索の評価値と最善手は、既定の設定では前の版と同じです。
+- 持ち時間で読む多スレッドの探索は、不具合の修正により結果が変わることがあります。
+- `book play` と `base complete` は、同時に進めると結果が前の版と変わることがあります。
+- `book deviate` 系列・`book enhance`・`book leaf expand` でできる book は、重複した探索をやめたため、前の版と少し変わることがあります。
+- `book extract` が書き出す手順は、合流した所で終わるため、前の版より短く、少なくなることがあります。
+- `book play` では、初期局面からたどれない局面の評価値が前の版と変わることがあります。
+- `book play` は毎周の保存をやめました。途中で止まると、最大で `book-save-interval`（既定 60 分）分を失います。
+- 棋譜の保存中は、ファイル 2 つ分の空き容量が必要です。
+- `book play n` は `.play-to`、`base complete` は `.completing` の付いた途中経過のファイルを作ります。続ける前に消さないでください。
+- 数なしの `book play`、`book extract`、`base convert`・`base unique` は前の版と同じ意味です。Edax 4.7 とは意味が違います。
+
+**注意**
+
+- テスト用のプレリリースです。正式版までに設定名と既定値が変わることがあります。
+- 大事な book は、コピーを取ってから使ってください。
+- `book learn` を続けるときは、先に `.store` を `book load` で読んでください。読まずに実行すると `.learn` が上書きされ、その `.store` から続けられなくなることがあります。
+
+**未確認**：対局での強さ、32 スレッド、大きな実物の book、Android 実機、Linux・macOS 版の実行、GUI からの利用。
+
+[検証記録](docs/validation/eval2.ja.md#v455-eval220-pre1)
+
+---
+
 ## v4.5.5-eval2.19
 
 [v4.5.5-nikque.31](https://github.com/Nikque/edax-reversi-AVX/blob/edax-4.5.5-fixes/RELEASE-NOTES.ja.md#v455-nikque31) の変更を取り込みました。
