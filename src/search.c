@@ -487,6 +487,7 @@ void search_init_with(Search *search, const int n_task, const int hash_bits)
 
 	/* observers */
 	search->observer = search_observer;
+	search->stop_pending = NULL;
 
 	/* options */
 	search->options.depth = 60;
@@ -608,6 +609,7 @@ void search_clone(Search *search, Search *master)
 	search->shallow_table = master->shallow_table; // share the shallowtable
 	search->tasks = master->tasks;
 	search->observer = master->observer;
+	search->stop_pending = NULL;
 
 	search->depth = master->depth;
 	search->selectivity = master->selectivity;

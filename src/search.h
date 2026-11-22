@@ -140,6 +140,7 @@ typedef struct Search {
 	Result *result;                               /**< shared result */
 
 	void (*observer)(Result*);                    /**< call back function to print search result */
+	const volatile bool *stop_pending;            /**< set: search_run() takes the least time (a stop that came before it began), or NULL */
 
 	/* search-b: after the fields of v4.5.5-eval2.19 */
 	short *corr;                                  /**< correction history of the probcut gate (search-b, the table of the master: shared by its threads) */
