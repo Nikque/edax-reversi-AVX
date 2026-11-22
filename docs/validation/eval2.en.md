@@ -6,14 +6,17 @@
 - The test that stops `book learn` at each write and resumes it passed with no failure.
 - With the default settings, the number of positions searched on 20 midgame positions (level 14) was that of the previous version (7,799,021).
 - The exact solves of fforum-20-39 had no wrong move or score (96,356,604 positions searched).
-- The new search settings were run one by one and all together: no wrong exact solve and no abnormal end.
+- `-pc-r`, `-pc-dev`, `-pc-mob`, `-pc-gate`, `-corr`, `-lmr`, `-lazy`, `-sort-eval-shift` and `-sort-min-depth` were each run alone, with no abnormal end.
+- fforum-20-39 was solved exactly with the following two combinations, with no wrong move or score and no abnormal end.
+  - `-pc-r`, `-pc-end`, `-pc-dev`, `-pc-mob`, `-corr`, `-lmr`, `-sort-eval-shift` and `-sort-min-depth` (one thread)
+  - `-lazy`, `-split-probe`, `-lmr` and `-corr` (four threads)
 - `stop`, and `?` of XBoard, sent just before a search began were never lost in 90 runs each. A `ping` just after `go` in NBoard was never lost in 60 runs.
 - `book deviate`, `deviate2` and `book enhance` made the same books with one and four threads and `book-reproducible on`.
 - The midgame speedup was 0.925 of the CPU time (AMD Ryzen 9 9950X, AVX-512 build, one thread, level 21, median of 8 runs). In 27 runs of 1,050 positions, depths, scores, best moves, positions searched and lines were unchanged.
 - Loading a book of 80,068 positions 80 times took 0.936 of the CPU time for a book saved in order and 0.629 for one that is not (median of 10 runs). The books saved again were byte for byte the same.
 - Scores and best moves were the same before and after the endgame speedup. The positions searched on fforum-20-39 fell from 108,368,547 to 96,356,604.
 
-Not checked: playing strength, 32 threads, large production books, Android devices, running the Linux and macOS builds, and use from a GUI.
+Not checked: the time settings, `-pc-end` and `-split-probe` alone, playing strength, 32 threads, large production books, Android devices, running the Linux and macOS builds, and use from a GUI.
 
 ---
 
