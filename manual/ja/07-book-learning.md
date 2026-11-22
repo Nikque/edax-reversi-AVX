@@ -322,10 +322,23 @@ book deviate2 2 4 export lines.txt ends
 | `book fill2 n` | `book fill n` と同じだが、埋め始めの局面からの 1 手目は **Leaf の手だけ**。「Leaf の先の局面が book になく、その次の局面は book にある」所を埋める（n = 2 のとき）。数を省くと 2 | `.fill2` |
 | `book leaf expand` | **Leaf の評価値が、その局面のどの Link よりも大きい局面**（最善の手が、まだ book の外にある局面）の Leaf を広げる。広げると、次の Leaf がまた Link より良くなることがあるので、そういう局面がなくなるまで繰り返す。Link のない局面は対象にならない | `.lexp` |
 | `book play` | Link を 1 つも持たない局面（手順の先端）の Leaf を広げる。これを、そういう局面が book の深さの範囲からなくなるまで繰り返す。つまり、**どの手順も、最善の手で book の深さまで伸ばす** | `.play` |
+| `book play n` | 今の盤の局面から Link でたどれる、book の深さの範囲の Link のない局面から始める。そこから Leaf を 1 手ずつ伸ばす。空きが n 以上の局面を広げるので、最後に足す局面の空きは n − 1 になる。Link のある局面に合流した手順は、そこで終わる | `.play` |
+| `book extend` | 今の盤の局面から Link でたどれる範囲で、**Leaf の評価値がどの Link にも劣らない局面**の Leaf を広げる。同点の局面と、Link のない局面も対象。そういう局面がなくなるまで繰り返す | `.ext` |
+| `book exhaust` | 今の盤の局面から book の深さまで、**すべての合法手**（パスを含む）を足す。局面の数は深さとともに急に増える | `.exh` |
 
 コマンドの由来と注意：
 
 - `book enhance`・`book fill`・`book play` は、元の Edax からあるコマンドです。
+- `book extend`・`book exhaust`・`book play n` は、Edax 4.7 のコマンドを取り入れたものです（v4.5.5-nikque.33 から）。
+  - Edax 4.7 の数なしの `book play` は、今の盤の局面から空き 20 まで伸ばします。この版では、その動作は `book play 20` です。数なしの `book play` は、今までどおり book 全体が対象です。
+  - `book play n` の n が book の深さより先のとき、その先の局面は `book prune` で消えます。
+  - `book exhaust` は、先に `book depth` で深さを小さくしてから使います。
+    - 初期局面から深さ 7 で約 1.3 万局面です。深さが 1 増えるごとに数倍になります。
+    - 足す局面を全部集めてから探索します。集めている間は保存しません。メモリが足りなければ、book を変えずに終わります。
+- `book play` は、v4.5.5-nikque.33 から `book-expand-tasks` に従って同時に広げます。
+  - それより前の版では、設定にかかわらず 1 つずつでした。
+  - 2 以上のときは、`book deviate` と同じく、実行ごとに book が少し変わります（7.6）。
+  - 初期局面からたどれない局面の評価値も、前の版と違うことがあります。
 - `book fill2`・`book leaf expand` は、この修正版で足したコマンドです（v4.5.5-nikque.14 から）。
 - `book fill` も、同じ版で中身を変えました（`book fill 1` を除く）。
 - どれも、大きな book での使用実績は `book deviate` 系列ほどありません。まず小さい book で、何が起きるかを見てから使ってください。
@@ -423,6 +436,10 @@ Book play...1/153 done: 1 positions, 1 links
 - 大きな book では、1 回の保存に時間とディスクの空きが要ります（[9 章](09-large-books.md)）。
   - 周が短いのに毎周保存すると、保存ばかりしていることになります。そのときは `book-deviate-save-rounds` を大きくします（例：10）。
   - 逆に、1 周が何時間もかかるなら、`book-save-interval` を短くします。
+- `book play`・`book play n`・`book extend`・`book exhaust` は、`book-save-interval` の時間ごとと、終わったときに保存します。
+  - `book-deviate-save-rounds` は使いません。
+  - `book-save-interval = 0` では、終わったときだけです。
+  - `book play` は、v4.5.5-nikque.32 までは毎周保存していました。
 - **`0` と `0` の組み合わせ（どちらの保存もしない）では、コマンドが終わるまで何も保存されません。** 途中で止まると、全部を失います。
 
 **止め方**：book のコマンドは、途中で中断する入力を受け付けません。
@@ -444,7 +461,10 @@ Book play...1/153 done: 1 positions, 1 links
 
 同じコマンドで続けたとき、済んだ所をもう一度探索するかどうか：
 
-- `book deviate` 系・`book enhance`・`book leaf expand`・`book fill`・`book fill2`・`book play`・`book add`：広げた手や足した局面は book に残っているので、済んだ所は探索し直しません（たどり直す手間だけかかります）。
+- `book play n`：手順の先端を `<book のファイル名>.play-to` に記録します。
+  - 途中経過の book（`.play`）を読み、同じ盤の局面で同じ n を実行すると、続きから進みます。
+  - 続ける前に、このファイルを消したり移したりしないでください。book の深さより先の続きが分からなくなります。
+- `book deviate` 系・`book enhance`・`book leaf expand`・`book fill`・`book fill2`・`book play`・`book extend`・`book exhaust`・`book add`：広げた手や足した局面は book に残っているので、済んだ所は探索し直しません（たどり直す手間だけかかります）。
 - `book correct`・`book leaf recalculate` 系：探索し直した局面に book の中で印が付き、印のない局面だけを探索します（v4.5.5-nikque.29 から。[8.6](08-book-maintenance.md)・[8.7](08-book-maintenance.md)）。印の付いた途中の book は、v4.5.5-nikque.28 までの版では読めません。
 - `book learn <ファイル>`：`<book のファイル名>.learn` に学習した行の数が書かれ、同じファイルなら学習済みの行を飛ばします（v4.5.5-nikque.29 から。[7.2](07-book-learning.md) の book learn）。
 - `book deepen`：book の level にした局面は探索し直しません（v4.5.5-nikque.29 から。[8.7](08-book-maintenance.md)）。
@@ -541,5 +561,8 @@ Book play...1/153 done: 1 positions, 1 links
 | `book fill2 n` ［X Y］ | Leaf の先の欠けを埋める |
 | `book leaf expand` ［X Y］ | どの Link よりも良い Leaf を広げる |
 | `book play` | Link のない局面を 1 手ずつ広げる |
+| `book play n` | 今の局面から、Link のない局面の手順を空き n まで伸ばす |
+| `book extend` | 今の局面から、どの Link にも劣らない Leaf を広げる |
+| `book exhaust` | 今の局面から book の深さまで、すべての手を足す |
 
 次：[8. book の保守](08-book-maintenance.md)
