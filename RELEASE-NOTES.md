@@ -2,6 +2,34 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.20
+
+The release of v4.5.5-eval2.20-pre1 with the better search of v4.5.5-nikque.33. The time of a move and the order of the moves change. The three changes of the probcut are off by default and can be turned on in `config.ini`.
+
+**Changes**
+
+- All the changes of v4.5.5-eval2.20-pre1.
+- The changes of the search and of the settings are those of [v4.5.5-nikque.33](https://github.com/Nikque/edax-reversi-AVX/blob/edax-4.5.5-fixes/RELEASE-NOTES.md#v455-nikque33). The time of a move and the order of the moves are always on. `pc-slope`, `pc-dev` and `pc-mob` are `off` by default.
+- `lazy` takes `auto`. The default is `0`.
+- The test options and the options of the two fixed changes are deleted, as in v4.5.5-nikque.33.
+
+**Compatibility**
+
+- With the default settings too, the nodes change, as the order of the moves changes. The scores and the moves are nearly the same, but a score may change now and then in a search with probcut.
+- In a game with a time, the depth reached changes.
+- With `pc-slope`, `pc-dev` or `pc-mob` on, the scores and the moves change, and so does a book learned with them.
+- The `eval.dat` and the book file format are the same as in the version before.
+
+**Notes**
+
+- With a deleted option on the command line, the program shows its usage and ends. Fix the scripts that pass one.
+
+**Not checked**: the values of the three settings come from the games of Heath; their effect and the strength in this version are not measured.
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval220)
+
+---
+
 ## v4.5.5-eval2.20-pre1
 
 A pre-release with the book and base functions, new search settings and fixes of v4.5.5-nikque.33-pre1.
