@@ -2138,6 +2138,14 @@ Edax reads its settings in this order, each one overriding the previous:
 
 Each line of these files is `name = value`; `#` starts a comment (see "Easier config.ini syntax" in v4.5.5-nikque.6 for the accepted forms). Every command-line option can be written there with its long name without the leading `-` (for example `n-tasks = 16` for `-n 16`, `level = 18` for `-l 18`, `book-file = data/book.dat`). At the Edax prompt, typing `name value` (for example `book-expand-tasks 16` or `n-tasks 16`) changes a setting for the next searches and learning commands; `hash-table-size` only takes effect at startup.
 
+Heath (formerly newedax, [Nikque/Heath](https://github.com/Nikque/Heath)) is this series ported to C++23. Most of its settings are the same. What differs:
+
+- Settings only in Heath: `book-format` (the form of the saved books: `1`, `2` or `auto`) and `keep-hash`.
+- Settings only in this series (and the nikque series): `probcut-model`, `pc-slope`, `pc-dev` and `pc-mob`. Heath has the probcut model `refit` and the values of `pc-slope 1.3,12`, `pc-dev 2,0.04,0.75` and `pc-mob 2.219,-0.184,-0.350` built in (since v4.5.5-heath.20).
+- The default of `lazy`: `0` in this series, `auto` in Heath.
+- Book files: Heath reads and writes form 1 (the books of this series) and form 2 (`NEDXBOOK`); this series reads and writes form 1 only.
+- `eval.dat`: Heath uses its own (64 or 48 slots). It reads the `eval.dat` of this series with a warning, and its evaluation is then wrong.
+
 ### Settings of the bundled config.ini
 
 | Setting | Bundled value | Meaning |
@@ -2224,7 +2232,7 @@ The book memory does not depend on these settings (about 50 bytes per position w
 
 ## Build and use
 
-The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied byte-for-byte from the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5) (SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`). It also includes the upstream initial `bin/data/book.dat` and problem files. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
+The release bundle includes the evaluation data of this series at `bin/data/eval.dat` (version 3.3.0, 13,960,248 bytes, SHA-256 `1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172`). It is not the `eval.dat` of the [upstream v4.5.5 distribution](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5): see "eval.dat and the executable go together" in v4.5.5-eval2.1. It also includes the upstream initial `bin/data/book.dat` and problem files. Run an executable from `bin/` so its default `data/eval.dat` path resolves, or set `-eval-file` explicitly. Choose from these packaged binaries:
 
 | Environment | File in `bin/` |
 |---|---|
@@ -2240,7 +2248,7 @@ The release bundle includes Edax evaluation data at `bin/data/eval.dat`, copied 
 | Library, macOS (both Apple silicon and Intel) | `libedax.universal.dylib` |
 | Library, Android ARM64 / 32-bit ARMv7 | `libedax-arm64-v8a.so` / `libedax-armeabi-v7a.so` |
 
-The `v3` builds require an AVX2-capable x86-64 CPU; the `v4` builds require an AVX-512-capable x86-64-v4 CPU. Use the baseline build when unsure. `config.ini` is a starting configuration (see "Settings (config.ini)" above); set paths, `book-save-interval`, `book-deviate-save-rounds`, `book-merge-auto-save`, `hash-table-size`, `book-expand-tasks`, and `book-store-tasks` for your environment. To rebuild a Windows executable, open a Visual Studio 2022 Developer Command Prompt, change to `src`, and run a target such as `nmake -f NMakefile vc-x64-v4` (`build-win-v4.cmd` also builds the v4 executable). The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP. The release Windows executables use the profile-guided targets (`vc-pgo-x64-v4`, `vc-pgo-x64-v3`, `vc-pgo-x64`, and `vc-pgo-x86-sse` and `vc-pgo-x86` from an x86 prompt) except ARM64. The v4.5.5-nikque.4 executables were built with Visual Studio 2022 (MSVC 19.44) for Windows, gcc 11.4 on Ubuntu 22.04 (WSL) for Linux and NDK r27d for Android; the macOS executable was built by the release-binaries workflow. The 32-bit Linux build (`lEdax-x86`) links libatomic statically for the atomic operations of the parallel book code, so it needs an i486 or later CPU.
+The `v3` builds require a CPU of the x86-64-v3 level (AVX2, BMI1, BMI2, FMA, LZCNT, MOVBE: Intel Haswell or AMD Zen and later); the `v4` builds require one of the x86-64-v4 level (AVX-512 F, BW, CD, DQ and VL as well: Intel Skylake-SP or Ice Lake, AMD Zen 4 and later). Use the baseline build when unsure. `config.ini` is a starting configuration (see "Settings (config.ini)" above); set paths, `book-save-interval`, `book-deviate-save-rounds`, `book-merge-auto-save`, `hash-table-size`, `book-expand-tasks`, and `book-store-tasks` for your environment. To rebuild a Windows executable, open a Visual Studio 2022 Developer Command Prompt, change to `src`, and run a target such as `nmake -f NMakefile vc-x64-v4` (`build-win-v4.cmd` also builds the v4 executable). The [release-binaries workflow](.github/workflows/release-binaries.yaml) builds the other platform variants, and `package-release.py` assembles the runtime ZIP. The release Windows executables use the profile-guided targets (`vc-pgo-x64-v4`, `vc-pgo-x64-v3`, `vc-pgo-x64`, and `vc-pgo-x86-sse` and `vc-pgo-x86` from an x86 prompt) except ARM64. The v4.5.5-nikque.4 executables were built with Visual Studio 2022 (MSVC 19.44) for Windows, gcc 11.4 on Ubuntu 22.04 (WSL) for Linux and NDK r27d for Android; the macOS executable was built by the release-binaries workflow. The 32-bit Linux build (`lEdax-x86`) links libatomic statically for the atomic operations of the parallel book code, so it needs an i486 or later CPU.
 
 The upstream 32-bit macOS `mEdax-x86` is deliberately omitted. Current Xcode SDKs lack the i386 libraries needed to link a corrected binary; including the upstream executable would leave this fork's fixes absent from that file.
 

@@ -2140,6 +2140,14 @@ Edaxは次の順に設定を読み、後のものが前のものより優先さ�
 
 ファイルの各行は `名前 = 値` の形で、`#` から行末まではコメントです（書き方の自由度は v4.5.5-nikque.6 の「config.ini の書き方を自由にしました」を参照）。コマンドラインのオプションは、先頭の `-` を除いた長い名前で、どれでもこのファイルに書けます（`-n 16` なら `n-tasks = 16`、`-l 18` なら `level = 18`、`book-file = data/book.dat` など）。Edaxのプロンプトで `名前 値`（例：`book-expand-tasks 16`、`n-tasks 16`）と入力すると、次の探索や学習コマンドから設定が変わります。ただし `hash-table-size` は起動時の値だけが有効です。
 
+Heath（旧名 newedax、[Nikque/Heath](https://github.com/Nikque/Heath)）は、この系列を C++23 に移したものです。設定のほとんどは同じです。違うのは次の点です。
+
+- Heath だけにある設定：`book-format`（保存する book の形式。`1`・`2`・`auto`）と `keep-hash`。
+- この系列（と nikque の系列）だけにある設定：`probcut-model`・`pc-slope`・`pc-dev`・`pc-mob`。Heath は v4.5.5-heath.20 から、probcut の型 `refit` と、`pc-slope 1.3,12`・`pc-dev 2,0.04,0.75`・`pc-mob 2.219,-0.184,-0.350` の値を作り付けで使います。
+- `lazy` の既定：この系列は `0`、Heath は `auto`。
+- book のファイル：Heath は形式 1（この系列の book）と形式 2（`NEDXBOOK`）を読み書きします。この系列は形式 1 だけです。
+- `eval.dat`：Heath は専用のもの（64 枠か 48 枠）を使います。この系列の `eval.dat` は警告を出して読みますが、評価が正しくなりません。
+
 ### 同梱の config.ini の設定
 
 | 設定 | 同梱の値 | 意味 |
@@ -2226,7 +2234,7 @@ bookのメモリはこれらの設定によらず、1局面あたりLinkを含�
 
 ## ビルドと利用
 
-Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5)からそのまま取り出した評価データ `bin/data/eval.dat`（SHA-256 `f8b2299612d9fa4414157e70e932636e33111c2602d0c2fc382a7d90ef21b792`）、初期book `bin/data/book.dat`、問題集を同梱します。既定の `data/eval.dat` を参照できるよう、実行ファイルは `bin/` から起動するか、`-eval-file` でファイルを指定してください。配布ZIPには次の実行ファイルが入っています。
+Releaseの配布一式には、この系列の評価データ `bin/data/eval.dat`（版 3.3.0、13,960,248 バイト、SHA-256 `1870f8fa5eecb6df972a4d83224832f9a620745cdc67c2d9b17bcd0ba09ea172`）、初期book `bin/data/book.dat`、問題集を同梱します。既定の `data/eval.dat` を参照できるよう、実行ファイルは `bin/` から起動するか、`-eval-file` でファイルを指定してください。配布ZIPには次の実行ファイルが入っています。
 
 | 実行環境 | `bin/` 内のファイル |
 |---|---|
@@ -2242,7 +2250,7 @@ Releaseの配布一式には[元forkのv4.5.5配布物](https://github.com/okuha
 | ライブラリ macOS（Apple silicon と Intel の両用） | `libedax.universal.dylib` |
 | ライブラリ Android ARM64 / 32-bit ARMv7 | `libedax-arm64-v8a.so` / `libedax-armeabi-v7a.so` |
 
-`v3` 版はAVX2対応のx86-64 CPU、`v4` 版はAVX-512対応のx86-64-v4 CPUが必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini`（上の「設定（config.ini）」を参照）は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save`、`hash-table-size`、`book-expand-tasks`、`book-store-tasks` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。配布するWindows版（ARM64を除く）は PGO のターゲット（`vc-pgo-x64-v4`・`vc-pgo-x64-v3`・`vc-pgo-x64`、x86のコマンドプロンプトで `vc-pgo-x86-sse`・`vc-pgo-x86`）でビルドします。v4.5.5-nikque.4 の実行ファイルは、Windows版を Visual Studio 2022（MSVC 19.44）、Linux版を Ubuntu 22.04（WSL）の gcc 11.4、Android版を NDK r27d でビルドし、macOS版は release-binaries ワークフローでビルドしました。32ビットLinux版（`lEdax-x86`）は、bookの並列処理に必要なアトミック命令のため libatomic を静的にリンクしています（i486以降のCPUが必要です）。
+この `eval.dat` は[元forkのv4.5.5配布物](https://github.com/okuhara/edax-reversi-AVX/releases/tag/v4.5.5)のものではありません（v4.5.5-eval2.1 の「eval.dat と実行ファイルは一組です」を見てください）。`v3` 版は x86-64-v3 の水準の CPU（AVX2・BMI1・BMI2・FMA・LZCNT・MOVBE。Intel は Haswell、AMD は Zen 以降）、`v4` 版は x86-64-v4 の水準の CPU（さらに AVX-512 の F・BW・CD・DQ・VL。Intel は Skylake-SP・Ice Lake、AMD は Zen 4 以降）が必要です。CPUの対応が不明な場合は標準版を選んでください。`config.ini`（上の「設定（config.ini）」を参照）は環境に合わせてパス、`book-save-interval`、`book-deviate-save-rounds`、`book-merge-auto-save`、`hash-table-size`、`book-expand-tasks`、`book-store-tasks` を設定してください。Windows版は Visual Studio 2022 の Developer Command Prompt で `src` に移動し、`nmake -f NMakefile vc-x64-v4` などのターゲットでビルドします（v4版は `build-win-v4.cmd` でも作れます）。その他の環境向けには[release-binariesワークフロー](.github/workflows/release-binaries.yaml)を用意し、`package-release.py` で配布ZIPを作成します。配布するWindows版（ARM64を除く）は PGO のターゲット（`vc-pgo-x64-v4`・`vc-pgo-x64-v3`・`vc-pgo-x64`、x86のコマンドプロンプトで `vc-pgo-x86-sse`・`vc-pgo-x86`）でビルドします。v4.5.5-nikque.4 の実行ファイルは、Windows版を Visual Studio 2022（MSVC 19.44）、Linux版を Ubuntu 22.04（WSL）の gcc 11.4、Android版を NDK r27d でビルドし、macOS版は release-binaries ワークフローでビルドしました。32ビットLinux版（`lEdax-x86`）は、bookの並列処理に必要なアトミック命令のため libatomic を静的にリンクしています（i486以降のCPUが必要です）。
 
 元配布物の旧32ビットmacOS用 `mEdax-x86` は除外しました。現在のXcode SDKにはi386用のリンクライブラリがなく修正版をビルドできません。元の実行ファイルをそのまま同梱しても、今回の修正は反映されません。
 
