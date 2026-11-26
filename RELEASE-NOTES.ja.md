@@ -8,9 +8,13 @@
 - book 学習の途中保存と再開で進捗の対応を確認します。進捗を書き込めなかった場合も `.store` を保存し、古い進捗を無効にして警告します。
 - 棋譜の SGF・TXT 入力で UTF-8 BOM を読み飛ばし、TXT の壊れた行が後続の対局に影響しないようにしました。
 - `-solve` は入力ファイルを開けないと終了コード 1 を返します。対話コマンドはエラーを表示して続けます。
-- 評価ファイルは eval2 系列の 3.3.0 です。今回の Windows 配布物には GitHub Actions の通常の最適化ビルドを使います。
+- 評価ファイルは eval2 系列の 3.3.0 です。
+- Windows の x64・x86 の実行ファイル 5 本と DLL 3 本は、手元で PGO 付きでビルドしたものです。2026-11-26 に Release の ZIP を差し替えました。それより前に取得した ZIP は、GitHub Actions で PGO を使わずにビルドしたものです。
+- `wEdax-arm64.exe` と、Linux・macOS・Android の実行ファイルとライブラリは、GitHub Actions のビルド（PGO なし）のままです。
 
 - libedax の `edax_stop` は、ヒントまたはベンチマークの次の探索が始まる直前の要求も引き継ぎます。停止時は `edax_hint` に完了済みのヒントだけが残り、`edax_hint_next` と `edax_hint_next_no_multipv_depth` は中断した探索について `LIBEDAX_NOMOVE` を返します。中断したベンチマーク局面は件数に含めません。
+
+[検証記録](docs/validation/eval2.ja.md#v455-eval221)
 
 ## v4.5.5-eval2.20
 

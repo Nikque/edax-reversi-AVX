@@ -4,6 +4,16 @@
 
 Windows x64 で本体と単体 eval_builder を組み立てました。合成入力で、SGF・TXT の BOM、壊れた TXT 行に続く局の読み込み、OBF の正常終了・入力ファイルエラーを確認しました。実 book を使った対局と棋力の比較は未実施です。
 
+2026-11-26 に差し替えた Windows の配布版（PGO）の確かめです。
+
+- 実行ファイル 5 本（`wEdax-x86-64-v4`・`-v3`・`wEdax-x86-64`・`wEdax-x86-sse`・`wEdax-x86`）は、`src/NMakefile` の `vc-pgo-*` でビルドしました。プロファイルは `-n 1 -l 60 -solve problem\fforum-20-39.obf` と `-n 1 -l 18 -auto-store on -auto-start on -repeat 4 -auto-quit on -mode 2` で取りました。
+- DLL 3 本（`libedax-x64`・`-v3`・`-v4`）は、`/LTCG:PGI` でビルドし、`tests/libedax_test.c` の `libedax_test <dll> bench 20 1` と API のテスト全体を流してから、`/LTCG:PGO` でビルドしました。
+- fforum-20-39 の完全読み（1 スレッド、`-l 60`）：PGO の 5 本と、差し替え前の CI の `wEdax-x86-64.exe` は、どれも着手とスコアの誤りが 0 でした。探索した局面の数は 95,647,576 で、6 本でそろいました。
+- v4.5.5-eval2.20 の記録（配布版の Windows 版で 95,647,575）とは 1 局面違います。違いの原因は確かめていません。
+- DLL 3 本の libedax の API のテスト（290 項目）は、失敗 0 でした。
+- 速さは測っていません。ほかの処理と CPU を分け合っている中だったので、時間の数字は比べていません。
+- 差し替えていない 15 本（`wEdax-arm64.exe`、Linux、macOS、Android）は、この確かめに含めていません。
+
 ## v4.5.5-eval2.20
 
 - この版と前の版（v4.5.5-eval2.20-pre1 に lazy auto と `pc-slope` を足した物）を、1 スレッドで比べました。

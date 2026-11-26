@@ -8,9 +8,13 @@
 - Book learning validates progress before resuming. If the progress file cannot be written, the engine saves the intermediate book, invalidates stale progress and issues a warning.
 - SGF and TXT readers accept a UTF-8 BOM. A malformed TXT line no longer discards subsequent games.
 - A missing input to `-solve` sets exit status 1. The interactive command reports an error and continues.
-- The evaluation file is version 3.3.0 of the eval2 series. Windows downloads use the standard optimized GitHub Actions build.
+- The evaluation file is version 3.3.0 of the eval2 series.
+- The five Windows x64 and x86 executables and the three DLLs are local PGO builds. The release ZIP was replaced on 2026-11-26. ZIP files downloaded before then were built without PGO in GitHub Actions.
+- `wEdax-arm64.exe` and the Linux, macOS and Android executables and libraries are still the GitHub Actions builds (without PGO).
 
 - libedax now honors an `edax_stop` request that arrives just before the next hint or benchmark search begins. On cancellation, `edax_hint` retains completed hints. `edax_hint_next` and `edax_hint_next_no_multipv_depth` return `LIBEDAX_NOMOVE` for a cancelled search. The benchmark omits the cancelled position from its totals.
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval221)
 
 ## v4.5.5-eval2.20
 

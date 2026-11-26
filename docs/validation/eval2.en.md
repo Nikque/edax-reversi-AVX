@@ -4,6 +4,16 @@
 
 The engine and standalone eval_builder built on Windows x64. Synthetic inputs covered SGF/TXT BOM handling, games after a malformed TXT line, successful OBF solving and a missing OBF input. Playing strength and games with a production book were not measured.
 
+Checks of the Windows release files (PGO) that replaced the earlier ones on 2026-11-26:
+
+- The five executables (`wEdax-x86-64-v4`, `-v3`, `wEdax-x86-64`, `wEdax-x86-sse`, `wEdax-x86`) were built with the `vc-pgo-*` targets of `src/NMakefile`. The profiles came from `-n 1 -l 60 -solve problem\fforum-20-39.obf` and `-n 1 -l 18 -auto-store on -auto-start on -repeat 4 -auto-quit on -mode 2`.
+- The three DLLs (`libedax-x64`, `-v3`, `-v4`) were built with `/LTCG:PGI`, trained with `libedax_test <dll> bench 20 1` and the full API test of `tests/libedax_test.c`, then built with `/LTCG:PGO`.
+- fforum-20-39, exact search (1 thread, `-l 60`): the five PGO executables and the CI `wEdax-x86-64.exe` from before the replacement all had no wrong move or score. All six searched 95,647,576 positions.
+- This is one position more than the record of v4.5.5-eval2.20 (95,647,575 with the Windows release programs). The cause of the difference was not investigated.
+- The libedax API test (290 checks) of the three DLLs: 0 failures.
+- Speed was not measured. The CPU was shared with other work, so the times were not compared.
+- The 15 files that were not replaced (`wEdax-arm64.exe`, Linux, macOS, Android) were not part of these checks.
+
 ## v4.5.5-eval2.20
 
 - This version and the version before (v4.5.5-eval2.20-pre1 with lazy auto and `pc-slope`) were compared with one thread.
