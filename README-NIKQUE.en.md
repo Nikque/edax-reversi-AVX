@@ -4,7 +4,7 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-**This branch (`eval2`) is a separate series with a different evaluation function (this version is v4.5.5-eval2.17).** It differs from the default branch `edax-4.5.5-fixes` (v4.5.5-nikque.29) only by the change of the evaluation function described under "Changes in v4.5.5-eval2.1" below.
+This series uses a different evaluation function. The latest release, v4.5.5-eval2.21, incorporates v4.5.5-nikque.34. See the [release notes](RELEASE-NOTES.md#v455-eval221) for the changes in eval2.18 through .20.
 
 ## Changes in v4.5.5-eval2.17
 
@@ -2136,7 +2136,7 @@ Edax reads its settings in this order, each one overriding the previous:
 2. `config.ini` in the folder of the executable (`bin/config.ini` of the release);
 3. the command-line options.
 
-Each line of these files is `name = value`; `#` starts a comment (see "Easier config.ini syntax" in v4.5.5-nikque.6 for the accepted forms). Every command-line option can be written there with its long name without the leading `-` (for example `n-tasks = 16` for `-n 16`, `level = 18` for `-l 18`, `book-file = data/book.dat`). At the Edax prompt, typing `name value` (for example `book-expand-tasks 16` or `n-tasks 16`) changes a setting for the next searches and learning commands; `hash-table-size` only takes effect at startup.
+Each line of these files is `name = value`; `#` starts a comment (see "Easier config.ini syntax" in v4.5.5-nikque.6 for the accepted forms). Every command-line option can be written there with its long name without the leading `-` (for example `n-tasks = 16` for `-n 16`, `level = 18` for `-l 18`, `book-file = data/book.dat`). At the Edax prompt, typing `name value` (for example `book-expand-tasks 16` or `n-tasks 16`) changes a setting for the next searches and learning commands. Changing `hash-table-size` at the prompt rebuilds the table. With `auto`, changing `n-tasks` also rebuilds it if the resulting size changes.
 
 Heath (formerly newedax, [Nikque/Heath](https://github.com/Nikque/Heath)) is this series ported to C++23. Most of its settings are the same. What differs:
 

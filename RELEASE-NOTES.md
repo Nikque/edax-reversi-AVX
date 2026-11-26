@@ -2,6 +2,16 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.21
+
+- Corrected cancellation in threaded search, GGS disconnect handling and search-window boundaries.
+- Book learning validates progress before resuming. If the progress file cannot be written, the engine saves the intermediate book, invalidates stale progress and issues a warning.
+- SGF and TXT readers accept a UTF-8 BOM. A malformed TXT line no longer discards subsequent games.
+- A missing input to `-solve` sets exit status 1. The interactive command reports an error and continues.
+- The evaluation file is version 3.3.0 of the eval2 series. Windows downloads use the standard optimized GitHub Actions build.
+
+- libedax now honors an `edax_stop` request that arrives just before the next hint or benchmark search begins. On cancellation, `edax_hint` retains completed hints. `edax_hint_next` and `edax_hint_next_no_multipv_depth` return `LIBEDAX_NOMOVE` for a cancelled search. The benchmark omits the cancelled position from its totals.
+
 ## v4.5.5-eval2.20
 
 The release of v4.5.5-eval2.20-pre1 with the better search of v4.5.5-nikque.33. The time of a move and the order of the moves change. The three changes of the probcut are off by default and can be turned on in `config.ini`.

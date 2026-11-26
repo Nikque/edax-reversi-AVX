@@ -1,5 +1,9 @@
 # eval2 tests and measurements
 
+## v4.5.5-eval2.21
+
+The engine and standalone eval_builder built on Windows x64. Synthetic inputs covered SGF/TXT BOM handling, games after a malformed TXT line, successful OBF solving and a missing OBF input. Playing strength and games with a production book were not measured.
+
 ## v4.5.5-eval2.20
 
 - This version and the version before (v4.5.5-eval2.20-pre1 with lazy auto and `pc-slope`) were compared with one thread.
