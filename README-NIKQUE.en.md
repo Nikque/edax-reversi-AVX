@@ -4,7 +4,7 @@
 
 This public fork is based on upstream `v4.5.5` (`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`). It publishes the modified source, rebuilt Windows, Linux, macOS, and Android executables, the original GPL-3.0 [license](LICENSE), and the changes described below. The upstream `master` branch remains available; `edax-4.5.5-fixes` is this fork's default branch.
 
-This series uses a different evaluation function. The latest release, v4.5.5-eval2.21, incorporates v4.5.5-nikque.34. See the [release notes](RELEASE-NOTES.md#v455-eval221) for the changes in eval2.18 through .20.
+This series uses a different evaluation function. The latest release, v4.5.5-eval2.21, incorporates v4.5.5-nikque.34. See the [release notes](RELEASE-NOTES.md#v455-eval221) for the changes in eval2.18 through .21.
 
 ## Changes in v4.5.5-eval2.17
 
