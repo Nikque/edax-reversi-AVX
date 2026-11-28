@@ -769,6 +769,8 @@ void eval_open(const char* file)
 	// fclose(f);
 #ifdef EVAL_FLAT_TABLE
 	eval_flat();
+	free(EVAL_WEIGHT);	// the interleaved table is read by no other code
+	EVAL_WEIGHT = NULL;
 #endif
 }
 
