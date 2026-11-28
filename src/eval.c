@@ -478,7 +478,7 @@ static int EVAL_LOADED = 0;
 static char *EVAL_FILE = NULL;
 
 /** eval weights */
-Eval_weight (*EVAL_WEIGHT)[EVAL_N_2PLY - EVAL_2PLY_MIN];	// for 2..53
+Eval_weight (*EVAL_WEIGHT)[EVAL_N_2PLY - EVAL_2PLY_MIN];	// for plies 0..59, or 2..53 with EVAL_WEIGHT_REDUCTION
 
 /** opponent feature */
 static unsigned short *OPPONENT_FEATURE;
@@ -695,7 +695,7 @@ void eval_open(const char* file)
 	for (ply = 0; ply < EVAL_N_2PLY * 2; ply++) {
 		r = fread(w, sizeof (short), n_w, f);
 		if (r != n_w) fatal_error("Cannot read evaluation weight from %s\n", file);
-		if (ply < EVAL_2PLY_MIN * 2) continue;	// skip ply 1 & 2
+		if (ply < EVAL_2PLY_MIN * 2) continue;	// EVAL_WEIGHT_REDUCTION: skip plies 0 and 1
 
 		if (edax_header == XADE) for (i = 0; i < n_w; ++i) w[i] = bswap_short(w[i]);
 
