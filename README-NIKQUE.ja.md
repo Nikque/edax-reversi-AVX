@@ -4,7 +4,7 @@
 
 この公開forkは上流の `v4.5.5`（`4cde6ff588f0eade07fcba0c7f02d5cd0cacd4ee`）を基点としています。修正後のソース、再ビルドしたWindows・Linux・macOS・Android用実行ファイル、元のGPL-3.0 [ライセンス](LICENSE)を公開しています。上流の `master` ブランチは残し、修正版の `edax-4.5.5-fixes` を既定ブランチに設定しました。
 
-この系列は評価関数が異なります。最新の公開版は v4.5.5-eval2.21 で、v4.5.5-nikque.34 の変更を取り込んでいます。eval2.18〜21 の変更は[修正一覧](RELEASE-NOTES.ja.md#v455-eval221)にあります。
+この系列は評価関数が異なります。最新の公開版は v4.5.5-eval2.22 で、v4.5.5-nikque.35 の変更を取り込んでいます。eval2.18〜22 の変更は[修正一覧](RELEASE-NOTES.ja.md#v455-eval222)にあります。
 
 ## v4.5.5-eval2.17 の変更点
 

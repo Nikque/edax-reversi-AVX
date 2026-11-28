@@ -2,6 +2,31 @@
 
 [日本語](RELEASE-NOTES.ja.md)
 
+## v4.5.5-eval2.22
+
+This release takes in the changes of [v4.5.5-nikque.35](https://github.com/Nikque/edax-reversi-AVX/blob/edax-4.5.5-fixes/RELEASE-NOTES.md#v455-nikque35) (changes by Toshihiko Okuhara, [Nikque/edax-reversi-AVX#1](https://github.com/Nikque/edax-reversi-AVX/pull/1)). The AVX2 builds no longer use the gather instructions, and the AVX-512 builds use less memory. The scores do not change.
+
+**Changes**
+
+- The evaluation no longer uses the AVX2 gather instructions (as in nikque.35).
+- The AVX-512 builds free the original weight table once the table of each ply is made. Memory during a search: 108.1 MB → 85.6 MB.
+- In the `eval.dat` of eval2, the weights of plies 0 and 1 are those of plies 2 and 3, and the weights of plies 54 to 59 are those of plies 52 and 53. So, unlike nikque.35, eval2 keeps the number of weight tables of the previous version.
+
+**Compatibility**
+
+- The search results (scores and node counts), `eval.dat` and the book file format are the same as in the previous version.
+
+**Notes**
+
+- The five Windows x64 and x86 executables and the three DLLs are local PGO builds.
+- `wEdax-arm64.exe` and the Linux, macOS and Android executables and libraries are GitHub Actions builds (without PGO).
+
+**Not checked**: the speed of eval2 (0.90 of the time in the AVX2 build of nikque.35), Intel CPUs, production books, playing strength.
+
+[Tests and measurements](docs/validation/eval2.en.md#v455-eval222)
+
+---
+
 ## v4.5.5-eval2.21
 
 - Corrected cancellation in threaded search, GGS disconnect handling and search-window boundaries.

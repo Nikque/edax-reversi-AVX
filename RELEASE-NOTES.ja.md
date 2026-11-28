@@ -2,6 +2,31 @@
 
 [English](RELEASE-NOTES.md)
 
+## v4.5.5-eval2.22
+
+[v4.5.5-nikque.35](https://github.com/Nikque/edax-reversi-AVX/blob/edax-4.5.5-fixes/RELEASE-NOTES.ja.md#v455-nikque35) の変更を取り込みました（奥原俊彦さんの変更、[Nikque/edax-reversi-AVX#1](https://github.com/Nikque/edax-reversi-AVX/pull/1)）。AVX2 版は gather 命令を使わなくなり、AVX-512 版のメモリが減ります。評価値は変わりません。
+
+**変更**
+
+- 評価関数は、AVX2 の gather 命令を使わなくなりました（nikque.35 と同じです）。
+- AVX-512 版は、手ごとの重みの表を作った後で、元の重みの表を解放します。探索中のメモリは 108.1 MB → 85.6 MB です。
+- eval2 の `eval.dat` は、0・1 手目の重みが 2・3 手目と、54〜59 手目の重みが 52・53 手目と同じ値です。そのため eval2 では、nikque.35 と違って、重みの表の数を前の版のままにしています。
+
+**互換性**
+
+- 探索の結果（評価値・ノード数）、`eval.dat`、book のファイル形式は、前の版と同じです。
+
+**注意**
+
+- Windows の x64・x86 の実行ファイル 5 本と DLL 3 本は、手元で PGO 付きでビルドしたものです。
+- `wEdax-arm64.exe` と、Linux・macOS・Android の実行ファイルとライブラリは、GitHub Actions のビルド（PGO なし）です。
+
+**未確認**：eval2 での速さ（nikque.35 では AVX2 版で約 0.90 倍）、Intel の CPU、実 book、対局での強さ。
+
+[検証記録](docs/validation/eval2.ja.md#v455-eval222)
+
+---
+
 ## v4.5.5-eval2.21
 
 - 並列探索の停止要求、GGS の切断処理、探索窓の境界値を修正しました。

@@ -1,5 +1,14 @@
 # eval2 tests and measurements
 
+## v4.5.5-eval2.22
+
+- The four commits of nikque.35 were taken in (`3eb9202` and `06b68b1` are by Okuhara). eval2 defines `EVAL_WEIGHT_REDUCTION` (`3feeb2a`).
+- In the `eval.dat` of eval2, the weights of plies 0 and 1 are byte for byte those of plies 2 and 3, and the weights of plies 54 to 60 are those of plies 52 and 53.
+- The tests used builds without PGO (AVX-512, AVX2, and ASan builds of AVX-512 and AVX2), with the 399 positions of nikque.35 and a full board.
+- This version and the source of the previous version (`0351492`) gave the same depth, score, node count and principal variation in all 399 positions and on the full board. ASan reported nothing.
+- Memory (the 40 positions with 52 empty squares, level 16, working set during the search): AVX-512 108.1 MB → 85.6 MB.
+- The speed of eval2 was not measured.
+
 ## v4.5.5-eval2.21
 
 The engine and standalone eval_builder built on Windows x64. Synthetic inputs covered SGF/TXT BOM handling, games after a malformed TXT line, successful OBF solving and a missing OBF input. Playing strength and games with a production book were not measured.
