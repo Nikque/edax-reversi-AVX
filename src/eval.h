@@ -62,11 +62,11 @@ enum { EVAL_N_2PLY = 54 / 2, EVAL_2PLY_MIN = 1 };	// for 2..53, reduce 4.5MB
 #else
 enum { EVAL_N_2PLY = 60 / 2, EVAL_2PLY_MIN = 0 };
 #endif
-extern Eval_weight (*EVAL_WEIGHT)[EVAL_N_2PLY - EVAL_2PLY_MIN];	// interleaved
+extern Eval_weight (*EVAL_WEIGHT)[EVAL_N_2PLY - EVAL_2PLY_MIN];	// interleaved (NULL after eval_open() with EVAL_FLAT_TABLE)
 
 // #define EVAL_NO_FLAT
 #if defined(__AVX512F__) && !defined(EVAL_NO_FLAT)
-/** the weights again, one table for each ply: accumlate_eval() reads them one by one */
+/** the weights, one table for each ply: accumlate_eval() reads them one by one (eval_open() frees EVAL_WEIGHT once they are copied) */
 #define EVAL_FLAT_TABLE
 #define EVAL_FLAT_N ((int) (sizeof (Eval_weight) / 4))
 extern short *EVAL_FLAT;
