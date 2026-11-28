@@ -55,8 +55,8 @@ typedef struct Eval_weight {
 	short	S7654[2187+729+243+81][2];
 } Eval_weight;
 
-/** number of plies */
-// #define EVAL_WEIGHT_REDUCTION
+/** number of plies: the eval.dat of eval2 holds copies of plies 2, 3 at plies 0, 1 and of plies 52, 53 after ply 53 */
+#define EVAL_WEIGHT_REDUCTION
 #ifdef EVAL_WEIGHT_REDUCTION
 enum { EVAL_N_2PLY = 54 / 2, EVAL_2PLY_MIN = 1 };	// for 2..53, reduce 4.5MB
 #else
