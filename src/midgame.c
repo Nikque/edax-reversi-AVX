@@ -86,9 +86,9 @@ static int accumlate_eval(int ply, Eval *eval)
 	ply -= EVAL_2PLY_MIN;
 	if (ply < 0)
 		ply = 0;
-	if (ply >= EVAL_N_2PLY - EVAL_2PLY_MIN)
-		ply = EVAL_N_2PLY - EVAL_2PLY_MIN - 1;
 #endif
+	if (ply >= EVAL_N_2PLY - EVAL_2PLY_MIN)	// ply 60 (no empty square, search_run() evaluates it) uses the weights of ply 58
+		ply = EVAL_N_2PLY - EVAL_2PLY_MIN - 1;
 
 #if defined(USE_GATHER) && defined(EVAL_GATHER512)
 	// 46 features in 3 x 16-lane gathers (the last 2 lanes unused); integer sums, so the same value as below.
