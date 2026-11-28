@@ -14,6 +14,7 @@ Each eval2 and Heath (formerly newedax) version contains all changes of the nikq
 
 | nikque | eval2 | Heath (newedax) |
 |---|---|---|
+| nikque.35 | eval2.22 | heath.22 |
 | nikque.34 | eval2.21 | heath.21 |
 | nikque.33 | eval2.20 | heath.20 |
 | nikque.33-pre1 | eval2.20-pre1 | heath.20-pre1 |
@@ -42,6 +43,35 @@ Each eval2 and Heath (formerly newedax) version contains all changes of the nikq
 ---
 
 # nikque line
+
+## v4.5.5-nikque.35
+
+This release takes in the changes of Toshihiko Okuhara ([Nikque/edax-reversi-AVX#1](https://github.com/Nikque/edax-reversi-AVX/pull/1)). The midgame search of the AVX2 builds is about 10% faster. The AVX-512 builds use about 26 MB less memory.
+
+**Changes**
+
+- The evaluation no longer uses the AVX2 gather instructions (change by Okuhara). In the AVX2 builds such as `wEdax-x86-64-v3.exe`, the midgame search takes about 0.90 of the CPU time (measured on Zen 5).
+- The AVX-512 builds (`-v4`) did not use the gather instructions in the previous version either. Their speed does not change.
+- The evaluation uses the weights of each ply from 0 to 59 (change by Okuhara). Up to the previous version, plies 0 and 1 used the weights of plies 2 and 3, and plies 54 to 59 used those of plies 52 and 53. The evaluation of the positions with 1 to 6 empty squares and with 59 or 60 empty squares changes.
+- The AVX-512 builds free the original weight table once the table of each ply is made. Of the about 28 MB added in [v4.5.5-nikque.33-pre1](#v455-nikque33-pre1), about 26 MB are saved (memory during a search: 111.5 MB → 85.6 MB).
+- The other builds have 4 more weight tables, which use about 3.5 MB more memory (81.7 MB → 85.2 MB in the AVX2 build).
+
+**Compatibility**
+
+- `eval.dat` and the book file format are the same as in the previous version.
+- The scores of positions with few empty squares change. A search at a low level may give other scores, moves and node counts, and books learned with it may change.
+- The searches of the problems with about 20 empty squares (level 8 and above) gave the same results as the previous version.
+
+**Notes**
+
+- The five Windows x64 and x86 executables and the three DLLs are local PGO builds.
+- `wEdax-arm64.exe` and the Linux, macOS and Android executables and libraries are GitHub Actions builds (without PGO). See the [README](README.md#build) for the local PGO targets.
+
+**Not checked**: the speed on Intel CPUs, the speed of the x64 (without AVX2), x86 and ARM64 builds, any change of playing strength from the new weights, large production books.
+
+[Tests and measurements](docs/validation/nikque.en.md#v455-nikque35)
+
+---
 
 ## v4.5.5-nikque.34
 

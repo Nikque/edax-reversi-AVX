@@ -14,6 +14,7 @@ eval2・Heath（旧名 newedax）の各版は、同じ行の nikque の版の変
 
 | nikque | eval2 | Heath (newedax) |
 |---|---|---|
+| nikque.35 | eval2.22 | heath.22 |
 | nikque.34 | eval2.21 | heath.21 |
 | nikque.33 | eval2.20 | heath.20 |
 | nikque.33-pre1 | eval2.20-pre1 | heath.20-pre1 |
@@ -42,6 +43,35 @@ eval2・Heath（旧名 newedax）の各版は、同じ行の nikque の版の変
 ---
 
 # nikque 系列
+
+## v4.5.5-nikque.35
+
+奥原俊彦さんの変更（[Nikque/edax-reversi-AVX#1](https://github.com/Nikque/edax-reversi-AVX/pull/1)）を取り込みました。AVX2 版の中盤の探索が約 1 割速くなります。AVX-512 版のメモリは約 26 MB 減ります。
+
+**変更**
+
+- 評価関数は、AVX2 の gather 命令を使わなくなりました（奥原さんの変更）。`wEdax-x86-64-v3.exe` などの AVX2 版で、中盤の探索の CPU 時間は約 0.90 倍です（Zen 5 で測った値です）。
+- AVX-512 版（`-v4`）は、前の版から gather 命令を使っていません。速さは変わりません。
+- 評価の重みは、0〜59 手目のそれぞれで、その手の値を使います（奥原さんの変更）。前の版までは、0・1 手目に 2・3 手目の重みを、54〜59 手目に 52・53 手目の重みを使っていました。空き 1〜6 と空き 59・60 の局面の評価が変わります。
+- AVX-512 版は、手ごとの重みの表を作った後で、元の重みの表を解放します。[v4.5.5-nikque.33-pre1](#v455-nikque33-pre1) で増えた約 28 MB のうち、約 26 MB が減ります（探索中のメモリ 111.5 MB → 85.6 MB）。
+- AVX-512 版でない版は、重みの表が 4 つ増えるので、メモリが約 3.5 MB 増えます（AVX2 版で 81.7 MB → 85.2 MB）。
+
+**互換性**
+
+- `eval.dat` と book のファイル形式は前の版と同じです。
+- 空きの少ない局面の評価値が変わります。低い level の探索では、評価値・選ぶ手・ノード数が変わることがあります。それで学習した book も変わることがあります。
+- 空き 20 前後の問題の探索（level 8 以上）では、結果は前の版と同じでした。
+
+**注意**
+
+- Windows の x64・x86 の実行ファイル 5 本と DLL 3 本は、手元で PGO 付きでビルドしたものです。
+- `wEdax-arm64.exe` と、Linux・macOS・Android の実行ファイルとライブラリは、GitHub Actions のビルド（PGO なし）です。PGO 用のターゲットは [README](README.md#build) を参照してください。
+
+**未確認**：Intel の CPU での速さ、x64（AVX2 なし）・x86・ARM64 版の速さ、評価の重みが変わったことによる強さの違い、実運用の大規模な定石帳。
+
+[検証記録](docs/validation/nikque.ja.md#v455-nikque35)
+
+---
 
 ## v4.5.5-nikque.34
 

@@ -4,6 +4,26 @@ Tests and measurements done for each version, moved without changes from the for
 
 For what changed, see the [release notes](../../RELEASE-NOTES.md). "Above" and "below" in the text refer to positions in the former document.
 
+## v4.5.5-nikque.35
+
+Tests and measurements of the changes of Okuhara (`e62e2a8` and `0bf46a4` of the pull request) and of the two fixes added in this version (`58b7cd0` and `c11de6a`).
+
+- With the changes of Okuhara alone, the builds without the table of each ply (all builds but AVX-512, and the AVX-512 build with `EVAL_NO_FLAT`) read outside the weight table when `-solve` was given a full board (no empty square): `search_eval_0` used ply 60. The AVX2 build crashed with `0xC0000005`, and the ASan build reported `heap-buffer-overflow`.
+- This version bounds the ply from above with or without `EVAL_WEIGHT_REDUCTION` (`58b7cd0`).
+- The tests used builds without PGO: AVX-512, AVX-512 with `EVAL_NO_FLAT`, AVX2, and ASan builds of AVX-512 and AVX2.
+- The problems were 399 positions: 60 positions with 7 to 12 empty squares at levels 1 to 5 (made by random legal moves from the positions of fforum-1-19), fforum-1-19 at level 8, fforum-20-39 at levels 10 and 16, and 40 positions with 52 empty squares at level 16.
+- This version and the changes of Okuhara alone gave the same depth, score, node count and principal variation in all 399 positions.
+- The source of the previous version (`9a683de`) gave the same results for the problems with 20 or more empty squares. For the 60 positions with 7 to 12 empty squares at levels 1 to 5, the score differed in 8 to 27 positions and the best move in 0 to 1 position.
+- The mean error against the exact score (previous weights / weights of this version): level 1 7.83 / 7.82, level 2 6.53 / 6.68, level 3 6.05 / 6.25, level 4 2.73 / 3.03, level 5 1.43 / 1.42. With 60 positions, neither is better.
+- Full board: every build of this version ended normally with a score of 0. ASan reported nothing.
+- Speed (PGO builds, Zen 5, 1 thread, the 40 positions with 52 empty squares, CPU time, median of 24 rounds): the AVX2 build without the gather instructions took 0.901 to 0.906 of the time of the build with them at level 24, and 0.904 at level 21. All node counts matched.
+- In the AVX-512 build, the table of each ply took 0.950 to 0.986 of the time without it (about 2.5% faster at the median). Freeing the original table did not change the speed (ratios 0.984 and 1.005).
+- During the speed measurements, heavy work ran on other cores of the same CCD.
+- Memory (the 40 positions with 52 empty squares, level 16, working set during the search): AVX-512 111.5 MB → 85.6 MB, AVX2 81.7 MB → 85.2 MB.
+- The speed on Intel CPUs and on an idle CPU was not measured.
+
+---
+
 ## v4.5.5-nikque.34
 
 The final Windows x64 AVX2 build accepted a synthetic OBF and returned exit code 1 for a missing input. Interactive `solve` accepted another command after the error. A local GGS fixture covered LF-terminated and CR-terminated lines followed by an incomplete continuation. The stability regression passed 1,024 windows on 240 boards. An independent search verified the stored 240 scores. MSVC built the standalone `eval_builder`.
